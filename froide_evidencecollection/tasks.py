@@ -78,12 +78,17 @@ def import_evidence_gsheet(config=None, ignore_existing_ids=False):
     result = get_sheet_data(config, sheet)
 
     for sheet_config, sheet_data in zip(config["sheets"], result["valueRanges"]):
+        model_class = getattr(models, sheet_config["model_name"])
+
         headers, *data = sheet_data["values"]
-        id_coll = chr(ord("A") + headers.index("ID"))
+        id_idx = headers.index("ID")
+        id_coll = chr(ord("A") + id_idx)
+
+        known_ids = [row[id_idx] for row in data if row[id_idx]]
+        model_class.objects.exclude(pk__in=known_ids).delete()
 
         for i, row in enumerate(data):
             row = dict(zip_longest(headers, row, fillvalue=""))
-            model_class = getattr(models, sheet_config["model_name"])
             if not row["ID"] or ignore_existing_ids:
                 object_data = get_object_data(sheet_config, model_class, row)
                 if object_data is None:
