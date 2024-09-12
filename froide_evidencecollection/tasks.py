@@ -1,7 +1,13 @@
 from . import models
 
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
+try:
+    from google.oauth2.service_account import Credentials
+    from googleapiclient.discovery import build
+
+    GSHEET_AVAILABLE = True
+except ImportError:
+    GSHEET_AVAILABLE = False
+
 from itertools import zip_longest
 from django.utils import timezone
 import time
@@ -64,6 +70,7 @@ def get_sheet_data(config, sheet):
 
 
 def import_evidence_gsheet(config=None, ignore_existing_ids=False):
+    assert GSHEET_AVAILABLE, "google sheets api client must be installed"
     if config is None:
         config = settings.FROIDE_EVIDENCECOLLECTION_GSHEET_IMPORT_CONFIG
 
