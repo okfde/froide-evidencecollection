@@ -1,5 +1,9 @@
+from urllib.parse import urlparse
+
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.urls import reverse
+
 from froide.georegion.models import GeoRegion
 from froide.publicbody.models import PublicBody
 
@@ -23,6 +27,10 @@ class Source(models.Model):
         if self.document_number:
             return f"{self.url} {self.document_number} ({self.public_body})"
         return self.url
+
+    @property
+    def domain(self) -> str:
+        return urlparse(self.url).netloc
 
 
 class EvidenceType(models.Model):
@@ -91,3 +99,6 @@ class Evidence(models.Model):
 
     def __str__(self):
         return f"{self.date}: {self.person} - {self.description}"
+
+    def get_absolute_url(self):
+        return reverse("evidencecollection:evidence-detail", kwargs={"pk": self.pk})
