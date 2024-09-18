@@ -1,5 +1,17 @@
+from django.conf import settings
 from django.contrib import admin
-from .models import Evidence, Source, Person
+
+from .models import (
+    Evidence,
+    EvidenceArea,
+    EvidenceType,
+    Institution,
+    Person,
+    Position,
+    Quality,
+    Source,
+    Status,
+)
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -13,12 +25,18 @@ class ReadOnlyAdmin(admin.ModelAdmin):
             )
 
     def has_add_permission(self, request):
-        return False
+        return settings.DEBUG
 
     def has_delete_permission(self, request, obj=None):
-        return False
+        return settings.DEBUG
 
 
 admin.site.register(Evidence, ReadOnlyAdmin)
-admin.site.register(Source, ReadOnlyAdmin)
+admin.site.register(EvidenceArea, ReadOnlyAdmin)
+admin.site.register(EvidenceType, ReadOnlyAdmin)
+admin.site.register(Institution, ReadOnlyAdmin)
 admin.site.register(Person, ReadOnlyAdmin)
+admin.site.register(Position, ReadOnlyAdmin)
+admin.site.register(Quality, ReadOnlyAdmin)
+admin.site.register(Source, ReadOnlyAdmin)
+admin.site.register(Status, ReadOnlyAdmin)
