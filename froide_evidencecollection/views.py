@@ -1,4 +1,3 @@
-from django.utils.timezone import datetime
 from django.utils.translation import gettext as _
 from django.views.generic import DetailView
 
@@ -20,11 +19,10 @@ class EvidenceMixin(BreadcrumbView):
 
 
 class EvidenceDetailView(EvidenceMixin, DetailView):
-    slug_url_kwarg = "plan"
     template_name = "froide_evidencecollection/detail.html"
 
     def get_queryset(self):
-        return Evidence.objects.filter(published_on__lt=datetime.now())
+        return Evidence.objects.filter(published_on__isnull=False)
 
     def get_breadcrumbs(self, context):
         obj = self.get_object()
