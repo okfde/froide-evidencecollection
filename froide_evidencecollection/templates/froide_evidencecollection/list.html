@@ -1,0 +1,13 @@
+{% extends "froide_evidencecollection/base.html" %}
+{% load i18n %}
+{% load markup %}
+{% block app_body %}
+    <div class="container">
+        Objects:
+        <ul>
+            <li>
+                {% for evidence in object_list %}{{ evidence }}{% endfor %}
+            </li>
+        </ul>
+    </div>
+{% endblock app_body %}

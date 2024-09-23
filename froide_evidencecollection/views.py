@@ -1,5 +1,5 @@
 from django.utils.translation import gettext as _
-from django.views.generic import DetailView
+from django.views.generic import DetailView, ListView
 
 from froide.helper.breadcrumbs import BreadcrumbView
 
@@ -32,3 +32,10 @@ class EvidenceDetailView(EvidenceMixin, DetailView):
         return breadcrumbs + [
             (_("Evidence #%s" % obj.pk), obj.get_absolute_url()),
         ]
+
+
+class EvidenceListView(EvidenceMixin, ListView):
+    template_name = "froide_evidencecollection/list.html"
+
+    def get_queryset(self):
+        return Evidence.objects.filter(published_on__isnull=False)
