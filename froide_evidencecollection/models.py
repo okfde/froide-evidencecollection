@@ -84,6 +84,9 @@ class Person(models.Model):
 class Quality(models.Model):
     name = models.TextField(unique=True)
 
+    def __str__(self):
+        return self.name
+
 
 class Evidence(models.Model):
     date = models.DateField()
