@@ -1,13 +1,25 @@
 {% extends "froide_evidencecollection/base.html" %}
 {% load i18n %}
 {% load markup %}
+{% load form_helper %}
 {% block app_body %}
     <div class="container">
-        Objects:
-        <ul>
-            <li>
-                {% for evidence in object_list %}{{ evidence }}{% endfor %}
-            </li>
-        </ul>
+        <div class="row">
+            <div class="col-md-3">
+                <h3 class="h5">{% translate 'Refine your query' %}</h3>
+                <form method="get" class="filter__field">
+                    {% render_form form horizontal=False %}
+                    <button type="submit" class="btn btn-primary">{% trans "Search" %}</button>
+                </form>
+            </div>
+            <div class="col-md-9">
+                {% for obj in object_list %}
+                    <a href="{% url "evidencecollection:evidence-detail" pk=obj.pk %}">{{ obj }}</a>
+                    <br />
+                {% empty %}
+                    {% trans "No results" %}
+                {% endfor %}
+            </div>
+        </div>
     </div>
 {% endblock app_body %}
