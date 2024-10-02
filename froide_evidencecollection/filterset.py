@@ -4,6 +4,7 @@ import django_filters
 from elasticsearch_dsl.query import Q as ESQ
 
 from froide.helper.search.filters import BaseSearchFilterSet
+from froide.helper.widgets import DateRangeWidget
 
 from .models import Evidence
 
@@ -16,20 +17,11 @@ def override_field_default(cls, field, overrides=None, extra=None):
     if extra is not None:
         old_extra = res.get("extra", lambda f: {})
         res["extra"] = lambda f: {**old_extra(f), **extra(f)}
-    print(res)
     return res
 
 
-class BrowserDateRangeWidget(django_filters.widgets.DateRangeWidget):
-    def __init__(self, attrs=None):
-        if attrs is None:
-            attrs = {}
-        attrs = {**attrs, "type": "date"}
-        super().__init__(attrs)
-
-
 class EvidenceFilterSet(BaseSearchFilterSet):
-    query_fields = ["description", "note"]
+    query_fields = ["description", "note", "person_name"]
 
     def filter_foreignkey(self, qs, name, value):
         return self.apply_filter(qs, name, **{name: value.id})
@@ -46,6 +38,7 @@ class EvidenceFilterSet(BaseSearchFilterSet):
     class Meta:
         model = Evidence
         fields = [
+            "q",
             "date",
             "type",
             "area",
@@ -62,7 +55,7 @@ class EvidenceFilterSet(BaseSearchFilterSet):
                 },
                 extra=lambda f: {
                     "method": "filter_date_range",
-                    "widget": BrowserDateRangeWidget,
+                    "widget": DateRangeWidget,
                 },
             ),
             models.ForeignKey: override_field_default(
