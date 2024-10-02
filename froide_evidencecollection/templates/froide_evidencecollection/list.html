@@ -6,19 +6,46 @@
     <div class="container">
         <div class="row">
             <div class="col-md-3">
-                <h3 class="h5">{% translate 'Refine your query' %}</h3>
-                <form method="get" class="filter__field">
-                    {% render_form form horizontal=False %}
-                    <button type="submit" class="btn btn-primary">{% trans "Search" %}</button>
-                </form>
+                <div class="bg-body p-3 border-yellow">
+                    <h3 class="h5">{% translate 'Refine your query' %}</h3>
+                    <form method="get" class="froide-auto-submit filter__field">
+                        {% render_form form horizontal=False %}
+                        <button type="submit" class="btn btn-primary">{% trans "Search" %}</button>
+                    </form>
+                </div>
             </div>
-            <div class="col-md-9">
-                {% for obj in object_list %}
-                    <a href="{% url "evidencecollection:evidence-detail" pk=obj.pk %}">{{ obj }}</a>
-                    <br />
-                {% empty %}
-                    {% trans "No results" %}
-                {% endfor %}
+            <div class="col-md-9 d-flex">
+                <div class="bg-body p-3 border-yellow w-100">
+                    {% if object_list %}
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>{% trans "No." %}</th>
+                                    <th>{% trans "Date" %}</th>
+                                    <th>{% trans "Person" %}</th>
+                                    <th>{% trans "Area" %}</th>
+                                    <th>{% trans "Quality" %}</th>
+                                </tr>
+                            </thead>
+                            {% for object in object_list %}
+                                <tr>
+                                    <td>
+                                        <a href="{{ object.get_absolute_url }}">{{ object.pk }}</a>
+                                    </td>
+                                    <td>{{ object.date }}</td>
+                                    <td>{{ object.person }}</td>
+                                    <td>{{ object.area }}</td>
+                                    <td>{{ object.quality }}</td>
+                                </tr>
+                            {% endfor %}
+                        </table>
+                        {% if is_paginated %}
+                            {% include "pagination/pagination.html" with page_obj=page_obj %}
+                        {% endif %}
+                    {% else %}
+                        {% trans "No results" %}
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
