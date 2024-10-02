@@ -16,7 +16,7 @@ from .models import (
 
 class ReadOnlyAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
-        if obj is None:
+        if obj is None or settings.DEBUG:
             return ()
         else:
             return tuple(
