@@ -42,6 +42,9 @@
                         {% if is_paginated %}
                             {% include "pagination/pagination.html" with page_obj=page_obj %}
                         {% endif %}
+                        <div class="text-end">
+                            <a href="{% url "evidencecollection:evidence-export" %}?{{ getvars }}">{% trans "Export search as CSV" %}</a>
+                        </div>
                     {% else %}
                         {% trans "No results" %}
                     {% endif %}
