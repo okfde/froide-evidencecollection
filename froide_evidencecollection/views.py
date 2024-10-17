@@ -1,3 +1,7 @@
+import csv
+import io
+
+from django.http import HttpResponse
 from django.utils.translation import gettext as _
 from django.views.generic import DetailView
 
@@ -44,3 +48,46 @@ class EvidenceListView(BaseSearchView):
     document = EvidenceDocument
     model = Evidence
     search_url_name = "evidencecollection:evidence-list"
+
+
+class EvidenceExportView(EvidenceListView):
+    EXPORT_FIELDS = [
+        "id",
+        "date",
+        "source__url",
+        "source__public_body__id",
+        "source__public_body__name",
+        "source__document_number",
+        "type__name",
+        "area__name",
+        "person__name",
+        "quality__name",
+        "description",
+    ]
+    FORMATS = ["csv"]
+
+    def get_rows(self):
+        self.object_list = self.get_queryset()
+        self.object_list.update_query()
+        return (
+            self.object_list.to_queryset()
+            .prefetch_related(*self.EXPORT_FIELDS)
+            .values(*self.EXPORT_FIELDS)
+        )
+
+    def get(self, request, *args, **kwargs):
+        format = request.GET.get("format", "csv")
+        if format not in self.FORMATS:
+            format = "csv"
+
+        rows = self.get_rows()
+        if format == "csv":
+            return self.handle_csv(rows)
+
+    def handle_csv(self, rows):
+        f = io.StringIO()
+        writer = csv.DictWriter(f, fieldnames=self.EXPORT_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+        return HttpResponse(f.getvalue().encode())
