@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
+from django.utils.translation import gettext as _
 
 from froide.georegion.models import GeoRegion
 from froide.publicbody.models import PublicBody
@@ -90,12 +91,22 @@ class Quality(models.Model):
 
 class Evidence(models.Model):
     date = models.DateField()
-    source = models.ForeignKey(Source, on_delete=models.PROTECT)
+    source = models.ForeignKey(
+        Source, verbose_name=_("Source"), on_delete=models.PROTECT
+    )
     description = models.TextField()
-    type = models.ForeignKey(EvidenceType, on_delete=models.PROTECT)
-    area = models.ForeignKey(EvidenceArea, on_delete=models.PROTECT)
-    person = models.ForeignKey(Person, on_delete=models.CASCADE)
-    quality = models.ForeignKey(Quality, on_delete=models.PROTECT)
+    type = models.ForeignKey(
+        EvidenceType, verbose_name=_("Evidence Type"), on_delete=models.PROTECT
+    )
+    area = models.ForeignKey(
+        EvidenceArea, verbose_name=_("Evidence Area"), on_delete=models.PROTECT
+    )
+    person = models.ForeignKey(
+        Person, verbose_name=_("Person"), on_delete=models.CASCADE
+    )
+    quality = models.ForeignKey(
+        Quality, verbose_name=_("Evidence Quality"), on_delete=models.PROTECT
+    )
     note = models.TextField()
     checked_on = models.DateTimeField(null=True)
     published_on = models.DateTimeField(null=True)
