@@ -1,0 +1,1 @@
+recursive-include froide_evidencecollection/templates *.html *.txt
