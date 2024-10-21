@@ -8,11 +8,14 @@ try:
 except ImportError:
     GSHEET_AVAILABLE = False
 
-from itertools import zip_longest
-from django.utils import timezone
-import time
-from django.conf import settings
 import datetime
+import time
+from itertools import zip_longest
+
+from django.conf import settings
+from django.utils import timezone
+
+from froide.celery import app as celery_app
 
 
 def get_object_data(sheet_config, model_class, row, object=None):
@@ -56,7 +59,6 @@ def get_sheet_service(config):
 
 
 def get_sheet_data(config, sheet):
-
     result = (
         sheet.values()
         .batchGet(
@@ -69,6 +71,7 @@ def get_sheet_data(config, sheet):
     return result
 
 
+@celery_app.task(name="froide_evidencecollection.import_evidence_gsheet")
 def import_evidence_gsheet(config=None, ignore_existing_ids=False):
     assert GSHEET_AVAILABLE, "google sheets api client must be installed"
     if config is None:
@@ -77,7 +80,9 @@ def import_evidence_gsheet(config=None, ignore_existing_ids=False):
     sheet = get_sheet_service(config)
     result = get_sheet_data(config, sheet)
 
-    for sheet_config, sheet_data in zip(config["sheets"], result["valueRanges"]):
+    for sheet_config, sheet_data in zip(
+        config["sheets"], result["valueRanges"], strict=False
+    ):
         model_class = getattr(models, sheet_config["model_name"])
 
         headers, *data = sheet_data["values"]
