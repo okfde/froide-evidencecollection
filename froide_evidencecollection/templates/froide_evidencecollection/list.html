@@ -5,7 +5,7 @@
 {% block app_body %}
     <div class="container">
         <div class="row">
-            <div class="col-md-3">
+            <div class="cal col-md-3 mb-3 order-2 order-md-1">
                 <div class="bg-body p-3 border-yellow">
                     <h3 class="h5">{% translate 'Refine your query' %}</h3>
                     <form method="get" class="froide-auto-submit filter__field">
@@ -14,8 +14,8 @@
                     </form>
                 </div>
             </div>
-            <div class="col-md-9 d-flex">
-                <div class="bg-body p-3 border-yellow w-100">
+            <div class="col col-md-9 d-flex mb-3 order-1 order-md-2">
+                <div class="bg-body p-3 border-yellow w-100 overflow-auto">
                     {% if object_list %}
                         <table class="table">
                             <thead>
