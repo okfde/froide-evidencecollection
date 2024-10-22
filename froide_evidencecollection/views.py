@@ -5,6 +5,8 @@ from django.http import HttpResponse
 from django.utils.translation import gettext as _
 from django.views.generic import DetailView
 
+import openpyxl
+
 from froide.helper.breadcrumbs import BreadcrumbView
 from froide.helper.search.views import BaseSearchView
 from froide_evidencecollection.documents import EvidenceDocument
@@ -64,7 +66,7 @@ class EvidenceExportView(EvidenceListView):
         "quality__name",
         "description",
     ]
-    FORMATS = ["csv"]
+    FORMATS = ["csv", "xlsx"]
 
     def get_rows(self):
         self.object_list = self.get_queryset()
@@ -81,13 +83,28 @@ class EvidenceExportView(EvidenceListView):
             format = "csv"
 
         rows = self.get_rows()
-        if format == "csv":
-            return self.handle_csv(rows)
+        content = getattr(self, f"generate_{format}")(rows)
 
-    def handle_csv(self, rows):
+        response = HttpResponse(content)
+        response["Content-Disposition"] = f"attachment; filename=export.{format}"
+        return response
+
+    def generate_csv(self, rows):
         f = io.StringIO()
         writer = csv.DictWriter(f, fieldnames=self.EXPORT_FIELDS, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
-        return HttpResponse(f.getvalue().encode())
+        return f.getvalue().encode()
+
+    def generate_xlsx(self, rows):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        if ws is None:
+            ws = wb.create_sheet()
+        ws.append(self.EXPORT_FIELDS)
+        for row in rows:
+            ws.append([row.get(key) for key in self.EXPORT_FIELDS])
+        f = io.BytesIO()
+        wb.save(f)
+        return f.getvalue()
