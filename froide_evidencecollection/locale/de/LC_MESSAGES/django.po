@@ -1,0 +1,89 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-10-28 15:45+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+#: froide_evidencecollection/cms_apps.py
+msgid "Evidence Collection CMS App"
+msgstr ""
+
+#: froide_evidencecollection/models.py
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+msgid "Source"
+msgstr ""
+
+#: froide_evidencecollection/models.py
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+msgid "Evidence Type"
+msgstr ""
+
+#: froide_evidencecollection/models.py
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Evidence Area"
+msgstr ""
+
+#: froide_evidencecollection/models.py
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Person"
+msgstr ""
+
+#: froide_evidencecollection/models.py
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Evidence Quality"
+msgstr ""
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#, python-format
+msgid "Evidence #%(pk)s"
+msgstr ""
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Date"
+msgstr ""
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Refine your query"
+msgstr ""
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Search"
+msgstr ""
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "No."
+msgstr ""
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Export search as CSV"
+msgstr ""
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Export search as XLSX"
+msgstr ""
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "No results"
+msgstr ""
+
+#: froide_evidencecollection/views.py
+#, python-format
+msgid "Evidence #%s"
+msgstr ""
