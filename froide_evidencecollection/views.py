@@ -83,9 +83,9 @@ class EvidenceExportView(EvidenceListView):
             format = "csv"
 
         rows = self.get_rows()
-        content = getattr(self, f"generate_{format}")(rows)
+        content, content_type = getattr(self, f"generate_{format}")(rows)
 
-        response = HttpResponse(content)
+        response = HttpResponse(content, content_type=content_type)
         response["Content-Disposition"] = f"attachment; filename=export.{format}"
         return response
 
@@ -95,7 +95,7 @@ class EvidenceExportView(EvidenceListView):
         writer.writeheader()
         writer.writerows(rows)
 
-        return f.getvalue().encode()
+        return f.getvalue().encode(), "text/csv"
 
     def generate_xlsx(self, rows):
         wb = openpyxl.Workbook()
@@ -107,4 +107,7 @@ class EvidenceExportView(EvidenceListView):
             ws.append([row.get(key) for key in self.EXPORT_FIELDS])
         f = io.BytesIO()
         wb.save(f)
-        return f.getvalue()
+        return (
+            f.getvalue(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
