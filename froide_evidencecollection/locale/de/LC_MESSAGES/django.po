@@ -88,11 +88,13 @@ msgstr "Keine Ergebnisse"
 #: froide_evidencecollection/views.py
 #, python-format
 msgid "Evidence #%s"
-msgstr ""
+msgstr "Beweisstück #%s"
 
-#~ msgid "No."
-#~ msgstr "Nr."
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "No."
+msgstr "Nr."
 
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #, python-format
-#~ msgid "Evidence #%(pk)s"
-#~ msgstr "Beleg #%(pk)s"
+msgid "Evidence #%(pk)s"
+msgstr "Beleg #%(pk)s"
