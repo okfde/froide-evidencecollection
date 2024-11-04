@@ -64,6 +64,7 @@ class EvidenceExportView(EvidenceListView):
         "area__name",
         "person__name",
         "quality__name",
+        "title",
         "description",
     ]
     FORMATS = ["csv", "xlsx"]

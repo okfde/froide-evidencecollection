@@ -21,7 +21,7 @@ class EvidenceDocument(Document):
 
     class Django:
         model = Evidence
-        fields = ["description", "note", "date"]
+        fields = ["title", "description", "note", "date"]
 
     def get_queryset(self):
         return (

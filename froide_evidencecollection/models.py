@@ -94,6 +94,7 @@ class Evidence(models.Model):
     source = models.ForeignKey(
         Source, verbose_name=_("Source"), on_delete=models.PROTECT
     )
+    title = models.TextField()
     description = models.TextField()
     type = models.ForeignKey(
         EvidenceType, verbose_name=_("Evidence Type"), on_delete=models.PROTECT
