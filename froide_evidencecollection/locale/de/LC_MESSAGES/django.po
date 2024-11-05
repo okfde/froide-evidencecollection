@@ -52,9 +52,9 @@ msgid "Evidence Quality"
 msgstr "Beleg-Qualität"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-#, fuzzy, python-format
+#, python-format
 msgid "Evidence #%(pk)s: %(title)s"
-msgstr "Beleg #%(pk)s"
+msgstr "Beleg #%(pk)s: %(title)s"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
@@ -71,7 +71,7 @@ msgstr "Suchen"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
 msgid "Title"
-msgstr ""
+msgstr "Titel"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
 msgid "Export search as CSV"
