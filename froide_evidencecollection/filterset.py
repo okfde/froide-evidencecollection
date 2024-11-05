@@ -21,7 +21,7 @@ def override_field_default(cls, field, overrides=None, extra=None):
 
 
 class EvidenceFilterSet(BaseSearchFilterSet):
-    query_fields = ["description", "note", "person_name"]
+    query_fields = ["title", "description", "note", "person_name"]
 
     def filter_foreignkey(self, qs, name, value):
         return self.apply_filter(qs, name, **{name: value.id})
