@@ -53,7 +53,6 @@ msgstr "Beleg-Qualität"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #, fuzzy, python-format
-#| msgid "Evidence #%(pk)s"
 msgid "Evidence #%(pk)s: %(title)s"
 msgstr "Beleg #%(pk)s"
 
@@ -93,3 +92,7 @@ msgstr ""
 
 #~ msgid "No."
 #~ msgstr "Nr."
+
+#, python-format
+#~ msgid "Evidence #%(pk)s"
+#~ msgstr "Beleg #%(pk)s"
