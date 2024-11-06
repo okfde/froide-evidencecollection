@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-10-28 15:45+0100\n"
+"POT-Creation-Date: 2024-11-06 15:33+0000\n"
 "PO-Revision-Date: 2024-10-28 15:01+0000\n"
 "Last-Translator: Kara Engelhardt <kara.engelhardt@okfn.de>\n"
 "Language-Team: German <https://weblate.frag-den-staat.de/projects/froide/"
@@ -53,8 +53,8 @@ msgstr "Beleg-Qualität"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #, python-format
-msgid "Evidence #%(pk)s"
-msgstr "Beleg #%(pk)s"
+msgid "Evidence #%(pk)s: %(title)s"
+msgstr "Beleg #%(pk)s: %(title)s"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
@@ -70,8 +70,8 @@ msgid "Search"
 msgstr "Suchen"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "No."
-msgstr "Nr."
+msgid "Title"
+msgstr "Titel"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
 msgid "Export search as CSV"
@@ -88,4 +88,13 @@ msgstr "Keine Ergebnisse"
 #: froide_evidencecollection/views.py
 #, python-format
 msgid "Evidence #%s"
-msgstr ""
+msgstr "Beleg #%s"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "No."
+msgstr "Nr."
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#, python-format
+msgid "Evidence #%(pk)s"
+msgstr "Beleg #%(pk)s"
