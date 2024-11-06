@@ -23,6 +23,9 @@ class EvidenceDocument(Document):
     person = fields.IntegerField(attr="person_id")
     person_name = fields.TextField(
         analyzer=analyzer,
+        search_analyzer=search_analyzer,
+        search_quote_analyzer=search_quote_analyzer,
+        index_options="offsets",
     )
     quality = fields.IntegerField(attr="quality_id")
     public_body = fields.IntegerField(attr="source__public_body_id")
