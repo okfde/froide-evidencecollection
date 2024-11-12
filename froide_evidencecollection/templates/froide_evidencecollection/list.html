@@ -50,6 +50,9 @@
                                 <li>
                                     <a href="{% url "evidencecollection:evidence-export" %}?{{ getvars }}&format=xlsx">{% trans "Export search as XLSX" %}</a>
                                 </li>
+                                <li>
+                                    <a href="{% url "evidencecollection:evidence-export" %}?{{ getvars }}&format=pdf">{% trans "Export search as PDF" %}</a>
+                                </li>
                             </ul>
                         </div>
                     {% else %}

@@ -1,12 +1,15 @@
 import csv
 import io
 
+from django.conf import settings
 from django.http import HttpResponse
+from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
 from django.views.generic import DetailView
 
 import openpyxl
 
+from froide.foirequest.pdf_generator import get_wp
 from froide.helper.breadcrumbs import BreadcrumbView
 from froide.helper.search.views import BaseSearchView
 from froide_evidencecollection.documents import EvidenceDocument
@@ -67,7 +70,7 @@ class EvidenceExportView(EvidenceListView):
         "title",
         "description",
     ]
-    FORMATS = ["csv", "xlsx"]
+    FORMATS = ["csv", "xlsx", "pdf"]
 
     def get_rows(self):
         self.object_list = self.get_queryset()
@@ -112,3 +115,14 @@ class EvidenceExportView(EvidenceListView):
             f.getvalue(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+    def generate_pdf(self, rows):
+        html = render_to_string(
+            "froide_evidencecollection/pdf_export.html",
+            context={"rows": rows, "SITE_NAME": settings.SITE_NAME},
+        )
+        wp = get_wp()
+        if not wp:
+            raise Exception("WeasyPrint needs to be installed")
+        doc = wp.HTML(string=html)
+        return doc.write_pdf(), "application/pdf"

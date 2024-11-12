@@ -1,0 +1,69 @@
+{% load i18n %}
+<html>
+    <head>
+        <title>Export</title>
+        <style>
+            html {
+                font-family: "Inter", sans-serif;
+            }
+            .page {
+                break-after: page;
+                
+            }
+            .description {
+                margin: 2em;
+            }
+
+            @page {
+                counter-increment: page;
+                margin: 2cm;
+                size: a4;
+                
+        
+                @bottom-center {
+                    content: {% blocktrans %}"Page " counter(page) " of " counter(pages);{% endblocktrans%}
+                }
+            }
+
+            th {
+                font-weight: bold;
+            }
+        </style>
+    </head>
+    <body>
+        {% for row in rows %}
+            <div class="page">
+                <h1>{{ row.title }}</h1>
+                <table>
+                    <tr>
+                        <th>{% trans "Date" %}</th>
+                        <td>{{ row.date }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% trans "Source" %}</th>
+                        <td>
+                            <a href="{{ row.source__url }}" target="_blank">{{ row.source__url }}</a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>{% trans "Evidence Type" %}</th>
+                        <td>{{ row.type__name }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% trans "Evidence Area" %}</th>
+                        <td>{{ row.area__name }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% trans "Person" %}</th>
+                        <td>{{ row.person__name }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% trans "Evidence Quality" %}</th>
+                        <td>{{ row.quality__name }}</td>
+                    </tr>
+                </table>
+                <div class="description">{{ row.description }}</div>
+            </div>
+        {% endfor %}
+    </body>
+</html>
