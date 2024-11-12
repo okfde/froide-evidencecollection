@@ -143,8 +143,18 @@ msgstr ""
 msgid "Quality"
 msgstr "Beleg-Qualität"
 
-#~ msgid "Export search as XLSX"
-#~ msgstr "Suche als XLSX exportieren"
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Export search as XLSX"
+msgstr "Suche als XLSX exportieren"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Export search as CSV"
+msgstr "Suche als CSV exportieren"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#, fuzzy
+msgid "Export search as PDF"
+msgstr "Suche als CSV exportieren"
 
 #~ msgid "No."
 #~ msgstr "Nr."
@@ -152,6 +162,3 @@ msgstr "Beleg-Qualität"
 #, python-format
 #~ msgid "Evidence #%(pk)s"
 #~ msgstr "Beleg #%(pk)s"
-
-#~ msgid "Export search as CSV"
-#~ msgstr "Suche als CSV exportieren"
