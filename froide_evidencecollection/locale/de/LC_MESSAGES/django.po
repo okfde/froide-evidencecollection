@@ -67,7 +67,6 @@ msgstr "Beleg #%(pk)s: %(title)s"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #, fuzzy
-#| msgid "Export search as CSV"
 msgid "Export as PDF"
 msgstr "Suche als CSV exportieren"
 
@@ -93,7 +92,6 @@ msgstr "Titel"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
 #, fuzzy
-#| msgid "Export search as CSV"
 msgid "Export search as ..."
 msgstr "Suche als CSV exportieren"
 
@@ -111,7 +109,6 @@ msgstr ""
 
 #: froide_evidencecollection/views.py
 #, fuzzy
-#| msgid "Source"
 msgid "Source URL"
 msgstr "Quelle"
 
@@ -141,6 +138,11 @@ msgstr "Beleg #%s"
 msgid "No %(verbose_name)s found matching the query"
 msgstr ""
 
+#: froide_evidencecollection/views.py
+#, fuzzy
+msgid "Quality"
+msgstr "Beleg-Qualität"
+
 #~ msgid "Export search as XLSX"
 #~ msgstr "Suche als XLSX exportieren"
 
@@ -150,3 +152,6 @@ msgstr ""
 #, python-format
 #~ msgid "Evidence #%(pk)s"
 #~ msgstr "Beleg #%(pk)s"
+
+#~ msgid "Export search as CSV"
+#~ msgstr "Suche als CSV exportieren"
