@@ -22,20 +22,41 @@ from .models import Evidence
 
 class EvidenceExporter:
     EXPORT_FIELDS = [
-        "id",
-        "date",
-        "source__url",
-        "source__public_body__id",
-        "source__public_body__name",
-        "source__document_number",
-        "type__name",
-        "area__name",
-        "person__name",
-        "quality__name",
-        "title",
-        "description",
+        ("id", _("Id")),
+        ("date", _("Date")),
+        ("source__url", _("Source URL")),
+        ("source__public_body__id", _("Source Public Body ID")),
+        ("source__public_body__name", _("Source Public Body Name")),
+        ("source__document_number", _("Source Document Number")),
+        ("type__name", _("Evidence Type")),
+        ("area__name", _("Evidence Area")),
+        ("person__name", _("Person")),
+        ("quality__name", _("Quality")),
+        ("title", _("Title")),
+        ("description", _("Description")),
     ]
     FORMATS = ["csv", "xlsx", "pdf"]
+
+    @property
+    def export_db_fields(self):
+        fields = []
+        for field in self.EXPORT_FIELDS:
+            if isinstance(field, tuple):
+                fields.append(field[0])
+            else:
+                fields.append(field)
+        return fields
+
+    @property
+    def export_human_fields(self):
+        fields = []
+        for field in self.EXPORT_FIELDS:
+            if isinstance(field, tuple):
+                fields.append(field[1])
+            else:
+                fields.append(field)
+        print(fields)
+        return fields
 
     def __init__(self, format):
         if format not in self.FORMATS:
@@ -47,15 +68,21 @@ class EvidenceExporter:
         return getattr(self, f"generate_{self.format}")(rows)
 
     def get_rows(self, queryset):
-        return queryset.prefetch_related(*self.EXPORT_FIELDS).values(
-            *self.EXPORT_FIELDS
+        return queryset.prefetch_related(*self.export_db_fields).values(
+            *self.export_db_fields
         )
+
+    def _generate_table(self, rows):
+        table = []
+        table.append(self.export_human_fields)
+        for row in rows:
+            table.append([row.get(key) for key in self.export_db_fields])
+        return table
 
     def generate_csv(self, rows):
         f = io.StringIO()
-        writer = csv.DictWriter(f, fieldnames=self.EXPORT_FIELDS, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+        writer = csv.writer(f)
+        writer.writerows(self._generate_table(rows))
 
         return f.getvalue().encode(), "text/csv"
 
@@ -64,9 +91,8 @@ class EvidenceExporter:
         ws = wb.active
         if ws is None:
             ws = wb.create_sheet()
-        ws.append(self.EXPORT_FIELDS)
-        for row in rows:
-            ws.append([row.get(key) for key in self.EXPORT_FIELDS])
+        for row in self._generate_table(rows):
+            ws.append(row)
         f = io.BytesIO()
         wb.save(f)
         return (
