@@ -143,11 +143,13 @@ msgstr "Suche als XLSX exportieren"
 msgid "Export search as CSV"
 msgstr "Suche als CSV exportieren"
 
-#~ msgid "Quality"
-#~ msgstr "Qualität"
+#: froide_evidencecollection/views.py
+msgid "Quality"
+msgstr "Qualität"
 
-#~ msgid "Export search as PDF"
-#~ msgstr "Suche als PDF exportieren"
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Export search as PDF"
+msgstr "Suche als PDF exportieren"
 
 #~ msgid "No."
 #~ msgstr "Nr."
