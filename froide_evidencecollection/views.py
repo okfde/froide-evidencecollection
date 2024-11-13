@@ -31,7 +31,7 @@ class EvidenceExporter:
         ("type__name", _("Evidence Type")),
         ("area__name", _("Evidence Area")),
         ("person__name", _("Person")),
-        ("quality__name", _("Quality")),
+        ("quality__name", _("Evidence Quality")),
         ("title", _("Title")),
         ("description", _("Description")),
     ]
