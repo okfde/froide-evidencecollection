@@ -42,7 +42,10 @@
                     <tr>
                         <th>{% trans "Source" %}</th>
                         <td>
-                            <a href="{{ row.source__url }}" target="_blank">{{ row.source__url }}</a>
+                            {% if row.source__public_body__name %}
+                                {{ row.source__public_body__name }} – {{ row.source__document_number }}
+                            {% endif %}
+                            {% if row.source__url %}<a href="{{ row.source__url }}" target="_blank">{{ row.source__url }}</a>{% endif %}
                         </td>
                     </tr>
                     <tr>

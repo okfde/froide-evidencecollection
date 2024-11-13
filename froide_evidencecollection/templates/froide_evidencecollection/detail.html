@@ -19,7 +19,17 @@
                                 </dd>
                                 <dt>{% trans "Source" %}</dt>
                                 <dd>
-                                    <a href="{{ object.source }}" target="_blank">{{ object.source.domain }}</a>
+                                    {% if object.source.public_body %}
+                                        <a href="{{ object.source.public_body.get_absolute_url }}"
+                                           target="_blank">{{ object.source.public_body.name }}</a> –
+                                        {% if object.source.url %}
+                                            <a href="{{ object.source.url }}" target="_blank">{{ object.source.document_number }}</a>
+                                        {% else %}
+                                            {{ object.source.document_number }}
+                                        {% endif %}
+                                    {% else %}
+                                        <a href="{{ object.source.url }}" target="_blank">{{ object.source.domain }}</a>
+                                    {% endif %}
                                 </dd>
                                 <dt>{% trans "Evidence Type" %}</dt>
                                 <dd>
