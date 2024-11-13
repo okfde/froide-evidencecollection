@@ -42,17 +42,19 @@
                         {% if is_paginated %}
                             {% include "pagination/pagination.html" with page_obj=page_obj %}
                         {% endif %}
-                        <div class="text-end">
-                            <ul class="list-unstyled">
-                                <li>
-                                    <a href="{% url "evidencecollection:evidence-export" %}?{{ getvars }}&format=csv">{% trans "Export search as CSV" %}</a>
-                                </li>
-                                <li>
-                                    <a href="{% url "evidencecollection:evidence-export" %}?{{ getvars }}&format=xlsx">{% trans "Export search as XLSX" %}</a>
-                                </li>
-                                <li>
-                                    <a href="{% url "evidencecollection:evidence-export" %}?{{ getvars }}&format=pdf">{% trans "Export search as PDF" %}</a>
-                                </li>
+                        <div class="dropdown text-end">
+                            <button class="btn btn-outline-secondary dropdown-toggle"
+                                    type="button"
+                                    id="exportButton"
+                                    data-bs-toggle="dropdown"
+                                    aria-expanded="false">{% trans "Export search as ..." %}</button>
+                            <ul class="dropdown-menu" aria-labelledby="exportButton">
+                                {% for format in export_formats %}
+                                    <li>
+                                        <a class="dropdown-item"
+                                           href="{% url "evidencecollection:evidence-export" %}?{{ getvars }}&format={{ format }}">{{ format | upper }}</a>
+                                    </li>
+                                {% endfor %}
                             </ul>
                         </div>
                     {% else %}

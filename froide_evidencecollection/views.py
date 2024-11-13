@@ -2,6 +2,7 @@ import csv
 import io
 
 from django.conf import settings
+from django.core.exceptions import BadRequest
 from django.http import HttpResponse
 from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
@@ -16,6 +17,72 @@ from froide_evidencecollection.documents import EvidenceDocument
 
 from .filterset import EvidenceFilterSet
 from .models import Evidence
+
+
+class EvidenceExporter:
+    EXPORT_FIELDS = [
+        "id",
+        "date",
+        "source__url",
+        "source__public_body__id",
+        "source__public_body__name",
+        "source__document_number",
+        "type__name",
+        "area__name",
+        "person__name",
+        "quality__name",
+        "title",
+        "description",
+    ]
+    FORMATS = ["csv", "xlsx", "pdf"]
+
+    def __init__(self, format):
+        if format not in self.FORMATS:
+            raise ValueError(f"format {format} is not supported")
+        self.format = format
+
+    def export(self, queryset):
+        rows = self.get_rows(queryset)
+        return getattr(self, f"generate_{self.format}")(rows)
+
+    def get_rows(self, queryset):
+        return queryset.prefetch_related(*self.EXPORT_FIELDS).values(
+            *self.EXPORT_FIELDS
+        )
+
+    def generate_csv(self, rows):
+        f = io.StringIO()
+        writer = csv.DictWriter(f, fieldnames=self.EXPORT_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+        return f.getvalue().encode(), "text/csv"
+
+    def generate_xlsx(self, rows):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        if ws is None:
+            ws = wb.create_sheet()
+        ws.append(self.EXPORT_FIELDS)
+        for row in rows:
+            ws.append([row.get(key) for key in self.EXPORT_FIELDS])
+        f = io.BytesIO()
+        wb.save(f)
+        return (
+            f.getvalue(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    def generate_pdf(self, rows):
+        html = render_to_string(
+            "froide_evidencecollection/pdf_export.html",
+            context={"rows": rows, "SITE_NAME": settings.SITE_NAME},
+        )
+        wp = get_wp()
+        if not wp:
+            raise Exception("WeasyPrint needs to be installed")
+        doc = wp.HTML(string=html)
+        return doc.write_pdf(), "application/pdf"
 
 
 class EvidenceMixin(BreadcrumbView):
@@ -54,75 +121,23 @@ class EvidenceListView(BaseSearchView):
     model = Evidence
     search_url_name = "evidencecollection:evidence-list"
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["export_formats"] = EvidenceExporter.FORMATS
+        return context
+
 
 class EvidenceExportView(EvidenceListView):
-    EXPORT_FIELDS = [
-        "id",
-        "date",
-        "source__url",
-        "source__public_body__id",
-        "source__public_body__name",
-        "source__document_number",
-        "type__name",
-        "area__name",
-        "person__name",
-        "quality__name",
-        "title",
-        "description",
-    ]
-    FORMATS = ["csv", "xlsx", "pdf"]
-
-    def get_rows(self):
-        self.object_list = self.get_queryset()
-        self.object_list.update_query()
-        return (
-            self.object_list.to_queryset()
-            .prefetch_related(*self.EXPORT_FIELDS)
-            .values(*self.EXPORT_FIELDS)
-        )
-
     def get(self, request, *args, **kwargs):
         format = request.GET.get("format", "csv")
-        if format not in self.FORMATS:
-            format = "csv"
+        if format not in EvidenceExporter.FORMATS:
+            raise BadRequest("Invalid format")
 
-        rows = self.get_rows()
-        content, content_type = getattr(self, f"generate_{format}")(rows)
+        sqs = self.get_queryset()
+        sqs.update_query()
+        exporter = EvidenceExporter(format=format)
+        content, content_type = exporter.export(queryset=sqs.to_queryset())
 
         response = HttpResponse(content, content_type=content_type)
-        response["Content-Disposition"] = f"attachment; filename=export.{format}"
+        response["Content-Disposition"] = f"inline; filename=export.{format}"
         return response
-
-    def generate_csv(self, rows):
-        f = io.StringIO()
-        writer = csv.DictWriter(f, fieldnames=self.EXPORT_FIELDS, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
-
-        return f.getvalue().encode(), "text/csv"
-
-    def generate_xlsx(self, rows):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        if ws is None:
-            ws = wb.create_sheet()
-        ws.append(self.EXPORT_FIELDS)
-        for row in rows:
-            ws.append([row.get(key) for key in self.EXPORT_FIELDS])
-        f = io.BytesIO()
-        wb.save(f)
-        return (
-            f.getvalue(),
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-    def generate_pdf(self, rows):
-        html = render_to_string(
-            "froide_evidencecollection/pdf_export.html",
-            context={"rows": rows, "SITE_NAME": settings.SITE_NAME},
-        )
-        wp = get_wp()
-        if not wp:
-            raise Exception("WeasyPrint needs to be installed")
-        doc = wp.HTML(string=html)
-        return doc.write_pdf(), "application/pdf"
