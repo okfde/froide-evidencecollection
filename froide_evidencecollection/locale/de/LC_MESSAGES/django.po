@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-11-06 15:33+0000\n"
+"POT-Creation-Date: 2024-11-13 18:40+0000\n"
 "PO-Revision-Date: 2024-10-28 15:01+0000\n"
 "Last-Translator: Kara Engelhardt <kara.engelhardt@okfn.de>\n"
 "Language-Team: German <https://weblate.frag-den-staat.de/projects/froide/"
@@ -25,29 +25,38 @@ msgstr "Belegsammlungs-CMS-App"
 
 #: froide_evidencecollection/models.py
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
 msgid "Source"
 msgstr "Quelle"
 
 #: froide_evidencecollection/models.py
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
 msgid "Evidence Type"
 msgstr "Belegart"
 
 #: froide_evidencecollection/models.py
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
 msgid "Evidence Area"
 msgstr "Bereich"
 
 #: froide_evidencecollection/models.py
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
 msgid "Person"
 msgstr "Person"
 
 #: froide_evidencecollection/models.py
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
 msgid "Evidence Quality"
 msgstr "Beleg-Qualität"
 
@@ -57,7 +66,15 @@ msgid "Evidence #%(pk)s: %(title)s"
 msgstr "Beleg #%(pk)s: %(title)s"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#, fuzzy
+#| msgid "Export search as CSV"
+msgid "Export as PDF"
+msgstr "Suche als CSV exportieren"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
 msgid "Date"
 msgstr "Datum"
 
@@ -70,31 +87,66 @@ msgid "Search"
 msgstr "Suchen"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/views.py
 msgid "Title"
 msgstr "Titel"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "Export search as CSV"
+#, fuzzy
+#| msgid "Export search as CSV"
+msgid "Export search as ..."
 msgstr "Suche als CSV exportieren"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "Export search as XLSX"
-msgstr "Suche als XLSX exportieren"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
 msgid "No results"
 msgstr "Keine Ergebnisse"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+msgid "\"Page \" counter(page) \" of \" counter(pages);"
+msgstr ""
+
+#: froide_evidencecollection/views.py
+msgid "Id"
+msgstr ""
+
+#: froide_evidencecollection/views.py
+#, fuzzy
+#| msgid "Source"
+msgid "Source URL"
+msgstr "Quelle"
+
+#: froide_evidencecollection/views.py
+msgid "Source Public Body ID"
+msgstr ""
+
+#: froide_evidencecollection/views.py
+msgid "Source Public Body Name"
+msgstr ""
+
+#: froide_evidencecollection/views.py
+msgid "Source Document Number"
+msgstr ""
+
+#: froide_evidencecollection/views.py
+msgid "Description"
+msgstr ""
 
 #: froide_evidencecollection/views.py
 #, python-format
 msgid "Evidence #%s"
 msgstr "Beleg #%s"
 
-#: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "No."
-msgstr "Nr."
-
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/views.py
 #, python-format
-msgid "Evidence #%(pk)s"
-msgstr "Beleg #%(pk)s"
+msgid "No %(verbose_name)s found matching the query"
+msgstr ""
+
+#~ msgid "Export search as XLSX"
+#~ msgstr "Suche als XLSX exportieren"
+
+#~ msgid "No."
+#~ msgstr "Nr."
+
+#, python-format
+#~ msgid "Evidence #%(pk)s"
+#~ msgstr "Beleg #%(pk)s"
