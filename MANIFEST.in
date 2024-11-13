@@ -1,1 +1,2 @@
 recursive-include froide_evidencecollection/templates *.html *.txt
+recursive-include froide_evidencecollection/locale *.po
