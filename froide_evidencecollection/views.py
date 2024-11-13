@@ -3,7 +3,8 @@ import io
 
 from django.conf import settings
 from django.core.exceptions import BadRequest
-from django.http import HttpResponse
+from django.db.models import QuerySet
+from django.http import Http404, HttpResponse
 from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
 from django.views.generic import DetailView
@@ -127,17 +128,36 @@ class EvidenceListView(BaseSearchView):
         return context
 
 
-class EvidenceExportView(EvidenceListView):
+class ExportMixin:
+    def get_export_queryset(self) -> QuerySet:
+        raise NotImplementedError()
+
     def get(self, request, *args, **kwargs):
-        format = request.GET.get("format", "csv")
+        format = request.GET.get("format", "pdf")
         if format not in EvidenceExporter.FORMATS:
             raise BadRequest("Invalid format")
 
-        sqs = self.get_queryset()
-        sqs.update_query()
         exporter = EvidenceExporter(format=format)
-        content, content_type = exporter.export(queryset=sqs.to_queryset())
+        content, content_type = exporter.export(queryset=self.get_export_queryset())
 
         response = HttpResponse(content, content_type=content_type)
         response["Content-Disposition"] = f"inline; filename=export.{format}"
         return response
+
+
+class EvidenceExportView(ExportMixin, EvidenceListView):
+    def get_export_queryset(self):
+        sqs = self.get_queryset()
+        sqs.update_query()
+        return sqs.to_queryset()
+
+
+class EvidenceDetailExportView(ExportMixin, EvidenceMixin, DetailView):
+    def get_export_queryset(self):
+        queryset = self.get_queryset().filter(pk=self.kwargs["pk"])
+        if not queryset.exists():
+            raise Http404(
+                _("No %(verbose_name)s found matching the query")
+                % {"verbose_name": queryset.model._meta.verbose_name}
+            )
+        return queryset
