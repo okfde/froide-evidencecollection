@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
 from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
+from django.views.decorators.cache import never_cache
 from django.views.generic import DetailView
 
 import openpyxl
@@ -171,14 +172,19 @@ class ExportMixin:
         return response
 
 
-class EvidenceExportView(ExportMixin, EvidenceListView):
+class NeverCacheMixin:
+    def dispatch(self, *args, **kwargs):
+        return never_cache(super().dispatch)(*args, **kwargs)
+
+
+class EvidenceExportView(NeverCacheMixin, ExportMixin, EvidenceListView):
     def get_export_queryset(self):
         sqs = self.get_queryset()
         sqs.update_query()
         return sqs.to_queryset()
 
 
-class EvidenceDetailExportView(ExportMixin, EvidenceMixin, DetailView):
+class EvidenceDetailExportView(NeverCacheMixin, ExportMixin, EvidenceMixin, DetailView):
     def get_export_queryset(self):
         queryset = self.get_queryset().filter(pk=self.kwargs["pk"])
         if not queryset.exists():
