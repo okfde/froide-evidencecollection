@@ -1,3 +1,5 @@
+from googleapiclient.http import HttpError
+
 from . import models
 
 try:
@@ -9,6 +11,7 @@ except ImportError:
     GSHEET_AVAILABLE = False
 
 import datetime
+import logging
 import time
 from itertools import zip_longest
 
@@ -16,6 +19,8 @@ from django.conf import settings
 from django.utils import timezone
 
 from froide.celery import app as celery_app
+
+logger = logging.getLogger(__name__)
 
 
 def get_object_data(sheet_config, model_class, row, object=None):
@@ -78,7 +83,11 @@ def import_evidence_gsheet(config=None, ignore_existing_ids=False):
         config = settings.FROIDE_EVIDENCECOLLECTION_GSHEET_IMPORT_CONFIG
 
     sheet = get_sheet_service(config)
-    result = get_sheet_data(config, sheet)
+    try:
+        result = get_sheet_data(config, sheet)
+    except HttpError:
+        logger.warning("Failed to get sheet data, returning")
+        return
 
     for sheet_config, sheet_data in zip(
         config["sheets"], result["valueRanges"], strict=False
