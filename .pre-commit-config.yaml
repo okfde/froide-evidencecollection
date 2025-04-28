@@ -11,12 +11,3 @@ repos:
     hooks:
       - id: djlint-reformat-django
       - id: djlint-django
-
-  - repo: local
-    hooks:
-      - id: eslint
-        name: eslint
-        language: node
-        files: \.(js|ts|vue)?$
-        entry: pnpm lint
-        args: [--no-warn-ignored]
