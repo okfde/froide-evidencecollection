@@ -49,7 +49,7 @@ class EvidenceArea(models.Model):
 
 
 class Institution(models.Model):
-    name = models.TextField(unique=True)
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
 
     def __str__(self):
         return self.name
@@ -80,6 +80,61 @@ class Person(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class PersonOrOrganization(models.Model):
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+    affiliations = models.ManyToManyField(
+        Institution,
+        through="Affiliation",
+        verbose_name=_("affiliations"),
+        related_name="persons",
+    )
+    regions = models.ManyToManyField(GeoRegion, verbose_name=_("regions"))
+    is_active = models.BooleanField(default=True, verbose_name=_("is active"))
+    review_comment = models.TextField(
+        null=True, blank=True, verbose_name=_("review comment")
+    )
+
+    class Meta:
+        verbose_name = _("person/organization")
+        verbose_name_plural = _("persons/organizations")
+
+    def __str__(self):
+        return self.name
+
+
+class Function(models.Model):
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("function")
+        verbose_name_plural = _("functions")
+
+    def __str__(self):
+        return self.name
+
+
+class Affiliation(models.Model):
+    person_or_organization = models.ForeignKey(
+        PersonOrOrganization,
+        on_delete=models.CASCADE,
+        verbose_name=_("person/organization"),
+    )
+    institution = models.ForeignKey(
+        Institution, on_delete=models.PROTECT, verbose_name=_("institution/party level")
+    )
+    function = models.ForeignKey(
+        Function, on_delete=models.PROTECT, verbose_name=_("function")
+    )
+
+    class Meta:
+        unique_together = ("person_or_organization", "institution", "function")
+        verbose_name = _("affiliation")
+        verbose_name_plural = _("affiliations")
+
+    def __str__(self):
+        return f"{self.person_or_organization} - {self.institution} - {self.function}"
 
 
 class Quality(models.Model):
