@@ -412,12 +412,13 @@ msgstr "Datum"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/models.py
 msgid "Source"
 msgstr "Quelle"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
-#: froide_evidencecollection/views.py
+#: froide_evidencecollection/views.py froide_evidencecollection/models.py
 msgid "Evidence Type"
 msgstr "Art des Belegs"
 
@@ -438,6 +439,7 @@ msgid "Search"
 msgstr "Suchen"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/views.py
 msgid "Title"
 msgstr "Titel"
 
@@ -479,7 +481,6 @@ msgid "Evidence Category"
 msgstr "Belegkategorie"
 
 #: froide_evidencecollection/views.py
-#, fuzzy
 msgid "Source URL"
 msgstr "Quellen-URL"
 
@@ -655,6 +656,42 @@ msgstr "Namen von Personen oder Organisationen"
 msgid "Attribution Bases"
 msgstr "Mitgliedszurechnungen"
 
+#: froide_evidencecollection/models.py
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
+msgid "Evidence Area"
+msgstr "Bereich"
+
+#: froide_evidencecollection/models.py
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
+msgid "Person"
+msgstr "Person"
+
+#: froide_evidencecollection/models.py
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
+msgid "Evidence Quality"
+msgstr "Beleg-Qualität"
+
+#: froide_evidencecollection/views.py
+msgid "Source Public Body ID"
+msgstr "Quellen-Behörden-ID"
+
+#: froide_evidencecollection/views.py
+msgid "Source Public Body Name"
+msgstr "Quellen-Behörden-Name"
+
+#: froide_evidencecollection/views.py
+msgid "Source Document Number"
+msgstr "Quellen-Dokumentennummer"
+
 #~ msgid "review comment"
 #~ msgstr "Kommentar/Notiz (Review)"
 
@@ -685,3 +722,6 @@ msgstr "Mitgliedszurechnungen"
 #, python-format
 #~ msgid "Evidence #%(pk)s"
 #~ msgstr "Beleg #%(pk)s"
+
+#~ msgid "Quality"
+#~ msgstr "Qualität"
