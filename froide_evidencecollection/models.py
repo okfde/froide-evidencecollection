@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy as _
 
 from froide.georegion.models import GeoRegion
 from froide.publicbody.models import PublicBody
