@@ -453,7 +453,7 @@ msgstr "Suche exportieren als ..."
 
 #: froide_evidencecollection/templates/froide_evidencecollection/list.html
 msgid "No results"
-msgstr "Keine Ergebnisse"
+msgstr "Keine Ergebnisse gefunden"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
 msgid "\"Page \" counter(page) \" of \" counter(pages);"
