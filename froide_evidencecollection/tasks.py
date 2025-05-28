@@ -19,6 +19,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from froide.celery import app as celery_app
+from froide_evidencecollection.importer import NocoDBImporter
 
 logger = logging.getLogger(__name__)
 
@@ -125,3 +126,13 @@ def import_evidence_gsheet(config=None, ignore_existing_ids=False):
                 for k, v in object_data.items():
                     setattr(object, k, v)
                 object.save()
+
+
+@celery_app.task(name="froide_evidencecollection.import_evidence_nocodb")
+def import_evidence_nocodb():
+    importer = NocoDBImporter()
+    try:
+        importer.run()
+    except Exception as e:
+        logger.error(f"Failed to import data from NocoDB: {e}")
+        raise
