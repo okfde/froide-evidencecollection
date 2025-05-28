@@ -42,27 +42,15 @@
                     <tr>
                         <th>{% trans "Source" %}</th>
                         <td>
-                            {% if row.source__public_body__name %}
-                                {{ row.source__public_body__name }} – {{ row.source__document_number }}
+                            {% if row.sources__recorded_by__name %}
+                                {{ row.sources__recorded_by__name }} – {{ row.sources__document_number }}
                             {% endif %}
-                            {% if row.source__url %}<a href="{{ row.source__url }}" target="_blank">{{ row.source__url }}</a>{% endif %}
+                            {% if row.sources__url %}<a href="{{ row.sources__url }}" target="_blank">{{ row.sources__url }}</a>{% endif %}
                         </td>
                     </tr>
                     <tr>
                         <th>{% trans "Evidence Type" %}</th>
                         <td>{{ row.type__name }}</td>
-                    </tr>
-                    <tr>
-                        <th>{% trans "Evidence Area" %}</th>
-                        <td>{{ row.area__name }}</td>
-                    </tr>
-                    <tr>
-                        <th>{% trans "Person" %}</th>
-                        <td>{{ row.person__name }}</td>
-                    </tr>
-                    <tr>
-                        <th>{% trans "Evidence Quality" %}</th>
-                        <td>{{ row.quality__name }}</td>
                     </tr>
                 </table>
                 <div class="description">{{ row.description }}</div>
