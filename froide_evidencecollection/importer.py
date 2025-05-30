@@ -13,12 +13,12 @@ import requests
 from froide_evidencecollection.models import (
     Affiliation,
     Attachment,
-    EvidenceNew,
+    Evidence,
     Group,
     Institution,
     PersonOrOrganization,
     Role,
-    SourceNew,
+    Source,
 )
 from froide_evidencecollection.regions import selectable_regions
 from froide_evidencecollection.utils import ImportStats, get_default_value
@@ -425,7 +425,7 @@ class SourceImporter(TableImporter):
         self.stats.reset()
 
         existing_objs = Attachment.objects.in_bulk(field_name="external_id")
-        sources = SourceNew.objects.in_bulk(field_name="external_id")
+        sources = Source.objects.in_bulk(field_name="external_id")
 
         for data in self.attachments:
             ext_id = data.get("id")
@@ -497,8 +497,8 @@ class NocoDBImporter:
     def __init__(self):
         self.table_importers = [
             PersonOrOrganizationImporter(PersonOrOrganization),
-            SourceImporter(SourceNew),
-            EvidenceImporter(EvidenceNew),
+            SourceImporter(Source),
+            EvidenceImporter(Evidence),
             GroupImporter(Group),
         ]
 

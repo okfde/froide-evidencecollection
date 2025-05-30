@@ -103,7 +103,7 @@ class Group(models.Model):
         return self.name
 
 
-class SourceNew(models.Model):
+class Source(models.Model):
     external_id = models.PositiveIntegerField(
         unique=True, verbose_name=_("external ID")
     )
@@ -170,7 +170,7 @@ class Attachment(models.Model):
         unique=True, max_length=100, verbose_name=_("external ID")
     )
     source = models.ForeignKey(
-        SourceNew,
+        Source,
         on_delete=models.CASCADE,
         verbose_name=_("source"),
         related_name="attachments",
@@ -192,7 +192,7 @@ class Attachment(models.Model):
         return f"{self.source} - {self.file.name}"
 
 
-class EvidenceNew(models.Model):
+class Evidence(models.Model):
     external_id = models.PositiveIntegerField(
         unique=True, verbose_name=_("external ID")
     )
@@ -220,7 +220,7 @@ class EvidenceNew(models.Model):
     distribution_channels = models.ManyToManyField(
         "DistributionChannel", blank=True, verbose_name=_("distribution channels")
     )
-    sources = models.ManyToManyField(SourceNew, verbose_name=_("sources"))
+    sources = models.ManyToManyField(Source, verbose_name=_("sources"))
     is_verified = models.BooleanField(default=False, verbose_name=_("is verified"))
     requires_additional_review = models.BooleanField(
         default=False, verbose_name=_("requires additional review")

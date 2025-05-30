@@ -5,14 +5,14 @@ from django.contrib import admin
 from .models import (
     Attachment,
     AttributionBasis,
-    EvidenceNew,
+    Evidence,
     EvidenceType,
     FdgoFeature,
     Group,
     Institution,
     PersonOrOrganization,
     Role,
-    SourceNew,
+    Source,
     SpreadLevel,
 )
 from .regions import selectable_regions
@@ -98,12 +98,12 @@ class EvidenceAdmin(ReadOnlyAdmin):
 
 
 admin.site.register(AttributionBasis, ReadOnlyAdmin)
-admin.site.register(EvidenceNew, EvidenceAdmin)
+admin.site.register(Evidence, EvidenceAdmin)
 admin.site.register(EvidenceType, ReadOnlyAdmin)
 admin.site.register(FdgoFeature, ReadOnlyAdmin)
 admin.site.register(Group, ReadOnlyAdmin)
 admin.site.register(Institution, ReadOnlyAdmin)
 admin.site.register(PersonOrOrganization, PersonOrOrganizationAdmin)
 admin.site.register(Role, ReadOnlyAdmin)
-admin.site.register(SourceNew, SourceAdmin)
+admin.site.register(Source, SourceAdmin)
 admin.site.register(SpreadLevel, ReadOnlyAdmin)
