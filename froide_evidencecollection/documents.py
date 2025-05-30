@@ -7,7 +7,7 @@ from froide.helper.search import (
     get_text_analyzer,
 )
 
-from .models import EvidenceNew, PersonOrOrganization
+from .models import Evidence, PersonOrOrganization
 
 evidence_index = get_index("evidence")
 person_index = get_index("person")
@@ -34,7 +34,7 @@ class EvidenceDocument(Document):
     public_bodies = fields.ListField(fields.IntegerField())
 
     class Django:
-        model = EvidenceNew
+        model = Evidence
         fields = ["description", "date"]
         fts_fields = ["description"]
 
@@ -51,13 +51,13 @@ class EvidenceDocument(Document):
             .select_related("type", "spread_level")
         )
 
-    def prepare_persons(self, obj: EvidenceNew):
+    def prepare_persons(self, obj: Evidence):
         return list(obj.persons_or_organizations.values_list("id", flat=True))
 
-    def prepare_person_names(self, obj: EvidenceNew):
+    def prepare_person_names(self, obj: Evidence):
         return list(obj.persons_or_organizations.values_list("name", flat=True))
 
-    def prepare_public_bodies(self, obj: EvidenceNew):
+    def prepare_public_bodies(self, obj: Evidence):
         return list(obj.public_bodies.values_list("id", flat=True))
 
     @classmethod
