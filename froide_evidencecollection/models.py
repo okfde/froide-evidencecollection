@@ -9,35 +9,13 @@ from froide.georegion.models import GeoRegion
 from froide.publicbody.models import PublicBody
 
 
-class EvidenceType(models.Model):
-    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
-
-    class Meta:
-        verbose_name = _("evidence type")
-        verbose_name_plural = _("evidence types")
-
-    def __str__(self):
-        return self.name
-
-
-class Institution(models.Model):
-    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
-
-    class Meta:
-        verbose_name = _("institution/party level")
-        verbose_name_plural = _("institutions/party levels")
-
-    def __str__(self):
-        return self.name
-
-
 class PersonOrOrganization(models.Model):
     external_id = models.PositiveIntegerField(
         unique=True, verbose_name=_("external ID")
     )
     name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
     affiliations = models.ManyToManyField(
-        Institution,
+        "Institution",
         through="Affiliation",
         verbose_name=_("affiliations"),
         related_name="persons",
@@ -62,18 +40,12 @@ class PersonOrOrganization(models.Model):
         return self.name
 
 
-class Group(models.Model):
-    external_id = models.PositiveIntegerField(
-        unique=True, verbose_name=_("external ID")
-    )
+class Institution(models.Model):
     name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
-    members = models.ManyToManyField(
-        PersonOrOrganization, verbose_name=_("members"), related_name="groups"
-    )
 
     class Meta:
-        verbose_name = _("group")
-        verbose_name_plural = _("groups")
+        verbose_name = _("institution/party level")
+        verbose_name_plural = _("institutions/party levels")
 
     def __str__(self):
         return self.name
@@ -112,6 +84,23 @@ class Affiliation(models.Model):
 
     def __str__(self):
         return f"{self.person_or_organization} - {self.institution} - {self.role}"
+
+
+class Group(models.Model):
+    external_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("external ID")
+    )
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+    members = models.ManyToManyField(
+        PersonOrOrganization, verbose_name=_("members"), related_name="groups"
+    )
+
+    class Meta:
+        verbose_name = _("group")
+        verbose_name_plural = _("groups")
+
+    def __str__(self):
+        return self.name
 
 
 class SourceNew(models.Model):
@@ -165,6 +154,17 @@ class SourceNew(models.Model):
         return urlparse(self.url).netloc
 
 
+class AttributionBasis(models.Model):
+    name = models.CharField(max_length=255, unique=True, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("attribution basis")
+        verbose_name_plural = _("attribution bases")
+
+    def __str__(self):
+        return self.name
+
+
 class Attachment(models.Model):
     external_id = models.CharField(
         unique=True, max_length=100, verbose_name=_("external ID")
@@ -192,17 +192,6 @@ class Attachment(models.Model):
         return f"{self.source} - {self.file.name}"
 
 
-class AttributionBasis(models.Model):
-    name = models.CharField(max_length=255, unique=True, verbose_name=_("name"))
-
-    class Meta:
-        verbose_name = _("attribution basis")
-        verbose_name_plural = _("attribution bases")
-
-    def __str__(self):
-        return self.name
-
-
 class EvidenceNew(models.Model):
     external_id = models.PositiveIntegerField(
         unique=True, verbose_name=_("external ID")
@@ -212,7 +201,7 @@ class EvidenceNew(models.Model):
         null=True, blank=True, verbose_name=_("date of statement/action")
     )
     type = models.ForeignKey(
-        EvidenceType,
+        "EvidenceType",
         null=True,
         blank=True,
         on_delete=models.PROTECT,
@@ -276,6 +265,17 @@ class EvidenceNew(models.Model):
 
     def get_absolute_url(self):
         return reverse("evidencecollection:evidence-detail", kwargs={"pk": self.pk})
+
+
+class EvidenceType(models.Model):
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("evidence type")
+        verbose_name_plural = _("evidence types")
+
+    def __str__(self):
+        return self.name
 
 
 class FdgoFeature(models.Model):

@@ -97,13 +97,13 @@ class EvidenceAdmin(ReadOnlyAdmin):
     list_display = ("description", "date", "type")
 
 
+admin.site.register(AttributionBasis, ReadOnlyAdmin)
+admin.site.register(EvidenceNew, EvidenceAdmin)
 admin.site.register(EvidenceType, ReadOnlyAdmin)
+admin.site.register(FdgoFeature, ReadOnlyAdmin)
+admin.site.register(Group, ReadOnlyAdmin)
 admin.site.register(Institution, ReadOnlyAdmin)
 admin.site.register(PersonOrOrganization, PersonOrOrganizationAdmin)
 admin.site.register(Role, ReadOnlyAdmin)
 admin.site.register(SourceNew, SourceAdmin)
-admin.site.register(EvidenceNew, EvidenceAdmin)
-admin.site.register(AttributionBasis, ReadOnlyAdmin)
-admin.site.register(FdgoFeature, ReadOnlyAdmin)
 admin.site.register(SpreadLevel, ReadOnlyAdmin)
-admin.site.register(Group, ReadOnlyAdmin)
