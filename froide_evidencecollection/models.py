@@ -233,8 +233,8 @@ class Evidence(models.Model):
     )
 
     class Meta:
-        verbose_name = _("evidence")
-        verbose_name_plural = _("evidence")
+        verbose_name = _("piece of evidence")
+        verbose_name_plural = _("pieces of evidence")
 
     def __str__(self):
         return self.title
