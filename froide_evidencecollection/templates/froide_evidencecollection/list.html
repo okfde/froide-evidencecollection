@@ -22,20 +22,18 @@
                                 <tr>
                                     <th>{% trans "Title" %}</th>
                                     <th>{% trans "Date" %}</th>
-                                    <th>{% trans "Person" %}</th>
-                                    <th>{% trans "Evidence Area" %}</th>
-                                    <th>{% trans "Evidence Quality" %}</th>
+                                    <th>{% trans "Persons Or Organizations" %}</th>
                                 </tr>
                             </thead>
                             {% for object in object_list %}
                                 <tr>
                                     <td>
-                                        <a href="{{ object.get_absolute_url }}">{{ object.title }}</a>
+                                        <a href="{{ object.get_absolute_url }}">{{ object }}</a>
                                     </td>
                                     <td>{{ object.date }}</td>
-                                    <td>{{ object.person }}</td>
-                                    <td>{{ object.area }}</td>
-                                    <td>{{ object.quality }}</td>
+                                    <td>
+                                        {{ object.persons_or_organizations.all|join:"<br>" }}
+                                    </td>
                                 </tr>
                             {% endfor %}
                         </table>
