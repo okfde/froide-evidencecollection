@@ -94,11 +94,18 @@ class EvidenceAdmin(ReadOnlyAdmin):
     list_display = ("description", "date", "type")
 
 
+class GroupAdmin(ReadOnlyAdmin):
+    list_display = ("name",)
+    fields = ("external_id", "name", "members")
+    filter_horizontal = ("members",)
+    search_fields = ("name",)
+
+
 admin.site.register(AttributionBasis, ReadOnlyAdmin)
 admin.site.register(Evidence, EvidenceAdmin)
 admin.site.register(EvidenceType, ReadOnlyAdmin)
 admin.site.register(EvidenceCategory, ReadOnlyAdmin)
-admin.site.register(Group, ReadOnlyAdmin)
+admin.site.register(Group, GroupAdmin)
 admin.site.register(Institution, ReadOnlyAdmin)
 admin.site.register(PersonOrOrganization, PersonOrOrganizationAdmin)
 admin.site.register(Role, ReadOnlyAdmin)
