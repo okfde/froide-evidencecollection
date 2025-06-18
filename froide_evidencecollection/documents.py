@@ -19,7 +19,7 @@ search_quote_analyzer = get_search_quote_analyzer()
 @evidence_index.document
 class EvidenceDocument(Document):
     type = fields.IntegerField(attr="type_id")
-    fdgo_features = fields.ListField(fields.IntegerField(attr="fdgo_features__id"))
+    categories = fields.ListField(fields.IntegerField(attr="evidence_categories__id"))
     spread_level = fields.IntegerField(attr="spread_level_id")
     distribution_channels = fields.ListField(
         fields.IntegerField(attr="distribution_channels__id")
@@ -43,7 +43,7 @@ class EvidenceDocument(Document):
             super()
             .get_queryset()
             .prefetch_related(
-                "fdgo_features",
+                "categories",
                 "distribution_channels",
                 "sources__persons_or_organizations",
                 "sources__recorded_by",

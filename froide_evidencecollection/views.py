@@ -28,7 +28,7 @@ class EvidenceExporter:
         ("date", _("Date")),
         ("description", _("Description")),
         ("type__name", _("Evidence Type")),
-        ("fdgo_features__name", _("FDGO Features")),
+        ("evidence_category__name", _("Evidence Category")),
         ("spread_level__name", _("Spread Level")),
         ("distribution_channels__name", _("Distribution Channels")),
         ("sources__url", _("Source URLs")),
