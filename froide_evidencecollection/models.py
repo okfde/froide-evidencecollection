@@ -44,8 +44,8 @@ class Institution(models.Model):
     name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
 
     class Meta:
-        verbose_name = _("institution/party level")
-        verbose_name_plural = _("institutions/party levels")
+        verbose_name = _("institution")
+        verbose_name_plural = _("institutions")
 
     def __str__(self):
         return self.name
@@ -69,7 +69,7 @@ class Affiliation(models.Model):
         verbose_name=_("person/organization"),
     )
     institution = models.ForeignKey(
-        Institution, on_delete=models.CASCADE, verbose_name=_("institution/party level")
+        Institution, on_delete=models.CASCADE, verbose_name=_("institution")
     )
     role = models.ForeignKey(
         Role,
