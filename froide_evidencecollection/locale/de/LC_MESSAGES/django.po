@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-06-02 10:22+0200\n"
+"POT-Creation-Date: 2025-06-18 10:44+0200\n"
 "PO-Revision-Date: 2024-10-28 15:01+0000\n"
 "Last-Translator: Kara Engelhardt <kara.engelhardt@okfn.de>\n"
 "Language-Team: German <https://weblate.frag-den-staat.de/projects/froide/"
@@ -60,12 +60,12 @@ msgid "persons/organizations"
 msgstr "Personen/Organisationen"
 
 #: froide_evidencecollection/models.py
-msgid "institution/party level"
-msgstr "Institution/Parteiebene"
+msgid "institution"
+msgstr "Institution"
 
 #: froide_evidencecollection/models.py
-msgid "institutions/party levels"
-msgstr "Institutionen/Parteiebenen"
+msgid "institutions"
+msgstr "Institutionen"
 
 #: froide_evidencecollection/models.py
 msgid "role"
@@ -203,7 +203,7 @@ msgstr "Kommentar/Notiz (Einreichung)"
 msgid "piece of evidence"
 msgstr "Beleg"
 
-#: froide_evidencecollection/models.pyg
+#: froide_evidencecollection/models.py
 msgid "pieces of evidence"
 msgstr "Belege"
 
