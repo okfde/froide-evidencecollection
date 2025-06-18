@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def get_default_value(model, field_name):
     field = model._meta.get_field(field_name)
 
@@ -41,7 +46,7 @@ class ImportStats:
             setattr(self, operation, getattr(self, operation) + count)
 
     def print_summary(self, model):
-        print(
+        logger.info(
             f"Model {model} processed: {self.created} created, {self.updated} updated, "
             f"{self.deleted} deleted, {self.skipped} skipped."
         )
