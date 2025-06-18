@@ -124,6 +124,13 @@ class TableImporter:
                 elif cfg["type"] == "fk":
                     # Take first element if relation is modelled as m2m in NocoDB.
                     if isinstance(raw_value, list):
+                        if len(raw_value) != 1:
+                            msg = (
+                                f"Expected single value for {rel_field} in {self.model_name}, "
+                                f"got {len(raw_value)} values: {raw_value}"
+                            )
+                            self.handle_error(msg)
+                            continue
                         raw_value = raw_value[0]
                     if raw_value != self.null_label:
                         self.relation_values[rel_field].add(raw_value)
