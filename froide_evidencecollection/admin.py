@@ -6,8 +6,8 @@ from .models import (
     Attachment,
     AttributionBasis,
     Evidence,
+    EvidenceCategory,
     EvidenceType,
-    FdgoFeature,
     Group,
     Institution,
     PersonOrOrganization,
@@ -97,7 +97,7 @@ class EvidenceAdmin(ReadOnlyAdmin):
 admin.site.register(AttributionBasis, ReadOnlyAdmin)
 admin.site.register(Evidence, EvidenceAdmin)
 admin.site.register(EvidenceType, ReadOnlyAdmin)
-admin.site.register(FdgoFeature, ReadOnlyAdmin)
+admin.site.register(EvidenceCategory, ReadOnlyAdmin)
 admin.site.register(Group, ReadOnlyAdmin)
 admin.site.register(Institution, ReadOnlyAdmin)
 admin.site.register(PersonOrOrganization, PersonOrOrganizationAdmin)

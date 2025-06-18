@@ -201,8 +201,8 @@ class Evidence(models.Model):
         on_delete=models.PROTECT,
         verbose_name=_("evidence type"),
     )
-    fdgo_features = models.ManyToManyField(
-        "FdgoFeature", blank=True, verbose_name=_("FDGO features")
+    categories = models.ManyToManyField(
+        "EvidenceCategory", blank=True, verbose_name=_("evidence categories")
     )
     spread_level = models.ForeignKey(
         "SpreadLevel",
@@ -266,12 +266,12 @@ class EvidenceType(models.Model):
         return self.name
 
 
-class FdgoFeature(models.Model):
+class EvidenceCategory(models.Model):
     name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
 
     class Meta:
-        verbose_name = _("FDGO feature")
-        verbose_name_plural = _("FDGO features")
+        verbose_name = _("evidence category")
+        verbose_name_plural = _("evidence categories")
 
     def __str__(self):
         return self.name
