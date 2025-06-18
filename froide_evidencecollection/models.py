@@ -1,3 +1,4 @@
+import textwrap
 from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
@@ -229,11 +230,7 @@ class Evidence(models.Model):
 
     @property
     def title(self):
-        s = f"{self.description}"
-        if len(s) > 50:
-            s = s[:50] + "..."
-
-        return s
+        return textwrap.shorten(self.description, width=50, placeholder="...")
 
     @property
     def persons_or_organizations(self):
