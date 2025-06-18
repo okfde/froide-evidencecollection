@@ -28,9 +28,6 @@ class PersonOrOrganization(models.Model):
         verbose_name=_("special regions"),
     )
     is_active = models.BooleanField(default=True, verbose_name=_("is active"))
-    review_comment = models.TextField(
-        default="", blank=True, verbose_name=_("review comment")
-    )
 
     class Meta:
         verbose_name = _("person/organization")
@@ -128,9 +125,6 @@ class Source(models.Model):
     document_number = models.CharField(
         max_length=255, default="", blank=True, verbose_name=_("document number")
     )
-    review_comment = models.TextField(
-        default="", blank=True, verbose_name=_("review comment")
-    )
     is_on_record = models.BooleanField(default=False, verbose_name=_("is on record"))
     # This field is modelled as m2m in NocoDB for convenience but really should be a foreign key.
     recorded_by = models.ForeignKey(
@@ -224,12 +218,6 @@ class Evidence(models.Model):
     is_verified = models.BooleanField(default=False, verbose_name=_("is verified"))
     requires_additional_review = models.BooleanField(
         default=False, verbose_name=_("requires additional review")
-    )
-    submission_comment = models.TextField(
-        default="", blank=True, verbose_name=_("submission comment")
-    )
-    review_comment = models.TextField(
-        default="", blank=True, verbose_name=_("review comment")
     )
 
     class Meta:
