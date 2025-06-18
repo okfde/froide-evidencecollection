@@ -53,7 +53,6 @@ class PersonOrOrganizationAdmin(ReadOnlyAdmin):
     list_display = (
         "name",
         "is_active",
-        "review_comment",
     )
     fields = (
         "external_id",
@@ -61,7 +60,6 @@ class PersonOrOrganizationAdmin(ReadOnlyAdmin):
         "regions",
         "special_regions",
         "is_active",
-        "review_comment",
     )
 
     list_filter = ["affiliations", "is_active"]
@@ -85,7 +83,6 @@ class SourceAdmin(ReadOnlyAdmin):
         "attribution_bases",
         "file_reference",
         "document_number",
-        "review_comment",
         "is_on_record",
         "recorded_by",
     )
