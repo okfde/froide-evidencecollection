@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-06-18 10:44+0200\n"
+"POT-Creation-Date: 2025-06-18 11:41+0200\n"
 "PO-Revision-Date: 2024-10-28 15:01+0000\n"
 "Last-Translator: Kara Engelhardt <kara.engelhardt@okfn.de>\n"
 "Language-Team: German <https://weblate.frag-den-staat.de/projects/froide/"
@@ -46,10 +46,6 @@ msgstr "besondere Regionen"
 #: froide_evidencecollection/models.py
 msgid "is active"
 msgstr "ist aktiv"
-
-#: froide_evidencecollection/models.py
-msgid "review comment"
-msgstr "Kommentar/Notiz (Review)"
 
 #: froide_evidencecollection/models.py
 msgid "person/organization"
@@ -176,8 +172,8 @@ msgid "evidence type"
 msgstr "Art des Belegs"
 
 #: froide_evidencecollection/models.py
-msgid "FDGO features"
-msgstr "FDGO-Merkmale"
+msgid "evidence categories"
+msgstr "Belegkategorien"
 
 #: froide_evidencecollection/models.py
 msgid "spread level"
@@ -196,10 +192,6 @@ msgid "requires additional review"
 msgstr "erfordert zusätzliche Prüfung"
 
 #: froide_evidencecollection/models.py
-msgid "submission comment"
-msgstr "Kommentar/Notiz (Einreichung)"
-
-#: froide_evidencecollection/models.py
 msgid "piece of evidence"
 msgstr "Beleg"
 
@@ -212,8 +204,8 @@ msgid "evidence types"
 msgstr "Arten von Belegen"
 
 #: froide_evidencecollection/models.py
-msgid "FDGO feature"
-msgstr "FDGO-Merkmal"
+msgid "evidence category"
+msgstr "Belegkategorie"
 
 #: froide_evidencecollection/models.py
 msgid "spread levels"
@@ -250,9 +242,8 @@ msgid "Evidence Type"
 msgstr "Art des Belegs"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-#: froide_evidencecollection/views.py
-msgid "FDGO Features"
-msgstr "FDGO-Merkmale"
+msgid "Evidence Categories"
+msgstr "Belegkategorien"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #: froide_evidencecollection/views.py
@@ -309,6 +300,10 @@ msgid "Description"
 msgstr "Beschreibung"
 
 #: froide_evidencecollection/views.py
+msgid "Evidence Category"
+msgstr "Belegkategorie"
+
+#: froide_evidencecollection/views.py
 msgid "Source URLs"
 msgstr "Quellen-URLs"
 
@@ -345,6 +340,21 @@ msgstr "Beleg #%s"
 #, python-format
 msgid "No %(verbose_name)s found matching the query"
 msgstr "Keine %(verbose_name)s gefunden, die der Suche entsprechen"
+
+#~ msgid "review comment"
+#~ msgstr "Kommentar/Notiz (Review)"
+
+#~ msgid "FDGO features"
+#~ msgstr "FDGO-Merkmale"
+
+#~ msgid "submission comment"
+#~ msgstr "Kommentar/Notiz (Einreichung)"
+
+#~ msgid "FDGO feature"
+#~ msgstr "FDGO-Merkmal"
+
+#~ msgid "FDGO Features"
+#~ msgstr "FDGO-Merkmale"
 
 #~ msgid "Export search as XLSX"
 #~ msgstr "Suche als XLSX exportieren"
