@@ -48,7 +48,7 @@ class TableDataFetcher:
             if page_info.get("isLastPage", True):
                 break
 
-            offset += 25  # Default page size
+            offset += page_info["pageSize"]
 
     def fetch_from_api(self, offset=0):
         url = f"{API_URL}/tables/{self.table_name}/records"
