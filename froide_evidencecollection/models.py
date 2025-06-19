@@ -1,6 +1,7 @@
+import textwrap
 from urllib.parse import urlparse
 
-from django.core.exceptions import ValidationError
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -9,111 +10,289 @@ from froide.georegion.models import GeoRegion
 from froide.publicbody.models import PublicBody
 
 
-class Source(models.Model):
-    note = models.TextField()
-    url = models.URLField(unique=True)
-    document_number = models.TextField(blank=True)
-    public_body = models.ForeignKey(PublicBody, on_delete=models.PROTECT, null=True)
+class PersonOrOrganization(models.Model):
+    external_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("external ID")
+    )
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+    affiliations = models.ManyToManyField(
+        "Institution",
+        through="Affiliation",
+        verbose_name=_("affiliations"),
+        related_name="persons",
+    )
+    regions = models.ManyToManyField(GeoRegion, verbose_name=_("regions"))
+    special_regions = ArrayField(
+        models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        verbose_name=_("special regions"),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("is active"))
 
-    def clean(self):
-        if (self.public_body and not self.document_number) or (
-            not self.public_body and self.document_number
-        ):
-            raise ValidationError(
-                "Either both or neither of document_number and public_body must be set"
-            )
-        super().clean()
-
-    def __str__(self):
-        if self.document_number:
-            return f"{self.url} {self.document_number} ({self.public_body})"
-        return self.url
-
-    @property
-    def domain(self) -> str:
-        return urlparse(self.url).netloc
-
-
-class EvidenceType(models.Model):
-    name = models.TextField(unique=True)
-
-    def __str__(self):
-        return self.name
-
-
-class EvidenceArea(models.Model):
-    name = models.TextField(unique=True)
+    class Meta:
+        verbose_name = _("person/organization")
+        verbose_name_plural = _("persons/organizations")
 
     def __str__(self):
         return self.name
 
 
 class Institution(models.Model):
-    name = models.TextField(unique=True)
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("institution")
+        verbose_name_plural = _("institutions")
 
     def __str__(self):
         return self.name
 
 
-class Position(models.Model):
-    name = models.TextField(unique=True)
-    comment = models.TextField()
+class Role(models.Model):
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("role")
+        verbose_name_plural = _("roles")
 
     def __str__(self):
         return self.name
 
 
-class Status(models.Model):
-    name = models.TextField(unique=True)
+class Affiliation(models.Model):
+    person_or_organization = models.ForeignKey(
+        PersonOrOrganization,
+        on_delete=models.CASCADE,
+        verbose_name=_("person/organization"),
+    )
+    institution = models.ForeignKey(
+        Institution, on_delete=models.CASCADE, verbose_name=_("institution")
+    )
+    role = models.ForeignKey(
+        Role,
+        on_delete=models.CASCADE,
+        verbose_name=_("role"),
+    )
+
+    class Meta:
+        unique_together = ("person_or_organization", "institution", "role")
+        verbose_name = _("affiliation")
+        verbose_name_plural = _("affiliations")
+
+    def __str__(self):
+        return f"{self.person_or_organization} - {self.institution} - {self.role}"
+
+
+class Group(models.Model):
+    external_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("external ID")
+    )
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+    members = models.ManyToManyField(
+        PersonOrOrganization, verbose_name=_("members"), related_name="groups"
+    )
+
+    class Meta:
+        verbose_name = _("group")
+        verbose_name_plural = _("groups")
 
     def __str__(self):
         return self.name
 
 
-class Person(models.Model):
-    name = models.TextField(unique=True)
-    institution = models.ForeignKey(Institution, on_delete=models.PROTECT)
-    highest_position = models.ForeignKey(Position, on_delete=models.PROTECT)
-    georegion = models.ForeignKey(GeoRegion, on_delete=models.PROTECT)
-    status = models.ForeignKey(Status, on_delete=models.PROTECT)
-    note = models.TextField()
+class Source(models.Model):
+    external_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("external ID")
+    )
+    reference_value = models.CharField(
+        unique=True, max_length=255, verbose_name=_("reference value")
+    )
+    persons_or_organizations = models.ManyToManyField(
+        PersonOrOrganization,
+        verbose_name=_("persons/organizations"),
+        related_name="sources",
+    )
+    url = models.URLField(max_length=500, verbose_name=_("URL"))
+    attribution_bases = models.ManyToManyField(
+        "AttributionBasis",
+        blank=True,
+        verbose_name=_("attribution bases"),
+        related_name="sources",
+    )
+    file_reference = models.CharField(
+        max_length=255, default="", blank=True, verbose_name=_("file reference")
+    )
+    document_number = models.CharField(
+        max_length=255, default="", blank=True, verbose_name=_("document number")
+    )
+    is_on_record = models.BooleanField(default=False, verbose_name=_("is on record"))
+    # This field is modelled as m2m in NocoDB for convenience but really should be a foreign key.
+    recorded_by = models.ForeignKey(
+        PublicBody,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        verbose_name=_("recorded by"),
+        related_name="recorded_sources",
+    )
+
+    class Meta:
+        verbose_name = _("source")
+        verbose_name_plural = _("sources")
+
+    def __str__(self):
+        return self.reference_value
+
+    @property
+    def domain(self) -> str:
+        return urlparse(self.url).netloc
+
+
+class AttributionBasis(models.Model):
+    name = models.CharField(max_length=255, unique=True, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("attribution basis")
+        verbose_name_plural = _("attribution bases")
 
     def __str__(self):
         return self.name
 
 
-class Quality(models.Model):
-    name = models.TextField(unique=True)
+class Attachment(models.Model):
+    external_id = models.CharField(
+        unique=True, max_length=100, verbose_name=_("external ID")
+    )
+    source = models.ForeignKey(
+        Source,
+        on_delete=models.CASCADE,
+        verbose_name=_("source"),
+        related_name="attachments",
+    )
+    title = models.CharField(max_length=255, verbose_name=_("title"))
+    file = models.FileField(
+        upload_to="attachments", max_length=255, verbose_name=_("file")
+    )
+    mimetype = models.CharField(max_length=100, blank=True, verbose_name=_("mimetype"))
+    size = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("size"))
+    width = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("width"))
+    height = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name=_("height")
+    )
+
+    class Meta:
+        verbose_name = _("attachment")
+        verbose_name_plural = _("attachments")
 
     def __str__(self):
-        return self.name
+        return f"{self.source} - {self.file.name}"
 
 
 class Evidence(models.Model):
-    date = models.DateField()
-    source = models.ForeignKey(
-        Source, verbose_name=_("Source"), on_delete=models.PROTECT
+    external_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("external ID")
     )
-    title = models.TextField()
-    description = models.TextField()
+    description = models.TextField(verbose_name=_("description"))
+    date = models.DateField(
+        null=True, blank=True, verbose_name=_("date of statement/action")
+    )
     type = models.ForeignKey(
-        EvidenceType, verbose_name=_("Evidence Type"), on_delete=models.PROTECT
+        "EvidenceType",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        verbose_name=_("evidence type"),
     )
-    area = models.ForeignKey(
-        EvidenceArea, verbose_name=_("Evidence Area"), on_delete=models.PROTECT
+    categories = models.ManyToManyField(
+        "EvidenceCategory", blank=True, verbose_name=_("evidence categories")
     )
-    person = models.ForeignKey(
-        Person, verbose_name=_("Person"), on_delete=models.CASCADE
+    spread_level = models.ForeignKey(
+        "SpreadLevel",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        verbose_name=_("spread level"),
     )
-    quality = models.ForeignKey(
-        Quality, verbose_name=_("Evidence Quality"), on_delete=models.PROTECT
+    distribution_channels = models.ManyToManyField(
+        "DistributionChannel", blank=True, verbose_name=_("distribution channels")
     )
-    note = models.TextField()
-    checked_on = models.DateTimeField(null=True)
-    published_on = models.DateTimeField(null=True)
+    sources = models.ManyToManyField(Source, verbose_name=_("sources"))
+    is_verified = models.BooleanField(default=False, verbose_name=_("is verified"))
+    requires_additional_review = models.BooleanField(
+        default=False, verbose_name=_("requires additional review")
+    )
+
+    class Meta:
+        verbose_name = _("piece of evidence")
+        verbose_name_plural = _("pieces of evidence")
 
     def __str__(self):
-        return f"{self.date}: {self.person} - {self.description}"
+        return self.title
+
+    @property
+    def title(self):
+        return textwrap.shorten(self.description, width=50, placeholder="...")
+
+    @property
+    def persons_or_organizations(self):
+        return PersonOrOrganization.objects.filter(
+            sources__in=self.sources.all()
+        ).distinct()
+
+    @property
+    def public_bodies(self):
+        return PublicBody.objects.filter(
+            recorded_sources__in=self.sources.all()
+        ).distinct()
+
+    @property
+    def attachments(self):
+        return Attachment.objects.filter(source__in=self.sources.all()).distinct()
 
     def get_absolute_url(self):
         return reverse("evidencecollection:evidence-detail", kwargs={"pk": self.pk})
+
+
+class EvidenceType(models.Model):
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("evidence type")
+        verbose_name_plural = _("evidence types")
+
+    def __str__(self):
+        return self.name
+
+
+class EvidenceCategory(models.Model):
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("evidence category")
+        verbose_name_plural = _("evidence categories")
+
+    def __str__(self):
+        return self.name
+
+
+class SpreadLevel(models.Model):
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("spread level")
+        verbose_name_plural = _("spread levels")
+
+    def __str__(self):
+        return self.name
+
+
+class DistributionChannel(models.Model):
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("distribution channel")
+        verbose_name_plural = _("distribution channels")
+
+    def __str__(self):
+        return self.name
