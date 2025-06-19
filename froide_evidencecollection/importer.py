@@ -107,6 +107,8 @@ class TableImporter:
                 value = row.get(source_field)
                 if value is None:
                     value = get_default_value(self.model, model_field)
+                if isinstance(value, str):
+                    value = value.strip()
                 mapped_row[model_field] = value
 
             mapped_row = self.prepare_row(mapped_row)
