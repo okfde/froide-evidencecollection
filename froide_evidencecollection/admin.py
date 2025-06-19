@@ -15,7 +15,7 @@ from .models import (
     Source,
     SpreadLevel,
 )
-from .regions import selectable_regions
+from .utils import selectable_regions
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):

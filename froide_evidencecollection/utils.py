@@ -1,6 +1,12 @@
 import logging
 
+from django.conf import settings
+
+from froide.georegion.models import GeoRegion
+
 logger = logging.getLogger(__name__)
+
+CONFIG = settings.FROIDE_EVIDENCECOLLECTION_NOCODB_IMPORT_CONFIG
 
 
 def get_default_value(model, field_name):
@@ -13,6 +19,16 @@ def get_default_value(model, field_name):
         return field.default()
 
     return field.default
+
+
+def selectable_regions():
+    config = CONFIG.get("selectable_regions")
+    queryset = GeoRegion.objects.all()
+
+    if config and "ids" in config:
+        queryset = queryset.filter(id__in=config["ids"])
+
+    return queryset
 
 
 class ImportStats:

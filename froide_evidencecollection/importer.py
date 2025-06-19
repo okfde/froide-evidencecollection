@@ -20,8 +20,11 @@ from froide_evidencecollection.models import (
     Role,
     Source,
 )
-from froide_evidencecollection.regions import selectable_regions
-from froide_evidencecollection.utils import ImportStats, get_default_value
+from froide_evidencecollection.utils import (
+    ImportStats,
+    get_default_value,
+    selectable_regions,
+)
 
 logger = logging.getLogger(__name__)
 
