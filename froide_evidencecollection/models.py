@@ -171,7 +171,9 @@ class Attachment(models.Model):
         related_name="attachments",
     )
     title = models.CharField(max_length=255, verbose_name=_("title"))
-    file = models.FileField(upload_to="attachments", verbose_name=_("file"))
+    file = models.FileField(
+        upload_to="attachments", max_length=255, verbose_name=_("file")
+    )
     mimetype = models.CharField(max_length=100, blank=True, verbose_name=_("mimetype"))
     size = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("size"))
     width = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("width"))
