@@ -483,7 +483,13 @@ class SourceImporter(TableImporter):
                 content = ContentFile(response.content)
                 filename = data["title"]
 
-                obj.file.save(filename, content, save=True)
+                try:
+                    with transaction.atomic():
+                        obj.file.save(filename, content, save=True)
+                except Exception as e:
+                    msg = f"Error saving file for attachment {ext_id}: {e}"
+                    self.handle_error(msg)
+                    continue
 
         new_ids = [a["id"] for a in self.attachments]
         self.delete_instances(Attachment, existing_objs.keys(), new_ids)
