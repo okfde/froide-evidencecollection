@@ -223,7 +223,7 @@ class EvidenceMixin(BreadcrumbView):
         return []
 
     def get_queryset(self):
-        return Evidence.objects.all()  # filter(is_verified=True)
+        return Evidence.objects.filter(is_verified=True)
 
 
 class EvidenceDetailView(EvidenceMixin, DetailView):
