@@ -299,7 +299,6 @@ class TableImporter:
     def handle_error(self, msg):
         """Handle errors during import."""
         if not self.debug:
-            logger.error(msg)
             raise ImportError(msg)
 
         logger.warning(msg)
