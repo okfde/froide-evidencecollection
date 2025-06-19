@@ -473,8 +473,8 @@ class SourceImporter(TableImporter):
 
             obj = self.create_or_update_instance(Attachment, obj, fields)
 
-            # Only download file if attachment did not exist yet.
-            if obj and not self.stats.instance_failed and created:
+            # Only download file if attachment did not already have one.
+            if obj and not obj.file and not self.stats.instance_failed:
                 response = requests.get(signed_url)
                 if response.status_code != 200:
                     self.handle_error(f"Download failed for {signed_url}")
@@ -486,6 +486,8 @@ class SourceImporter(TableImporter):
                 try:
                     with transaction.atomic():
                         obj.file.save(filename, content, save=True)
+                        if not created:
+                            self.stats.track("updated")
                 except Exception as e:
                     msg = f"Error saving file for attachment {ext_id}: {e}"
                     self.handle_error(msg)
