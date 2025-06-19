@@ -424,6 +424,11 @@ class SourceImporter(TableImporter):
             self.attachments.append(attachment)
 
     def prepare_row(self, row):
+        row["persons_or_organizations"] = [
+            int(data["Personen und Organisationen_id"])
+            for data in row["persons_or_organizations"]
+        ]
+
         row["recorded_by"] = [
             int(data["publicbody"]["id1"]) for data in row["recorded_by"]
         ]
@@ -489,6 +494,10 @@ class EvidenceImporter(TableImporter):
         date = row.get("date")
         if date and isinstance(date, str):
             row["date"] = datetime.strptime(date, "%Y-%m-%d").date()
+
+        row["sources"] = [
+            int(data["Belege und Aussagen_id"]) for data in row["sources"]
+        ]
 
         return row
 
