@@ -2,6 +2,8 @@
 
 ## Import from NocoDB
 
+### Setup
+
 In order to import data from NocoDB, you need to set the following environment variables:
 
 - `FROIDE_EVIDENCECOLLECTION_NOCODB_API_URL`: The base URL of the NocoDB instance.
@@ -11,8 +13,9 @@ In order to import data from NocoDB, you need to set the following environment v
   - `FROIDE_EVIDENCECOLLECTION_NOCODB_SOURCE_TABLE`
   - `FROIDE_EVIDENCECOLLECTION_NOCODB_EVIDENCE_TABLE`
   - `FROIDE_EVIDENCECOLLECTION_NOCODB_GROUP_TABLE`
+- `FROIDE_EVIDENCECOLLECTION_NOCODB_IMPORT_CONFIG`: a dictionary containing additional configuration options, see the `settings/base.py` file in the `fragdenstaat_de` project.
 
-Additional configuration options can be set in the Django settings file.
+### Run the Import
 
 The import can be run manually using the following command:
 
@@ -20,7 +23,7 @@ The import can be run manually using the following command:
 python manage.py import_nocodb
 ```
 
-If `DEBUG` is set to `True`, any import errors will be caught and logged to the console. If `DEBUG` is set to `False`, the import will fail immediately on any error and any changes will be rolled back.
+If `DEBUG` is set to `True`, any import errors will be caught and logged. If `DEBUG` is set to `False`, the import will fail immediately on any error and any changes will be rolled back.
 
 ## Rebuild Search Index
 
