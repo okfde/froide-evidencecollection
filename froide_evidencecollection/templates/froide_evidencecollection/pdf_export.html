@@ -37,23 +37,24 @@
                 <table>
                     <tr>
                         <th>{% trans "Date" %}</th>
-                        <td>{{ row.date }}</td>
+                        <td>{{ row.event_date }}</td>
                     </tr>
                     <tr>
                         <th>{% trans "Source" %}</th>
                         <td>
-                            {% if row.sources__recorded_by__name %}
-                                {{ row.sources__recorded_by__name }} – {{ row.sources__document_number }}
-                            {% endif %}
-                            {% if row.sources__url %}<a href="{{ row.sources__url }}" target="_blank">{{ row.sources__url }}</a>{% endif %}
+                            {% if row.reference_info %}{{ row.reference_info }}{% endif %}
+                            {% if row.reference_url %}<a href="{{ row.reference_url }}" target="_blank">{{ row.reference_url }}</a>{% endif %}
                         </td>
                     </tr>
                     <tr>
                         <th>{% trans "Evidence Type" %}</th>
-                        <td>{{ row.type__name }}</td>
+                        <td>{{ row.evidence_type__name }}</td>
                     </tr>
                 </table>
-                <div class="description">{{ row.description }}</div>
+                <div class="description">
+                    <p>{{ row.citation }}</p>
+                    <p>{{ row.description }}</p>
+                </div>
             </div>
         {% endfor %}
     </body>

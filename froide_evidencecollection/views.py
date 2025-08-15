@@ -19,25 +19,20 @@ from froide.helper.search.views import BaseSearchView
 from froide_evidencecollection.documents import EvidenceDocument
 
 from .filterset import EvidenceFilterSet
-from .models import Evidence
+from .models import EvidenceNew
 
 
 class EvidenceExporter:
     EXPORT_FIELDS = [
         ("id", _("Id")),
         ("date", _("Date")),
+        ("citation", _("Citation")),
         ("description", _("Description")),
-        ("type__name", _("Evidence Type")),
+        ("event_date", _("Event Date")),
+        ("evidence_type__name", _("Evidence Type")),
         ("evidence_category__name", _("Evidence Category")),
-        ("spread_level__name", _("Spread Level")),
-        ("distribution_channels__name", _("Distribution Channels")),
-        ("sources__url", _("Source URLs")),
-        ("sources__recorded_by__id", _("Source Public Body IDs")),
-        ("sources__recorded_by__name", _("Source Public Body Names")),
-        ("sources__file_reference", _("Source File References")),
-        ("sources__document_number", _("Source Document Numbers")),
-        ("sources__persons_or_organizations__name", _("Person Or Organization Names")),
-        ("sources__attribution_bases__name", _("Attribution Bases")),
+        ("reference_url", _("Source URL")),
+        ("reference_info", _("Source (Additional Information)")),
     ]
     FORMATS = ["csv", "xlsx", "pdf"]
 
@@ -223,7 +218,7 @@ class EvidenceMixin(BreadcrumbView):
         return []
 
     def get_queryset(self):
-        return Evidence.objects.filter(is_verified=True)
+        return EvidenceNew.objects.all()
 
 
 class EvidenceDetailView(EvidenceMixin, DetailView):
@@ -244,7 +239,7 @@ class EvidenceListView(BaseSearchView):
     template_name = "froide_evidencecollection/list.html"
     filterset = EvidenceFilterSet
     document = EvidenceDocument
-    model = Evidence
+    model = EvidenceNew
     search_url_name = "evidencecollection:evidence-list"
 
     def get_context_data(self, **kwargs):
