@@ -1,12 +1,25 @@
 import logging
 
 from django.conf import settings
+from django.db import models
 
 from froide.georegion.models import GeoRegion
 
 logger = logging.getLogger(__name__)
 
 CONFIG = settings.FROIDE_EVIDENCECOLLECTION_NOCODB_IMPORT_CONFIG
+
+
+def get_base_class_name(model):
+    """
+    Returns the base class name of a Django model.
+    If returns the name of the first parent class that is not `models.Model`.
+    """
+    for base in model.__bases__:
+        if base is not models.Model:
+            return base.__name__
+
+    return model.__name__
 
 
 def get_default_value(model, field_name):
