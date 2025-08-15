@@ -12,16 +12,20 @@ import requests
 
 from froide_evidencecollection.models import (
     Affiliation,
+    AffiliationNew,
     Attachment,
-    Evidence,
-    Group,
+    AttachmentNew,
+    EvidenceNew,
     Institution,
+    Organization,
+    Person,
     PersonOrOrganization,
     Role,
     Source,
 )
 from froide_evidencecollection.utils import (
     ImportStats,
+    get_base_class_name,
     get_default_value,
     selectable_regions,
 )
@@ -34,8 +38,9 @@ API_TOKEN = CONFIG["api_token"]
 
 
 class TableDataFetcher:
-    def __init__(self, table_name):
+    def __init__(self, table_name, view_name=None):
         self.table_name = table_name
+        self.view_name = view_name
 
     def iter_rows(self):
         offset = 0
@@ -59,6 +64,8 @@ class TableDataFetcher:
         params = {
             "offset": offset,
         }
+        if self.view_name:
+            params["viewId"] = self.view_name
 
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
@@ -77,6 +84,7 @@ class TableImporter:
         self.debug = settings.DEBUG
         self.model = model
         self.model_name = model.__name__
+        self.base_model_name = get_base_class_name(model)
         self.field_map = CONFIG["field_map"][self.model_name]
         self.relation_config = CONFIG["relations"][self.model_name]
         self.null_label = CONFIG["null_label"]
@@ -84,8 +92,9 @@ class TableImporter:
         self.obj_data = None
         self.relation_values = None
 
-        table_name = CONFIG["tables"][self.model_name]
-        self.fetcher = TableDataFetcher(table_name)
+        table_name = CONFIG["tables"][self.base_model_name]
+        view_name = CONFIG["views"].get(f"{self.base_model_name}_{self.model_name}")
+        self.fetcher = TableDataFetcher(table_name, view_name)
         self.stats = ImportStats()
 
     def run(self):
@@ -152,14 +161,11 @@ class TableImporter:
         self.stats.reset()
 
         for ext_id, fields in self.obj_data.items():
-            init_fields = {
-                k: v for k, v in fields.items() if k not in self.relation_config
-            }
             obj = existing_objs.get(ext_id)
-            obj = self.create_or_update_instance(self.model, obj, init_fields)
+            obj = self.create_or_update_instance(self.model, obj, fields, related_cache)
 
             if obj and not self.stats.instance_failed:
-                self.process_relations(obj, fields, related_cache)
+                self.process_m2m_relations(obj, fields, related_cache)
 
         self.delete_instances(self.model, existing_objs.keys(), self.obj_data.keys())
 
@@ -205,26 +211,32 @@ class TableImporter:
 
         return cache
 
-    def create_or_update_instance(self, model, obj, fields):
+    def create_or_update_instance(self, model, obj, fields, related_cache=None):
         """Create or update an instance of the given model with the provided fields."""
         self.stats.reset_instance()
         update = False
 
+        init_fields = {k: v for k, v in fields.items() if k not in self.relation_config}
+
         if obj:
-            for k, v in fields.items():
+            for k, v in init_fields.items():
                 if getattr(obj, k) != v:
                     setattr(obj, k, v)
                     update = True
             if update:
+                if related_cache:
+                    self.process_fk_relations(obj, fields, related_cache)
                 self.save_instance(obj)
         else:
-            obj = model(**fields)
+            obj = model(**init_fields)
+            if related_cache:
+                self.process_fk_relations(obj, fields, related_cache)
             self.save_instance(obj, is_new=True)
 
         return obj
 
-    def process_relations(self, obj, fields, related_cache):
-        """Update FK and M2M relations if they have changed."""
+    def process_fk_relations(self, obj, fields, related_cache):
+        """Update FK relations if they have changed."""
         for rel_field, cfg in self.relation_config.items():
             raw = fields.get(rel_field)
             if cfg["type"] == "fk":
@@ -235,8 +247,12 @@ class TableImporter:
                 new_id = new_obj.pk if new_obj else None
                 if getattr(obj, f"{rel_field}_id") != new_id:
                     setattr(obj, f"{rel_field}_id", new_id)
-                    self.save_instance(obj)
-            elif cfg["type"] == "m2m" and raw:
+
+    def process_m2m_relations(self, obj, fields, related_cache):
+        """Update M2M relations if they have changed."""
+        for rel_field, cfg in self.relation_config.items():
+            raw = fields.get(rel_field)
+            if cfg["type"] == "m2m" and raw:
                 new_objs = [
                     related_cache[rel_field][v]
                     for v in raw
@@ -305,6 +321,148 @@ class TableImporter:
 
         logger.warning(msg)
         self.stats.track("skipped")
+
+
+class PersonImporter(TableImporter):
+    def prepare_row(self, row):
+        aka_str = row.get("also_known_as")
+        row["also_known_as"] = aka_str.split(",") if aka_str else []
+
+        return row
+
+
+class OrganizationImporter(TableImporter):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.region_map = {obj.name: obj.pk for obj in selectable_regions()}
+        self.special_regions = CONFIG.get("special_regions", [])
+
+    def prepare_row(self, row):
+        region_str = row["regions"]
+        region_names = region_str.split(",") if region_str else []
+
+        special_region_names = [
+            region for region in region_names if region in self.special_regions
+        ]
+
+        try:
+            with transaction.atomic():
+                region_ids = [
+                    self.region_map[region]
+                    for region in region_names
+                    if region not in self.special_regions
+                ]
+        except KeyError as e:
+            self.handle_error(
+                f'Region "{e.args[0]}" not found for "{row["organization_name"]}"'
+            )
+            region_ids = []
+
+        row["regions"] = region_ids
+        row["special_regions"] = special_region_names
+
+        aka_str = row.get("also_known_as")
+        row["also_known_as"] = aka_str.split(",") if aka_str else []
+
+        return row
+
+
+class AffiliationImporter(TableImporter):
+    def prepare_row(self, row):
+        if row["role"] is not None:
+            row["role"] = row["role"]["Bezeichnung"]
+
+        return row
+
+
+class EvidenceNewImporter(TableImporter):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attachments = []
+
+    def collect_additional_data(self, row):
+        for attachment in row.get("Screenshot(s)") or []:
+            attachment["evidence_id"] = row["Id"]
+            self.attachments.append(attachment)
+
+    def prepare_row(self, row):
+        row["originators"] = [
+            int(data["Personen und Organisationen_id"]) for data in row["originators"]
+        ]
+
+        row["related_actors"] = [
+            int(data["Personen und Organisationen_id"])
+            for data in row["related_actors"]
+        ]
+
+        row["attribution_evidence"] = [
+            int(data["Quellen und Belege_id"]) for data in row["attribution_evidence"]
+        ]
+
+        return row
+
+    def create_or_update_related_instances(self):
+        self.stats.reset()
+
+        existing_objs = AttachmentNew.objects.in_bulk(field_name="external_id")
+        evidence_objs = EvidenceNew.objects.in_bulk(field_name="external_id")
+
+        for data in self.attachments:
+            ext_id = data.get("id")
+            signed_url = data.get("signedUrl")
+            evidence_id = data.get("evidence_id")
+
+            if not ext_id or not signed_url or not evidence_id:
+                self.handle_error(f"Missing data in attachment: {data}")
+                continue
+
+            evidence = evidence_objs.get(evidence_id)
+            if not evidence:
+                msg = f"No evidence with ID {evidence_id} found for attachment {ext_id}"
+                self.handle_error(msg)
+                continue
+
+            obj = existing_objs.get(ext_id)
+            created = False if obj else True
+
+            fields = {
+                "external_id": ext_id,
+                "evidence": evidence,
+                "title": data.get("title"),
+                "mimetype": data.get("mimetype"),
+                "size": data.get("size"),
+                "width": data.get("width"),
+                "height": data.get("height"),
+            }
+
+            obj = self.create_or_update_instance(AttachmentNew, obj, fields)
+
+            # Only download file if attachment did not already have one.
+            if obj and not obj.file and not self.stats.instance_failed:
+                logger.info(f"Downloading attachment file from {signed_url} ...")
+
+                response = requests.get(signed_url)
+                if response.status_code != 200:
+                    self.handle_error(f"Download failed for {signed_url}")
+                    continue
+
+                content = ContentFile(response.content)
+                filename = data["title"]
+
+                try:
+                    with transaction.atomic():
+                        obj.file.save(filename, content, save=True)
+                        if not created:
+                            self.stats.track("updated")
+                except Exception as e:
+                    msg = f"Error saving file for attachment {ext_id}: {e}"
+                    self.handle_error(msg)
+                    continue
+
+        new_ids = [a["id"] for a in self.attachments]
+        self.delete_instances(AttachmentNew, existing_objs.keys(), new_ids)
+
+        self.stats.print_summary("AttachmentNew")
 
 
 class PersonOrOrganizationImporter(TableImporter):
@@ -524,10 +682,10 @@ class GroupImporter(TableImporter):
 class NocoDBImporter:
     def __init__(self):
         self.table_importers = [
-            PersonOrOrganizationImporter(PersonOrOrganization),
-            SourceImporter(Source),
-            EvidenceImporter(Evidence),
-            GroupImporter(Group),
+            PersonImporter(Person),
+            OrganizationImporter(Organization),
+            AffiliationImporter(AffiliationNew),
+            EvidenceNewImporter(EvidenceNew),
         ]
 
     @transaction.atomic
