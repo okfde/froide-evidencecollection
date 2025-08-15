@@ -1,19 +1,16 @@
 from django import forms
 from django.conf import settings
 from django.contrib import admin
+from django.utils.safestring import mark_safe
 
 from .models import (
-    Attachment,
-    AttributionBasis,
-    Evidence,
-    EvidenceCategory,
-    EvidenceType,
-    Group,
-    Institution,
-    PersonOrOrganization,
+    AffiliationNew,
+    AttachmentNew,
+    Collection,
+    EvidenceNew,
+    Organization,
+    Person,
     Role,
-    Source,
-    SpreadLevel,
 )
 from .utils import selectable_regions
 
@@ -21,7 +18,7 @@ from .utils import selectable_regions
 class ReadOnlyAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         if obj is None or settings.DEBUG:
-            return ()
+            return self.readonly_fields
         else:
             return tuple(
                 [field.name for field in obj._meta.fields]
@@ -36,78 +33,116 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 
 
 class AffiliationInline(admin.TabularInline):
-    model = PersonOrOrganization.affiliations.through
+    model = AffiliationNew
     extra = 0
-    fields = ["institution", "role"]
+    fields = ["organization", "role", "start_date_string", "end_date_string"]
 
 
-class PersonOrOrganizationAdminForm(forms.ModelForm):
+@admin.register(Person)
+class PersonAdmin(ReadOnlyAdmin):
+    inlines = [AffiliationInline]
+    list_display = [
+        "last_name",
+        "first_name",
+        "also_known_as",
+        "wikidata_link",
+        "aw_link",
+    ]
+    fields = [
+        "external_id",
+        "title",
+        "first_name",
+        "last_name",
+        "also_known_as",
+        "wikidata_link",
+        "aw_link",
+        "status",
+    ]
+    readonly_fields = ["wikidata_link", "aw_link"]
+    list_filter = [
+        "affiliations__organization__institutional_level",
+        "affiliations__role",
+        "affiliations__organization",
+    ]
+    search_fields = ["first_name", "last_name", "also_known_as"]
+
+    def wikidata_link(self, obj):
+        if obj.wikidata_url:
+            return mark_safe(
+                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_url}</a>'
+            )
+        return ""
+
+    def aw_link(self, obj):
+        if obj.aw_url:
+            return mark_safe(f'<a href="{obj.aw_url}" target="_blank">{obj.aw_url}</a>')
+        return ""
+
+
+class OrganizationAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["regions"].queryset = selectable_regions()
 
 
-class PersonOrOrganizationAdmin(ReadOnlyAdmin):
-    form = PersonOrOrganizationAdminForm
-    inlines = [AffiliationInline]
-    list_display = (
-        "name",
-        "is_active",
-    )
-    fields = (
+@admin.register(Organization)
+class OrganizationAdmin(ReadOnlyAdmin):
+    form = OrganizationAdminForm
+    list_display = [
+        "organization_name",
+        "also_known_as",
+        "wikidata_link",
+        "institutional_level",
+        "region_list",
+    ]
+    fields = [
         "external_id",
-        "name",
+        "organization_name",
+        "also_known_as",
+        "wikidata_link",
+        "institutional_level",
         "regions",
         "special_regions",
-        "is_active",
-    )
-
-    list_filter = ["affiliations", "is_active"]
+        "status",
+    ]
+    readonly_fields = ["wikidata_link"]
     filter_horizontal = ("regions",)
-    search_fields = ["name"]
+    list_filter = ["institutional_level", "affiliations__person"]
+    search_fields = ["organization_name", "also_known_as"]
+
+    def wikidata_link(self, obj):
+        if obj.wikidata_url:
+            return mark_safe(
+                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_url}</a>'
+            )
+        return ""
+
+    def region_list(self, obj):
+        return ", ".join([region.name for region in obj.regions.all()])
 
 
 class AttachmentInline(admin.TabularInline):
-    model = Attachment
+    model = AttachmentNew
     extra = 0
 
 
-class SourceAdmin(ReadOnlyAdmin):
-    inlines = [AttachmentInline]
-    list_display = ("reference_value", "file_reference", "document_number")
-    fields = (
-        "external_id",
-        "reference_value",
-        "persons_or_organizations",
-        "url",
-        "attribution_bases",
-        "file_reference",
-        "document_number",
-        "is_on_record",
-        "recorded_by",
-    )
-    filter_horizontal = ("persons_or_organizations", "attribution_bases")
-    search_fields = ("reference_value", "file_reference", "document_number")
-
-
+@admin.register(EvidenceNew)
 class EvidenceAdmin(ReadOnlyAdmin):
-    list_display = ("description", "date", "type")
+    inlines = [AttachmentInline]
+    list_display = ["external_id", "title", "evidence_type", "originator_list"]
+    filter_horizontal = [
+        "collections",
+        "originators",
+        "related_actors",
+        "attribution_evidence",
+        "attribution_problems",
+    ]
+    list_filter = ["collections", "evidence_type", "legal_assessment", "originators"]
+    search_fields = ["citation", "description"]
+
+    def originator_list(self, obj):
+        return ", ".join([originator.name for originator in obj.originators.all()])
 
 
-class GroupAdmin(ReadOnlyAdmin):
-    list_display = ("name",)
-    fields = ("external_id", "name", "members")
-    filter_horizontal = ("members",)
-    search_fields = ("name",)
-
-
-admin.site.register(AttributionBasis, ReadOnlyAdmin)
-admin.site.register(Evidence, EvidenceAdmin)
-admin.site.register(EvidenceType, ReadOnlyAdmin)
-admin.site.register(EvidenceCategory, ReadOnlyAdmin)
-admin.site.register(Group, GroupAdmin)
-admin.site.register(Institution, ReadOnlyAdmin)
-admin.site.register(PersonOrOrganization, PersonOrOrganizationAdmin)
+admin.site.register(Collection, ReadOnlyAdmin)
 admin.site.register(Role, ReadOnlyAdmin)
-admin.site.register(Source, SourceAdmin)
-admin.site.register(SpreadLevel, ReadOnlyAdmin)

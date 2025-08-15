@@ -6,7 +6,7 @@ from elasticsearch_dsl.query import Q as ESQ
 from froide.helper.search.filters import BaseSearchFilterSet
 from froide.helper.widgets import DateRangeWidget
 
-from .models import Evidence
+from .models import EvidenceNew
 
 
 def override_field_default(cls, field, overrides=None, extra=None):
@@ -21,7 +21,7 @@ def override_field_default(cls, field, overrides=None, extra=None):
 
 
 class EvidenceFilterSet(BaseSearchFilterSet):
-    query_fields = ["description"]
+    query_fields = ["citation", "description"]
 
     def filter_foreignkey(self, qs, name, value):
         return self.apply_filter(qs, name, **{name: value.id})
@@ -36,12 +36,11 @@ class EvidenceFilterSet(BaseSearchFilterSet):
         return self.apply_filter(qs, name, ESQ("range", **{name: range_kwargs}))
 
     class Meta:
-        model = Evidence
+        model = EvidenceNew
         fields = [
             "q",
-            "date",
-            "type",
-            "spread_level",
+            "event_date",
+            "evidence_type",
         ]
 
         filter_overrides = {

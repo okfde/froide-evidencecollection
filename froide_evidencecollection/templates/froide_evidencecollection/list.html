@@ -30,9 +30,9 @@
                                     <td>
                                         <a href="{{ object.get_absolute_url }}">{{ object }}</a>
                                     </td>
-                                    <td>{{ object.date }}</td>
+                                    <td>{{ object.event_date }}</td>
                                     <td>
-                                        {{ object.persons_or_organizations.all|join:"<br>" }}
+                                        {{ object.originators.all|join:"<br>" }}
                                     </td>
                                 </tr>
                             {% endfor %}

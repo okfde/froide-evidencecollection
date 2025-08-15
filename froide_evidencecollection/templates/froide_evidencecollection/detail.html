@@ -15,47 +15,30 @@
                             <dl>
                                 <dt>{% trans "Date" %}</dt>
                                 <dd>
-                                    {{ object.date }}
+                                    {{ object.event_date }}
                                 </dd>
-                                <dt>{% trans "Sources" %}</dt>
+                                <dt>{% trans "Source" %}</dt>
                                 <dd>
-                                    {% for source in object.sources.all %}
-                                        {% if source.recorded_by %}
-                                            <a href="{{ source.recorded_by.get_absolute_url }}" target="_blank">{{ source.recorded_by.name }}</a> –
-                                            {% if source.url %}
-                                                <a href="{{ source.url }}" target="_blank">{{ source.document_number }}</a>
-                                            {% else %}
-                                                {{ source.document_number }}
-                                            {% endif %}
-                                        {% else %}
-                                            <a href="{{ source.url }}" target="_blank">{{ source.domain }}</a>
-                                        {% endif %}
-                                        <br>
-                                    {% endfor %}
+                                    {% if object.reference_url %}<a href="{{ object.reference_url }}" target="_blank">{{ source.domain }}</a>{% endif %}
+                                    {% if object.reference_info %}{{ object.reference_info }}{% endif %}
                                 </dd>
                                 <dt>{% trans "Evidence Type" %}</dt>
                                 <dd>
-                                    {{ object.type }}
+                                    {{ object.evidence_type }}
                                 </dd>
                                 <dt>{% trans "Evidence Categories" %}</dt>
                                 <dd>
                                     {{ object.categories.all|join:"<br>" }}
                                 </dd>
-                                <dt>{% trans "Spread Level" %}</dt>
+                                <dt>{% trans "Originators" %}</dt>
                                 <dd>
-                                    {{ object.spread_level }}
-                                </dd>
-                                <dt>{% trans "Persons or Organizations" %}</dt>
-                                <dd>
-                                    {{ object.persons_or_organizations.all|join:"<br>" }}
-                                </dd>
-                                <dt>{% trans "Distribution Channels" %}</dt>
-                                <dd>
-                                    {{ object.distribution_channels.all|join:"<br>" }}
+                                    {{ object.originators.all|join:"<br>" }}
                                 </dd>
                             </dl>
                         </div>
                         <div class="col col-12 col-md-8">
+                            {{ object.citation|markdown }}
+                            <br>
                             {{ object.description|markdown }}
                             {% for attachment in object.attachments.all %}
                                 <div class="mt-3">
