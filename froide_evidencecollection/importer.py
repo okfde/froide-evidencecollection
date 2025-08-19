@@ -459,13 +459,15 @@ class EvidenceImporter(TableImporter):
 
 
 class NocoDBImporter:
-    def __init__(self):
+    def __init__(self, full_import=False):
         self.table_importers = [
             PersonImporter(Person),
             OrganizationImporter(Organization),
             AffiliationImporter(Affiliation),
-            EvidenceImporter(Evidence),
         ]
+
+        if full_import:
+            self.table_importers.append(EvidenceImporter(Evidence))
 
     @transaction.atomic
     def run(self):
