@@ -9,9 +9,9 @@ from django.db import transaction
 import requests
 
 from froide_evidencecollection.models import (
-    AffiliationNew,
-    AttachmentNew,
-    EvidenceNew,
+    Affiliation,
+    Attachment,
+    Evidence,
     Organization,
     Person,
 )
@@ -368,7 +368,7 @@ class AffiliationImporter(TableImporter):
         return row
 
 
-class EvidenceNewImporter(TableImporter):
+class EvidenceImporter(TableImporter):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.attachments = []
@@ -397,8 +397,8 @@ class EvidenceNewImporter(TableImporter):
     def create_or_update_related_instances(self):
         self.stats.reset()
 
-        existing_objs = AttachmentNew.objects.in_bulk(field_name="external_id")
-        evidence_objs = EvidenceNew.objects.in_bulk(field_name="external_id")
+        existing_objs = Attachment.objects.in_bulk(field_name="external_id")
+        evidence_objs = Evidence.objects.in_bulk(field_name="external_id")
 
         for data in self.attachments:
             ext_id = data.get("id")
@@ -428,7 +428,7 @@ class EvidenceNewImporter(TableImporter):
                 "height": data.get("height"),
             }
 
-            obj = self.create_or_update_instance(AttachmentNew, obj, fields)
+            obj = self.create_or_update_instance(Attachment, obj, fields)
 
             # Only download file if attachment did not already have one.
             if obj and not obj.file and not self.stats.instance_failed:
@@ -453,9 +453,9 @@ class EvidenceNewImporter(TableImporter):
                     continue
 
         new_ids = [a["id"] for a in self.attachments]
-        self.delete_instances(AttachmentNew, existing_objs.keys(), new_ids)
+        self.delete_instances(Attachment, existing_objs.keys(), new_ids)
 
-        self.stats.print_summary("AttachmentNew")
+        self.stats.print_summary("Attachment")
 
 
 class NocoDBImporter:
@@ -463,8 +463,8 @@ class NocoDBImporter:
         self.table_importers = [
             PersonImporter(Person),
             OrganizationImporter(Organization),
-            AffiliationImporter(AffiliationNew),
-            EvidenceNewImporter(EvidenceNew),
+            AffiliationImporter(Affiliation),
+            EvidenceImporter(Evidence),
         ]
 
     @transaction.atomic

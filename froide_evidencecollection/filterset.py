@@ -6,7 +6,7 @@ from elasticsearch_dsl.query import Q as ESQ
 from froide.helper.search.filters import BaseSearchFilterSet
 from froide.helper.widgets import DateRangeWidget
 
-from .models import EvidenceNew
+from .models import Evidence
 
 
 def override_field_default(cls, field, overrides=None, extra=None):
@@ -36,7 +36,7 @@ class EvidenceFilterSet(BaseSearchFilterSet):
         return self.apply_filter(qs, name, ESQ("range", **{name: range_kwargs}))
 
     class Meta:
-        model = EvidenceNew
+        model = Evidence
         fields = [
             "q",
             "event_date",

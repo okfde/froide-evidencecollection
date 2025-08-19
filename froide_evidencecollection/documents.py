@@ -7,7 +7,7 @@ from froide.helper.search import (
     get_text_analyzer,
 )
 
-from .models import EvidenceNew, Person
+from .models import Evidence, Person
 
 evidence_index = get_index("evidence")
 person_index = get_index("person")
@@ -28,7 +28,7 @@ class EvidenceDocument(Document):
     )
 
     class Django:
-        model = EvidenceNew
+        model = Evidence
         fields = ["citation", "description", "event_date"]
         fts_fields = ["citation"]
 
@@ -40,10 +40,10 @@ class EvidenceDocument(Document):
             .select_related("evidence_type")
         )
 
-    def prepare_originators(self, obj: EvidenceNew):
+    def prepare_originators(self, obj: Evidence):
         return list(obj.originators.values_list("id", flat=True))
 
-    def prepare_originator_names(self, obj: EvidenceNew):
+    def prepare_originator_names(self, obj: Evidence):
         return list(obj.originators.values_list("name", flat=True))
 
     @classmethod

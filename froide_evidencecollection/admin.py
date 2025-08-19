@@ -4,10 +4,10 @@ from django.contrib import admin
 from django.utils.safestring import mark_safe
 
 from .models import (
-    AffiliationNew,
-    AttachmentNew,
+    Affiliation,
+    Attachment,
     Collection,
-    EvidenceNew,
+    Evidence,
     Organization,
     Person,
     Role,
@@ -33,7 +33,7 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 
 
 class AffiliationInline(admin.TabularInline):
-    model = AffiliationNew
+    model = Affiliation
     extra = 0
     fields = ["organization", "role", "start_date_string", "end_date_string"]
 
@@ -122,11 +122,11 @@ class OrganizationAdmin(ReadOnlyAdmin):
 
 
 class AttachmentInline(admin.TabularInline):
-    model = AttachmentNew
+    model = Attachment
     extra = 0
 
 
-@admin.register(EvidenceNew)
+@admin.register(Evidence)
 class EvidenceAdmin(ReadOnlyAdmin):
     inlines = [AttachmentInline]
     list_display = ["external_id", "title", "evidence_type", "originator_list"]
