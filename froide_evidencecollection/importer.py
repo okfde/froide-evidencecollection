@@ -1,27 +1,19 @@
 import logging
 from collections import defaultdict
-from datetime import datetime
 
 from django.apps import apps
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.db.models import Q
 
 import requests
 
 from froide_evidencecollection.models import (
-    Affiliation,
     AffiliationNew,
-    Attachment,
     AttachmentNew,
     EvidenceNew,
-    Institution,
     Organization,
     Person,
-    PersonOrOrganization,
-    Role,
-    Source,
 )
 from froide_evidencecollection.utils import (
     ImportStats,
@@ -464,220 +456,6 @@ class EvidenceNewImporter(TableImporter):
         self.delete_instances(AttachmentNew, existing_objs.keys(), new_ids)
 
         self.stats.print_summary("AttachmentNew")
-
-
-class PersonOrOrganizationImporter(TableImporter):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.institution_role_map = CONFIG["institution_role_map"]
-        self.affiliations = {}
-        self.region_map = {obj.name: obj.pk for obj in selectable_regions()}
-        self.special_regions = CONFIG.get("special_regions", [])
-
-    def collect_additional_data(self, row):
-        person = row["Name/Bezeichnung"]
-        institutions = row["Institution/Parteiebene"]
-
-        if not institutions:
-            self.handle_error(f'No institution found for "{person}')
-            return
-
-        for institution in institutions.split(","):
-            role_row = self.institution_role_map.get(institution)
-            roles = row.get(role_row) if role_row else None
-
-            if not roles:
-                msg = f'No role found for institution "{institution}" for "{person}"'
-                logger.warn(msg)
-                continue
-
-            self.affiliations[row["id"]] = [
-                {"institution": institution, "role": role} for role in roles.split(",")
-            ]
-
-    def prepare_row(self, row):
-        region_str = row["regions"] or ""
-        region_names = region_str.split(",")
-
-        special_region_names = [
-            region for region in region_names if region in self.special_regions
-        ]
-
-        try:
-            with transaction.atomic():
-                region_ids = [
-                    self.region_map[region]
-                    for region in region_names
-                    if region not in self.special_regions
-                ]
-        except KeyError as e:
-            self.handle_error(f'Region "{e.args[0]}" not found for "{row["name"]}"')
-            region_ids = []
-
-        row["regions"] = region_ids
-        row["special_regions"] = special_region_names
-
-        return row
-
-    def create_or_update_related_instances(self):
-        self.stats.reset()
-        affiliations = self.affiliations
-
-        new_insts = {d["institution"] for data in affiliations.values() for d in data}
-        new_roles = {d["role"] for data in affiliations.values() for d in data}
-
-        persons = PersonOrOrganization.objects.in_bulk(
-            affiliations.keys(), field_name="external_id"
-        )
-        insts = self.get_related_instances(Institution, new_insts, "name", create=True)
-        roles = self.get_related_instances(Role, new_roles, "name", create=True)
-
-        for person_id, data in affiliations.items():
-            person = persons.get(person_id)
-            if not person:
-                msg = f"No person or organization with ID {person_id} found"
-                self.handle_error(msg)
-                continue
-
-            new_affiliations = set()
-            for d in data:
-                inst = insts.get(d["institution"])
-                role = roles.get(d["role"])
-                new_affiliations.add((inst.id, role.id))
-
-            current_affiliations = Affiliation.objects.filter(
-                person_or_organization=person
-            ).values_list("institution_id", "role_id")
-
-            to_delete = set(current_affiliations) - new_affiliations
-            to_create = new_affiliations - set(current_affiliations)
-
-            if to_delete:
-                query = Q()
-                for inst_id, role_id in to_delete:
-                    query |= Q(institution_id=inst_id, role_id=role_id)
-                Affiliation.objects.filter(person_or_organization=person).filter(
-                    query
-                ).delete()
-                self.stats.track("deleted", len(to_delete))
-
-            if to_create:
-                for inst_id, role_id in to_create:
-                    self.stats.reset_instance()
-                    affiliation = Affiliation(
-                        person_or_organization=person,
-                        institution_id=inst_id,
-                        role_id=role_id,
-                    )
-                    self.save_instance(affiliation, is_new=True)
-
-        self.stats.print_summary("Affiliation")
-
-
-class SourceImporter(TableImporter):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.attachments = []
-
-    def collect_additional_data(self, row):
-        for attachment in row["Screenshot"]:
-            attachment["source_id"] = row["id"]
-            self.attachments.append(attachment)
-
-    def prepare_row(self, row):
-        row["persons_or_organizations"] = [
-            int(data["Personen und Organisationen_id"])
-            for data in row["persons_or_organizations"]
-        ]
-
-        row["recorded_by"] = [
-            int(data["publicbody"]["id1"]) for data in row["recorded_by"]
-        ]
-
-        return row
-
-    def create_or_update_related_instances(self):
-        self.stats.reset()
-
-        existing_objs = Attachment.objects.in_bulk(field_name="external_id")
-        sources = Source.objects.in_bulk(field_name="external_id")
-
-        for data in self.attachments:
-            ext_id = data.get("id")
-            signed_url = data.get("signedUrl")
-            source_id = data.get("source_id")
-
-            if not ext_id or not signed_url or not source_id:
-                self.handle_error(f"Missing data in attachment: {data}")
-                continue
-
-            source = sources.get(source_id)
-            if not source:
-                msg = f"No source with ID {source_id} found for attachment {ext_id}"
-                self.handle_error(msg)
-                continue
-
-            obj = existing_objs.get(ext_id)
-            created = False if obj else True
-
-            fields = {
-                "external_id": ext_id,
-                "source": source,
-                "title": data.get("title"),
-                "mimetype": data.get("mimetype"),
-                "size": data.get("size"),
-                "width": data.get("width"),
-                "height": data.get("height"),
-            }
-
-            obj = self.create_or_update_instance(Attachment, obj, fields)
-
-            # Only download file if attachment did not already have one.
-            if obj and not obj.file and not self.stats.instance_failed:
-                response = requests.get(signed_url)
-                if response.status_code != 200:
-                    self.handle_error(f"Download failed for {signed_url}")
-                    continue
-
-                content = ContentFile(response.content)
-                filename = data["title"]
-
-                try:
-                    with transaction.atomic():
-                        obj.file.save(filename, content, save=True)
-                        if not created:
-                            self.stats.track("updated")
-                except Exception as e:
-                    msg = f"Error saving file for attachment {ext_id}: {e}"
-                    self.handle_error(msg)
-                    continue
-
-        new_ids = [a["id"] for a in self.attachments]
-        self.delete_instances(Attachment, existing_objs.keys(), new_ids)
-
-        self.stats.print_summary("Attachment")
-
-
-class EvidenceImporter(TableImporter):
-    def prepare_row(self, row):
-        date = row.get("date")
-        if date and isinstance(date, str):
-            row["date"] = datetime.strptime(date, "%Y-%m-%d").date()
-
-        row["sources"] = [
-            int(data["Belege und Aussagen_id"]) for data in row["sources"]
-        ]
-
-        return row
-
-
-class GroupImporter(TableImporter):
-    def prepare_row(self, row):
-        row["members"] = [
-            int(data["Personen und Organisationen_id"]) for data in row["members"]
-        ]
-
-        return row
 
 
 class NocoDBImporter:
