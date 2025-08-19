@@ -25,6 +25,7 @@ from froide_evidencecollection.models import (
 )
 from froide_evidencecollection.utils import (
     ImportStats,
+    equals,
     get_base_class_name,
     get_default_value,
     selectable_regions,
@@ -220,7 +221,7 @@ class TableImporter:
 
         if obj:
             for k, v in init_fields.items():
-                if getattr(obj, k) != v:
+                if not equals(getattr(obj, k), v):
                     setattr(obj, k, v)
                     update = True
             if update:
