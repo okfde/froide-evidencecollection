@@ -19,7 +19,7 @@ from froide.helper.search.views import BaseSearchView
 from froide_evidencecollection.documents import EvidenceDocument
 
 from .filterset import EvidenceFilterSet
-from .models import EvidenceNew
+from .models import Evidence
 
 
 class EvidenceExporter:
@@ -218,7 +218,7 @@ class EvidenceMixin(BreadcrumbView):
         return []
 
     def get_queryset(self):
-        return EvidenceNew.objects.all()
+        return Evidence.objects.all()
 
 
 class EvidenceDetailView(EvidenceMixin, DetailView):
@@ -239,7 +239,7 @@ class EvidenceListView(BaseSearchView):
     template_name = "froide_evidencecollection/list.html"
     filterset = EvidenceFilterSet
     document = EvidenceDocument
-    model = EvidenceNew
+    model = Evidence
     search_url_name = "evidencecollection:evidence-list"
 
     def get_context_data(self, **kwargs):

@@ -180,7 +180,7 @@ class Role(models.Model):
         return self.name
 
 
-class AffiliationNew(models.Model):
+class Affiliation(models.Model):
     external_id = models.PositiveIntegerField(
         unique=True, verbose_name=_("external ID")
     )
@@ -221,7 +221,7 @@ class AffiliationNew(models.Model):
         verbose_name_plural = _("affiliations")
 
 
-class EvidenceNew(models.Model):
+class Evidence(models.Model):
     external_id = models.PositiveIntegerField(
         unique=True, verbose_name=_("external ID")
     )
@@ -272,7 +272,7 @@ class EvidenceNew(models.Model):
         blank=True, default="", verbose_name=_("attribution justification")
     )
     attribution_evidence = models.ManyToManyField(
-        "EvidenceNew", blank=True, verbose_name=_("attribution evidence")
+        "Evidence", blank=True, verbose_name=_("attribution evidence")
     )
     attribution_problems = models.ManyToManyField(
         "AttributionProblem", blank=True, verbose_name=_("attribution problems")
@@ -326,12 +326,12 @@ class Collection(models.Model):
         return self.name
 
 
-class AttachmentNew(models.Model):
+class Attachment(models.Model):
     external_id = models.CharField(
         unique=True, max_length=100, verbose_name=_("external ID")
     )
     evidence = models.ForeignKey(
-        EvidenceNew,
+        Evidence,
         on_delete=models.CASCADE,
         verbose_name=_("evidence"),
         related_name="attachments",
