@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 from django.conf import settings
@@ -32,6 +33,16 @@ def get_default_value(model, field_name):
         return field.default()
 
     return field.default
+
+
+def equals(old_value, new_value):
+    if isinstance(old_value, datetime.date) and isinstance(new_value, str):
+        try:
+            new_value = datetime.datetime.strptime(new_value, "%Y-%m-%d").date()
+        except ValueError:
+            return False
+
+    return old_value == new_value
 
 
 def selectable_regions():
