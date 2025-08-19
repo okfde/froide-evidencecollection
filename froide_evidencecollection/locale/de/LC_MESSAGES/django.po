@@ -360,7 +360,7 @@ msgstr "Quellen-URL"
 
 #: froide_evidencecollection/views.py
 msgid "Source (Additional Information)"
-msgstr "Quelle (zusätzliche Informationen)"q
+msgstr "Quelle (zusätzliche Informationen)"
 
 #: froide_evidencecollection/views.py
 #, python-format
