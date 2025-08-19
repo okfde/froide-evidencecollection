@@ -14,7 +14,7 @@ CONFIG = settings.FROIDE_EVIDENCECOLLECTION_NOCODB_IMPORT_CONFIG
 def get_base_class_name(model):
     """
     Returns the base class name of a Django model.
-    If returns the name of the first parent class that is not `models.Model`.
+    Returns the name of the first parent class that is not `models.Model`.
     """
     for base in model.__bases__:
         if base is not models.Model:
