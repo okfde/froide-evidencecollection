@@ -362,8 +362,11 @@ class OrganizationImporter(TableImporter):
 
 class AffiliationImporter(TableImporter):
     def prepare_row(self, row):
-        if row["role"] is not None:
-            row["role"] = row["role"]["Bezeichnung"]
+        try:
+            if row["role"] is not None:
+                row["role"] = row["role"]["Bezeichnung"]
+        except KeyError:
+            self.handle_error(f"Missing role data in row: {row}")
 
         return row
 
