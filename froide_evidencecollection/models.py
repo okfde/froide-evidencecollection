@@ -375,3 +375,63 @@ class EvidenceType(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Parliament(models.Model):
+    aw_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("abgeordnetenwatch.de ID")
+    )
+    name = models.CharField(unique=True, max_length=50, verbose_name=_("name"))
+    fraction = models.OneToOneField(
+        Organization,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        verbose_name=_("fraction"),
+    )
+
+    class Meta:
+        verbose_name = _("parliament")
+        verbose_name_plural = _("parliaments")
+
+    def __str__(self):
+        return self.name
+
+    def set_fraction(self):
+        if self.fraction:
+            return
+
+        candidates = Organization.objects.filter(name__contains=str(self.name))
+
+        if candidates.count() == 1:
+            self.fraction = candidates.first()
+            self.save()
+        elif candidates.count() > 1:
+            raise ValueError(
+                f"Multiple fraction candidates found for parliament {self.name}: {candidates}"
+            )
+        else:
+            raise ValueError(f"No matching fraction found for parliament {self.name}")
+
+
+class ParliamentPeriod(models.Model):
+    aw_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("abgeordnetenwatch.de ID")
+    )
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+    parliament = models.ForeignKey(
+        Parliament,
+        on_delete=models.CASCADE,
+        related_name="periods",
+        verbose_name=_("parliament"),
+    )
+    start_date = models.DateField(verbose_name=_("start date"))
+    end_date = models.DateField(verbose_name=_("end date"))
+
+    class Meta:
+        verbose_name = _("parliament period")
+        verbose_name_plural = _("parliament periods")
+        unique_together = ("parliament", "start_date", "end_date")
+
+    def __str__(self):
+        return self.name

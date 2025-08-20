@@ -9,6 +9,8 @@ from .models import (
     Collection,
     Evidence,
     Organization,
+    Parliament,
+    ParliamentPeriod,
     Person,
     Role,
 )
@@ -145,4 +147,6 @@ class EvidenceAdmin(ReadOnlyAdmin):
 
 
 admin.site.register(Collection, ReadOnlyAdmin)
+admin.site.register(Parliament, ReadOnlyAdmin)
+admin.site.register(ParliamentPeriod, ReadOnlyAdmin)
 admin.site.register(Role, ReadOnlyAdmin)
