@@ -1,43 +1,29 @@
 import textwrap
+import uuid
 from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import pgettext_lazy
 
 from froide.georegion.models import GeoRegion
 
 
-class Actor(models.Model):
-    """
-    Base model for actors with subclasses `Person` and `Organization`.
+class AbstractActor(models.Model):
+    """Abstract base model for `Person` and `Organization`."""
 
-    It needs to have its own table so that it can be used as a foreign key
-    in other models, so it cannot be an abstract model. It should not be
-    instantiated directly, but only through its subclasses.
-    """
-
-    ACTOR_TYPES = [
-        ("P", _("person")),
-        ("O", _("organization")),
-    ]
     external_id = models.PositiveIntegerField(
-        unique=True, verbose_name=_("external ID")
+        unique=True, null=True, blank=True, verbose_name=_("external ID")
     )
-    # This field is automatically set to the actor type based on the subclass.
-    actor_type = models.CharField(
-        max_length=1,
-        blank=True,
-        choices=ACTOR_TYPES,
-        verbose_name=_("actor type"),
-    )
-    # This field is computed from the subclasses' name fields.
-    name = models.CharField(
-        max_length=255,
-        blank=True,
-        verbose_name=_("name"),
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
+    synced_at = models.DateTimeField(blank=True, null=True, verbose_name=_("synced at"))
+    sync_uuid = models.UUIDField(
+        unique=True, editable=False, default=uuid.uuid4, verbose_name=_("sync UUID")
     )
     also_known_as = ArrayField(
         models.CharField(max_length=50),
@@ -46,15 +32,11 @@ class Actor(models.Model):
         verbose_name=_("also known as"),
     )
     wikidata_id = models.CharField(
-        max_length=20, blank=True, null=True, verbose_name=_("Wikidata ID")
+        max_length=20, unique=True, blank=True, null=True, verbose_name=_("Wikidata ID")
     )
 
     class Meta:
-        verbose_name = _("actor")
-        verbose_name_plural = _("actors")
-
-    def __str__(self):
-        return self.name
+        abstract = True
 
     @cached_property
     def wikidata_url(self):
@@ -63,7 +45,7 @@ class Actor(models.Model):
         return None
 
 
-class Person(Actor):
+class Person(AbstractActor):
     first_name = models.CharField(
         max_length=50,
         verbose_name=_("first name"),
@@ -78,8 +60,8 @@ class Person(Actor):
         null=True,
         verbose_name=_("title"),
     )
-    aw_politician_id = models.PositiveIntegerField(
-        blank=True, null=True, verbose_name=_("abgeordnetenwatch.de politician ID")
+    aw_id = models.PositiveIntegerField(
+        unique=True, blank=True, null=True, verbose_name=_("abgeordnetenwatch.de ID")
     )
     status = models.ForeignKey(
         "PersonStatus", blank=True, null=True, on_delete=models.SET_NULL
@@ -89,18 +71,13 @@ class Person(Actor):
         verbose_name = _("person")
         verbose_name_plural = _("persons")
 
-    def save(self, *args, **kwargs):
-        self.actor_type = "P"
-        self.name = f"{self.title or ''} {self.first_name} {self.last_name}".strip()
-
-        super().save(*args, **kwargs)
+    def __str__(self):
+        return f"{self.title or ''} {self.first_name} {self.last_name}".strip()
 
     @cached_property
     def aw_url(self):
-        if self.aw_politician_id:
-            return (
-                f"https://www.abgeordnetenwatch.de/politician/{self.aw_politician_id}"
-            )
+        if self.aw_id:
+            return f"https://www.abgeordnetenwatch.de/politician/{self.aw_id}"
         return None
 
 
@@ -115,7 +92,7 @@ class PersonStatus(models.Model):
         return self.name
 
 
-class Organization(Actor):
+class Organization(AbstractActor):
     organization_name = models.CharField(
         max_length=255,
         verbose_name=_("organization name"),
@@ -125,7 +102,7 @@ class Organization(Actor):
         on_delete=models.PROTECT,
         verbose_name=_("institutional level"),
     )
-    regions = models.ManyToManyField(GeoRegion, verbose_name=_("regions"))
+    regions = models.ManyToManyField(GeoRegion, blank=True, verbose_name=_("regions"))
     special_regions = ArrayField(
         models.CharField(max_length=50),
         default=list,
@@ -136,15 +113,12 @@ class Organization(Actor):
         "OrganizationStatus", blank=True, null=True, on_delete=models.SET_NULL
     )
 
+    def __str__(self):
+        return self.organization_name.strip()
+
     class Meta:
         verbose_name = _("organization")
         verbose_name_plural = _("organizations")
-
-    def save(self, *args, **kwargs):
-        self.actor_type = "O"
-        self.name = self.organization_name.strip()
-
-        super().save(*args, **kwargs)
 
 
 class OrganizationStatus(models.Model):
@@ -156,6 +130,76 @@ class OrganizationStatus(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Actor(models.Model):
+    """Intermediate model that can be used as a foreign key to either `Person` or `Organization`."""
+
+    external_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("external ID")
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
+    name = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name=_("name"),
+    )
+    person = models.OneToOneField(
+        Person,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="actor",
+        verbose_name=_("person"),
+    )
+    organization = models.OneToOneField(
+        Organization,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="actor",
+        verbose_name=_("organization"),
+    )
+
+    class Meta:
+        verbose_name = _("actor")
+        verbose_name_plural = _("actors")
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(person__isnull=False)
+                | models.Q(organization__isnull=False),
+                name="actor_person_or_organization_required",
+            ),
+            models.UniqueConstraint(
+                fields=["person"],
+                name="unique_actor_person",
+                condition=models.Q(person__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["organization"],
+                name="unique_actor_organization",
+                condition=models.Q(organization__isnull=False),
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, **kwargs):
+        assert [self.person, self.organization].count(None) == 1
+        self.external_id = self.target.external_id
+        self.name = str(self.target)
+
+        return super(Actor, self).save(**kwargs)
+
+    @cached_property
+    def target(self):
+        if self.person_id is not None:
+            return self.person
+        if self.organization_id is not None:
+            return self.organization
+        raise AssertionError("Neither 'person' nor 'organization' is set.")
 
 
 class InstitutionalLevel(models.Model):
@@ -170,6 +214,15 @@ class InstitutionalLevel(models.Model):
 
 
 class Role(models.Model):
+    external_id = models.PositiveIntegerField(
+        unique=True, null=True, blank=True, verbose_name=_("external ID")
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
+    synced_at = models.DateTimeField(blank=True, null=True, verbose_name=_("synced at"))
+    sync_uuid = models.UUIDField(
+        unique=True, editable=False, default=uuid.uuid4, verbose_name=_("sync UUID")
+    )
     name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
 
     class Meta:
@@ -182,7 +235,16 @@ class Role(models.Model):
 
 class Affiliation(models.Model):
     external_id = models.PositiveIntegerField(
-        unique=True, verbose_name=_("external ID")
+        unique=True, null=True, blank=True, verbose_name=_("external ID")
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
+    synced_at = models.DateTimeField(blank=True, null=True, verbose_name=_("synced at"))
+    sync_uuid = models.UUIDField(
+        unique=True, editable=False, default=uuid.uuid4, verbose_name=_("sync UUID")
+    )
+    aw_id = models.PositiveIntegerField(
+        unique=True, blank=True, null=True, verbose_name=_("abgeordnetenwatch.de ID")
     )
     person = models.ForeignKey(
         Person,
@@ -203,17 +265,38 @@ class Affiliation(models.Model):
         blank=True,
         null=True,
     )
+    start_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name=_("start date"),
+    )
     start_date_string = models.CharField(
         max_length=10,
         blank=True,
         null=True,
         verbose_name=_("start date (string)"),
     )
+    end_date = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name=_("end date"),
+    )
     end_date_string = models.CharField(
         max_length=10,
         blank=True,
         null=True,
         verbose_name=_("end date (string)"),
+    )
+    reference_url = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        verbose_name=_("reference URL"),
+    )
+    comment = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("comment"),
     )
 
     class Meta:
@@ -225,6 +308,8 @@ class Evidence(models.Model):
     external_id = models.PositiveIntegerField(
         unique=True, verbose_name=_("external ID")
     )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
     citation = models.TextField(blank=False, default="", verbose_name=_("citation"))
     description = models.TextField(
         blank=False, default="", verbose_name=_("description")
@@ -255,7 +340,7 @@ class Evidence(models.Model):
         null=True, blank=True, verbose_name=_("documentation date")
     )
     reference_url = models.URLField(
-        max_length=500, blank=True, null=True, verbose_name=_("reference URL")
+        max_length=500, blank=True, null=True, verbose_name=_("reference (URL)")
     )
     reference_info = models.TextField(
         blank=True, default="", verbose_name=_("reference (additional information)")
@@ -328,8 +413,10 @@ class Collection(models.Model):
 
 class Attachment(models.Model):
     external_id = models.CharField(
-        unique=True, max_length=100, verbose_name=_("external ID")
+        unique=True, max_length=20, verbose_name=_("external ID")
     )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
     evidence = models.ForeignKey(
         Evidence,
         on_delete=models.CASCADE,
@@ -375,3 +462,54 @@ class EvidenceType(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class ImportExportRun(models.Model):
+    IMPORT = "I"
+    EXPORT = "E"
+    OPERATIONS = {
+        IMPORT: pgettext_lazy("froide-evidencecollection", "Import"),
+        EXPORT: pgettext_lazy("froide-evidencecollection", "Export"),
+    }
+
+    FROIDE_EVIDENCECOLLECTION = "FE"
+    NOCODB = "NC"
+    DATA_ENDPOINTS = {
+        FROIDE_EVIDENCECOLLECTION: _("Froide EvidenceCollection"),
+        NOCODB: _("NocoDB"),
+    }
+
+    operation = models.CharField(
+        max_length=1, choices=OPERATIONS, verbose_name=_("operation")
+    )
+    source = models.CharField(
+        max_length=2, choices=DATA_ENDPOINTS, verbose_name=_("source")
+    )
+    target = models.CharField(
+        max_length=2, choices=DATA_ENDPOINTS, verbose_name=_("target")
+    )
+    started_at = models.DateTimeField(auto_now_add=True, verbose_name=_("started at"))
+    finished_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("finished at")
+    )
+    success = models.BooleanField(default=False, verbose_name=_("success"))
+    changes = models.JSONField(default=dict, blank=True, verbose_name=_("changes"))
+    notes = models.TextField(blank=True, default="", verbose_name=_("notes"))
+
+    class Meta:
+        verbose_name = _("🔧 Import/export run")
+        verbose_name_plural = _("🔧 Import/export runs")
+
+    def __str__(self):
+        source_display = self.get_source_display()
+        target_display = self.get_target_display()
+        started_at = timezone.localtime(self.started_at).strftime("%d.%m.%Y, %H:%M")
+        return f"{source_display} -> {target_display} | {started_at}"
+
+    def complete(self, success: bool, changes: dict = None, notes: str = ""):
+        self.success = success
+        if changes is not None:
+            self.changes = changes
+        self.notes = notes
+        self.finished_at = timezone.now()
+        self.save()
