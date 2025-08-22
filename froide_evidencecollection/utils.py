@@ -1,5 +1,6 @@
 import datetime
 import logging
+from itertools import chain
 
 from django.conf import settings
 from django.db import models
@@ -55,14 +56,51 @@ def selectable_regions():
     return queryset
 
 
+def is_serializable(field):
+    return not isinstance(
+        field,
+        (models.DateTimeField, models.DateField, models.UUIDField, models.FileField),
+    )
+
+
+def to_dict(instance):
+    if instance is None:
+        return {}
+
+    opts = instance._meta
+    data = {}
+
+    for f in chain(opts.concrete_fields, opts.private_fields):
+        if f.name != "id" and is_serializable(f):
+            data[f.name] = f.value_from_object(instance)
+
+    for f in opts.many_to_many:
+        data[f.name] = [i.id for i in f.value_from_object(instance)]
+
+    return data
+
+
+def get_changes(old_data, new_data):
+    changes = {}
+
+    for field in new_data.keys():
+        if old_data.get(field) != new_data.get(field):
+            changes[field] = {
+                "old": old_data.get(field),
+                "new": new_data.get(field),
+            }
+
+    return changes
+
+
 class ImportStats:
     def __init__(self):
         self.instance_is_new = False
         self.instance_failed = False
-        self.created = 0
-        self.updated = 0
-        self.skipped = 0
-        self.deleted = 0
+        self.created = []
+        self.updated = []
+        self.skipped = []
+        self.deleted = []
 
     def reset_instance(self):
         self.instance_is_new = False
@@ -70,12 +108,12 @@ class ImportStats:
 
     def reset(self):
         self.reset_instance()
-        self.created = 0
-        self.updated = 0
-        self.skipped = 0
-        self.deleted = 0
+        self.created = []
+        self.updated = []
+        self.skipped = []
+        self.deleted = []
 
-    def track(self, operation, count=1):
+    def track(self, operation, data):
         if hasattr(self, operation):
             if operation == "created":
                 self.instance_is_new = True
@@ -83,10 +121,90 @@ class ImportStats:
                 self.instance_failed = True
             elif operation == "updated" and self.instance_is_new:
                 return
-            setattr(self, operation, getattr(self, operation) + count)
 
-    def print_summary(self, model):
-        logger.info(
-            f"Model {model} processed: {self.created} created, {self.updated} updated, "
-            f"{self.deleted} deleted, {self.skipped} skipped."
+            stats = getattr(self, operation)
+            if isinstance(data, list):
+                stats.extend(data)
+            else:
+                stats.append(data)
+            setattr(self, operation, stats)
+
+    def get_summary(self):
+        return (
+            f"{len(self.created)} created, {len(self.updated)} updated, "
+            f"{len(self.deleted)} deleted, {len(self.skipped)} skipped."
         )
+
+    def to_dict(self):
+        return {
+            "created": self.created,
+            "updated": self.updated,
+            "skipped": self.skipped,
+            "deleted": self.deleted,
+        }
+
+
+class ImportStatsCollection:
+    def __init__(self):
+        self.stats = {}
+
+    def reset_instance(self, model):
+        if model in self.stats:
+            self.stats[model].reset_instance()
+
+    def reset(self):
+        for stats in self.stats.values():
+            stats.reset()
+
+    def instance_failed(self, model):
+        if model in self.stats:
+            return self.stats[model].instance_failed
+
+        return False
+
+    def track(self, operation, model, data):
+        if model not in self.stats:
+            self.stats[model] = ImportStats()
+
+        self.stats[model].track(operation, data)
+
+    def track_created(self, model, obj):
+        data = {"id": obj.id, "fields": to_dict(obj)}
+
+        self.track("created", model, data)
+
+    def track_updated(self, model, old_obj_data, new_obj):
+        new_obj_data = to_dict(new_obj)
+        diff = get_changes(old_obj_data, new_obj_data)
+
+        if diff:
+            data = {
+                "id": new_obj.id,
+                "diff": diff,
+            }
+
+            self.track("updated", model, data)
+
+    def track_deleted(self, model, data):
+        self.track("deleted", model, data)
+
+    def track_skipped(self, model, msg):
+        self.track("skipped", model, msg)
+
+    def log_summary(self, model):
+        if model in self.stats:
+            logger.info(
+                f"Model {model.__name__} processed: {self.stats[model].get_summary()}"
+            )
+
+    def to_dict(self):
+        return {model.__name__: stats.to_dict() for model, stats in self.stats.items()}
+
+    def merge(self, other: "ImportStatsCollection"):
+        for model, other_stats in other.stats.items():
+            if model not in self.stats:
+                self.stats[model] = ImportStats()
+            self.stats[model].created += other_stats.created
+            self.stats[model].updated += other_stats.updated
+            self.stats[model].skipped += other_stats.skipped
+            self.stats[model].deleted += other_stats.deleted
