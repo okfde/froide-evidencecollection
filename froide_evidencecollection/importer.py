@@ -18,7 +18,7 @@ from froide_evidencecollection.models import (
     Role,
 )
 from froide_evidencecollection.utils import (
-    ImportStats,
+    ImportStatsCollection,
     equals,
     get_base_class_name,
     get_default_value,
@@ -90,7 +90,7 @@ class TableImporter:
         table_name = CONFIG["tables"][self.base_model_name]
         view_name = CONFIG["views"].get(f"{self.base_model_name}_{self.model_name}")
         self.fetcher = TableDataFetcher(table_name, view_name)
-        self.stats = ImportStats()
+        self.stats = ImportStatsCollection()
 
     def run(self):
         self.obj_data = self.get_obj_data()
@@ -153,18 +153,16 @@ class TableImporter:
         related_cache = self.build_related_cache()
         existing_objs = self.model.objects.in_bulk(field_name=self.id_field)
 
-        self.stats.reset()
-
         for ext_id, fields in self.obj_data.items():
             obj = existing_objs.get(ext_id)
             obj = self.create_or_update_instance(self.model, obj, fields, related_cache)
 
-            if obj and not self.stats.instance_failed:
+            if obj and not self.stats.instance_failed(self.model):
                 self.process_m2m_relations(obj, fields, related_cache)
 
         self.delete_instances(self.model, existing_objs.keys(), self.obj_data.keys())
 
-        self.stats.print_summary(self.model_name)
+        self.stats.log_summary(self.model)
 
     def create_or_update_related_instances(self):
         """
@@ -208,7 +206,7 @@ class TableImporter:
 
     def create_or_update_instance(self, model, obj, fields, related_cache=None):
         """Create or update an instance of the given model with the provided fields."""
-        self.stats.reset_instance()
+        self.stats.reset_instance(model)
         update = False
 
         init_fields = {k: v for k, v in fields.items() if k not in self.relation_config}
@@ -272,7 +270,7 @@ class TableImporter:
                 )
             else:
                 msg = f"Missing values for {model.__name__}: {missing_values}"
-                self.handle_error(msg)
+                self.handle_error(msg, model)
 
         return existing_objs
 
@@ -282,40 +280,43 @@ class TableImporter:
         if to_delete:
             delete_qs = model.objects.filter(**{f"{self.id_field}__in": to_delete})
             delete_qs.delete()
-            self.stats.track("deleted", len(to_delete))
+            self.stats.track(model, "deleted", len(to_delete))
 
     def save_instance(self, obj, is_new=False):
         """Save the instance, track the operation, and handle errors."""
+        model = obj._meta.model
+
         try:
             with transaction.atomic():
                 obj.save()
-                self.stats.track("created" if is_new else "updated")
+                self.stats.track(model, "created" if is_new else "updated")
         except Exception as e:
-            msg = f"Error saving {obj._meta.model.__name__} instance: {e}"
-            self.handle_error(msg)
+            msg = f"Error saving {model.__name__} instance: {e}"
+            self.handle_error(msg, model)
             return False
         return True
 
     def set_related_objects(self, obj, rel_field, related_objs):
         """Set related objects for a many-to-many field, track the operation, and handle errors."""
+        model = obj._meta.model
+
         try:
             with transaction.atomic():
                 getattr(obj, rel_field).set(related_objs)
-                self.stats.track("updated")
+                self.stats.track(model, "updated")
         except Exception as e:
-            model_name = obj._meta.model.__name__
-            msg = f"Error setting related objects for {model_name} instance: {e}"
-            self.handle_error(msg)
+            msg = f"Error setting related objects for {model.__name__} instance: {e}"
+            self.handle_error(msg, model)
             return False
         return True
 
-    def handle_error(self, msg):
+    def handle_error(self, msg, model=None):
         """Handle errors during import."""
         if not self.debug:
             raise ImportError(msg)
 
         logger.warning(msg)
-        self.stats.track("skipped")
+        self.stats.track(model or self.model, "skipped")
 
 
 class PersonImporter(TableImporter):
@@ -428,8 +429,6 @@ class EvidenceImporter(TableImporter):
         return super().get_related_instances(model, new_values, lookup_field, create)
 
     def create_or_update_related_instances(self):
-        self.stats.reset()
-
         existing_objs = Attachment.objects.in_bulk(field_name="external_id")
         evidence_objs = Evidence.objects.in_bulk(field_name="external_id")
 
@@ -439,13 +438,13 @@ class EvidenceImporter(TableImporter):
             evidence_id = data.get("evidence_id")
 
             if not ext_id or not signed_url or not evidence_id:
-                self.handle_error(f"Missing data in attachment: {data}")
+                self.handle_error(f"Missing data in attachment: {data}", Attachment)
                 continue
 
             evidence = evidence_objs.get(evidence_id)
             if not evidence:
                 msg = f"No evidence with ID {evidence_id} found for attachment {ext_id}"
-                self.handle_error(msg)
+                self.handle_error(msg, Attachment)
                 continue
 
             obj = existing_objs.get(ext_id)
@@ -464,7 +463,7 @@ class EvidenceImporter(TableImporter):
             obj = self.create_or_update_instance(Attachment, obj, fields)
 
             # Only download file if attachment did not already have one.
-            if obj and not obj.file and not self.stats.instance_failed:
+            if obj and not obj.file and not self.stats.instance_failed(Attachment):
                 logger.info(f"Downloading attachment file from {signed_url} ...")
 
                 response = requests.get(signed_url)
@@ -479,7 +478,7 @@ class EvidenceImporter(TableImporter):
                     with transaction.atomic():
                         obj.file.save(filename, content, save=True)
                         if not created:
-                            self.stats.track("updated")
+                            self.stats.track(Attachment, "updated")
                 except Exception as e:
                     msg = f"Error saving file for attachment {ext_id}: {e}"
                     self.handle_error(msg)
@@ -488,7 +487,7 @@ class EvidenceImporter(TableImporter):
         new_ids = [a["id"] for a in self.attachments]
         self.delete_instances(Attachment, existing_objs.keys(), new_ids)
 
-        self.stats.print_summary("Attachment")
+        self.stats.log_summary(Attachment)
 
 
 class NocoDBImporter:

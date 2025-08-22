@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 
 from django.conf import settings
@@ -85,8 +86,52 @@ class ImportStats:
                 return
             setattr(self, operation, getattr(self, operation) + count)
 
-    def print_summary(self, model):
-        logger.info(
-            f"Model {model} processed: {self.created} created, {self.updated} updated, "
+    def get_summary(self):
+        return (
+            f"{self.created} created, {self.updated} updated, "
             f"{self.deleted} deleted, {self.skipped} skipped."
+        )
+
+    def to_json(self):
+        return {
+            "created": self.created,
+            "updated": self.updated,
+            "skipped": self.skipped,
+            "deleted": self.deleted,
+        }
+
+
+class ImportStatsCollection:
+    def __init__(self):
+        self.stats = {}
+
+    def reset_instance(self, model):
+        if model in self.stats:
+            self.stats[model].reset_instance()
+
+    def reset(self):
+        for stats in self.stats.values():
+            stats.reset()
+
+    def instance_failed(self, model):
+        if model in self.stats:
+            return self.stats[model].instance_failed
+
+        return False
+
+    def track(self, model, operation, count=1):
+        if model not in self.stats:
+            self.stats[model] = ImportStats()
+        self.stats[model].track(operation, count)
+
+    def log_summary(self, model):
+        if model in self.stats:
+            logger.info(
+                f"Model {model.__name__} processed: {self.stats[model].get_summary()}"
+            )
+
+    def to_json(self):
+        return json.dumps(
+            {model.__name__: stats.to_json() for model, stats in self.stats.items()},
+            indent=4,
         )
