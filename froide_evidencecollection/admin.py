@@ -35,7 +35,16 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 class AffiliationInline(admin.TabularInline):
     model = Affiliation
     extra = 0
-    fields = ["organization", "role", "start_date_string", "end_date_string"]
+    fields = [
+        "organization",
+        "role",
+        "start_date_string",
+        "end_date_string",
+        "aw_id",
+        "reference_url",
+        "comment",
+    ]
+    readonly_fields = fields
 
 
 @admin.register(Person)
@@ -47,9 +56,13 @@ class PersonAdmin(ReadOnlyAdmin):
         "also_known_as",
         "wikidata_link",
         "aw_link",
+        "sync_uuid",
+        "is_synced",
     ]
     fields = [
         "external_id",
+        "sync_uuid",
+        "is_synced",
         "title",
         "first_name",
         "last_name",
@@ -58,8 +71,9 @@ class PersonAdmin(ReadOnlyAdmin):
         "aw_link",
         "status",
     ]
-    readonly_fields = ["wikidata_link", "aw_link"]
+    readonly_fields = ["sync_uuid", "wikidata_link", "aw_link"]
     list_filter = [
+        "is_synced",
         "affiliations__organization__institutional_level",
         "affiliations__role",
         "affiliations__organization",
@@ -69,13 +83,13 @@ class PersonAdmin(ReadOnlyAdmin):
     def wikidata_link(self, obj):
         if obj.wikidata_url:
             return mark_safe(
-                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_url}</a>'
+                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_id}</a>'
             )
         return ""
 
     def aw_link(self, obj):
         if obj.aw_url:
-            return mark_safe(f'<a href="{obj.aw_url}" target="_blank">{obj.aw_url}</a>')
+            return mark_safe(f'<a href="{obj.aw_url}" target="_blank">{obj.aw_id}</a>')
         return ""
 
 
@@ -94,9 +108,13 @@ class OrganizationAdmin(ReadOnlyAdmin):
         "wikidata_link",
         "institutional_level",
         "region_list",
+        "sync_uuid",
+        "is_synced",
     ]
     fields = [
         "external_id",
+        "sync_uuid",
+        "is_synced",
         "organization_name",
         "also_known_as",
         "wikidata_link",
@@ -105,20 +123,28 @@ class OrganizationAdmin(ReadOnlyAdmin):
         "special_regions",
         "status",
     ]
-    readonly_fields = ["wikidata_link"]
+    readonly_fields = ["sync_uuid", "wikidata_link"]
     filter_horizontal = ("regions",)
-    list_filter = ["institutional_level", "affiliations__person"]
+    list_filter = ["is_synced", "institutional_level", "affiliations__person"]
     search_fields = ["organization_name", "also_known_as"]
 
     def wikidata_link(self, obj):
         if obj.wikidata_url:
             return mark_safe(
-                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_url}</a>'
+                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_id}</a>'
             )
         return ""
 
     def region_list(self, obj):
         return ", ".join([region.name for region in obj.regions.all()])
+
+
+@admin.register(Role)
+class RoleAdmin(ReadOnlyAdmin):
+    list_display = ["name", "sync_uuid", "is_synced"]
+    fields = ["name", "sync_uuid", "is_synced"]
+    readonly_fields = ["sync_uuid"]
+    search_fields = ["name"]
 
 
 class AttachmentInline(admin.TabularInline):
@@ -145,4 +171,3 @@ class EvidenceAdmin(ReadOnlyAdmin):
 
 
 admin.site.register(Collection, ReadOnlyAdmin)
-admin.site.register(Role, ReadOnlyAdmin)
