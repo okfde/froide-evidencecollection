@@ -9,6 +9,7 @@ from django.db import transaction
 import requests
 
 from froide_evidencecollection.models import (
+    Actor,
     Affiliation,
     Attachment,
     Evidence,
@@ -401,6 +402,30 @@ class EvidenceImporter(TableImporter):
         ]
 
         return row
+
+    def get_related_instances(self, model, new_values, lookup_field, create=False):
+        """
+        If the evidence data to be imported contains references to `Actor` instances,
+        make sure to create those instances if they do not already exist.
+        """
+
+        if model == Actor:
+            existing_ids = Actor.objects.filter(external_id__in=new_values).values_list(
+                "external_id", flat=True
+            )
+            missing_ids = set(new_values) - set(existing_ids)
+
+            for person in Person.objects.filter(external_id__in=missing_ids):
+                Actor.objects.create(
+                    person=person,
+                )
+
+            for orga in Organization.objects.filter(external_id__in=missing_ids):
+                Actor.objects.create(
+                    organization=orga,
+                )
+
+        return super().get_related_instances(model, new_values, lookup_field, create)
 
     def create_or_update_related_instances(self):
         self.stats.reset()
