@@ -14,6 +14,7 @@ from froide_evidencecollection.models import (
     Evidence,
     Organization,
     Person,
+    Role,
 )
 from froide_evidencecollection.utils import (
     ImportStats,
@@ -360,11 +361,15 @@ class OrganizationImporter(TableImporter):
         return row
 
 
+class RoleImporter(TableImporter):
+    pass
+
+
 class AffiliationImporter(TableImporter):
     def prepare_row(self, row):
         try:
             if row["role"] is not None:
-                row["role"] = row["role"]["Bezeichnung"]
+                row["role"] = row["role"]["Id"]
         except KeyError:
             self.handle_error(f"Missing role data in row: {row}")
 
@@ -466,6 +471,7 @@ class NocoDBImporter:
         self.table_importers = [
             PersonImporter(Person),
             OrganizationImporter(Organization),
+            RoleImporter(Role),
             AffiliationImporter(Affiliation),
         ]
 
