@@ -1,13 +1,16 @@
+import json
+
 from django import forms
 from django.conf import settings
 from django.contrib import admin
 from django.utils.safestring import mark_safe
+from django.utils.translation import gettext_lazy as _
 
 from .models import (
     Affiliation,
     Attachment,
-    Collection,
     Evidence,
+    ImportExportRun,
     Organization,
     Person,
     Role,
@@ -35,7 +38,16 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 class AffiliationInline(admin.TabularInline):
     model = Affiliation
     extra = 0
-    fields = ["organization", "role", "start_date_string", "end_date_string"]
+    fields = [
+        "organization",
+        "role",
+        "start_date_string",
+        "end_date_string",
+        "aw_id",
+        "reference_url",
+        "comment",
+    ]
+    readonly_fields = fields
 
 
 @admin.register(Person)
@@ -47,9 +59,13 @@ class PersonAdmin(ReadOnlyAdmin):
         "also_known_as",
         "wikidata_link",
         "aw_link",
+        "created_at",
+        "updated_at",
+        "synced_at",
     ]
     fields = [
         "external_id",
+        "sync_uuid",
         "title",
         "first_name",
         "last_name",
@@ -57,8 +73,18 @@ class PersonAdmin(ReadOnlyAdmin):
         "wikidata_link",
         "aw_link",
         "status",
+        "created_at",
+        "updated_at",
+        "synced_at",
     ]
-    readonly_fields = ["wikidata_link", "aw_link"]
+    readonly_fields = [
+        "sync_uuid",
+        "wikidata_link",
+        "aw_link",
+        "created_at",
+        "updated_at",
+        "synced_at",
+    ]
     list_filter = [
         "affiliations__organization__institutional_level",
         "affiliations__role",
@@ -69,13 +95,13 @@ class PersonAdmin(ReadOnlyAdmin):
     def wikidata_link(self, obj):
         if obj.wikidata_url:
             return mark_safe(
-                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_url}</a>'
+                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_id}</a>'
             )
         return ""
 
     def aw_link(self, obj):
         if obj.aw_url:
-            return mark_safe(f'<a href="{obj.aw_url}" target="_blank">{obj.aw_url}</a>')
+            return mark_safe(f'<a href="{obj.aw_url}" target="_blank">{obj.aw_id}</a>')
         return ""
 
 
@@ -94,9 +120,13 @@ class OrganizationAdmin(ReadOnlyAdmin):
         "wikidata_link",
         "institutional_level",
         "region_list",
+        "created_at",
+        "updated_at",
+        "synced_at",
     ]
     fields = [
         "external_id",
+        "sync_uuid",
         "organization_name",
         "also_known_as",
         "wikidata_link",
@@ -104,8 +134,17 @@ class OrganizationAdmin(ReadOnlyAdmin):
         "regions",
         "special_regions",
         "status",
+        "created_at",
+        "updated_at",
+        "synced_at",
     ]
-    readonly_fields = ["wikidata_link"]
+    readonly_fields = [
+        "sync_uuid",
+        "wikidata_link",
+        "created_at",
+        "updated_at",
+        "synced_at",
+    ]
     filter_horizontal = ("regions",)
     list_filter = ["institutional_level", "affiliations__person"]
     search_fields = ["organization_name", "also_known_as"]
@@ -113,12 +152,20 @@ class OrganizationAdmin(ReadOnlyAdmin):
     def wikidata_link(self, obj):
         if obj.wikidata_url:
             return mark_safe(
-                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_url}</a>'
+                f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_id}</a>'
             )
         return ""
 
     def region_list(self, obj):
         return ", ".join([region.name for region in obj.regions.all()])
+
+
+@admin.register(Role)
+class RoleAdmin(ReadOnlyAdmin):
+    list_display = ["name", "created_at", "updated_at", "synced_at"]
+    fields = ["name", "sync_uuid", "created_at", "updated_at", "synced_at"]
+    readonly_fields = ["sync_uuid", "created_at", "updated_at", "synced_at"]
+    search_fields = ["name"]
 
 
 class AttachmentInline(admin.TabularInline):
@@ -129,7 +176,14 @@ class AttachmentInline(admin.TabularInline):
 @admin.register(Evidence)
 class EvidenceAdmin(ReadOnlyAdmin):
     inlines = [AttachmentInline]
-    list_display = ["external_id", "title", "evidence_type", "originator_list"]
+    list_display = [
+        "external_id",
+        "title",
+        "evidence_type",
+        "originator_list",
+        "created_at",
+        "updated_at",
+    ]
     filter_horizontal = [
         "collections",
         "originators",
@@ -144,5 +198,35 @@ class EvidenceAdmin(ReadOnlyAdmin):
         return ", ".join([originator.name for originator in obj.originators.all()])
 
 
-admin.site.register(Collection, ReadOnlyAdmin)
-admin.site.register(Role, ReadOnlyAdmin)
+@admin.register(ImportExportRun)
+class ImportExportRunAdmin(ReadOnlyAdmin):
+    list_display = [
+        "id",
+        "source",
+        "target",
+        "operation",
+        "started_at",
+        "finished_at",
+        "success",
+    ]
+    fields = [
+        "source",
+        "target",
+        "operation",
+        "started_at",
+        "finished_at",
+        "success",
+        "pretty_changes",
+        "notes",
+    ]
+    readonly_fields = fields
+    list_filter = ["operation", "source", "target", "success"]
+    date_hierarchy = "started_at"
+
+    def pretty_changes(self, obj):
+        if not obj.changes:
+            return "-"
+        pretty = json.dumps(obj.changes, indent=4, ensure_ascii=False)
+        return mark_safe(f"<pre>{pretty}</pre>")
+
+    pretty_changes.short_description = _("changes")
