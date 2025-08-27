@@ -257,7 +257,7 @@ class TableImporter:
         """Update M2M relations if they have changed."""
         for rel_field, cfg in self.relation_config.items():
             raw = fields.get(rel_field)
-            if cfg["type"] == "m2m" and raw:
+            if cfg["type"] == "m2m" and raw is not None:
                 new_objs = [
                     related_cache[rel_field][v]
                     for v in raw
