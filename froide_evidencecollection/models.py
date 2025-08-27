@@ -133,7 +133,21 @@ class OrganizationStatus(models.Model):
 
 
 class Actor(models.Model):
-    """Intermediate model that can be used as a foreign key to either `Person` or `Organization`."""
+    """
+    Intermediate model that can be used as a foreign key in places where either
+    a `Person` or `Organization` is needed.
+
+    Organizing it this way instead of using multi-table inheritance has the advantage
+    that we don't need to access the `Actor` table each time we want to access a
+    `Person` or `Organization`.
+
+    In addition, we can copy some fields from the target model to this model
+    (like `external_id` and `name`) to make lookups and display easier.
+
+    See also this blog post for a comparison of different approaches for ForeignKeys
+    to multiple models:
+    https://lukeplant.me.uk/blog/posts/avoid-django-genericforeignkey/#alternatives
+    """
 
     external_id = models.PositiveIntegerField(
         unique=True, verbose_name=_("external ID")
