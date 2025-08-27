@@ -152,7 +152,12 @@ class TableImporter:
     def create_or_update_main_instances(self):
         """Create or update instances of the main model based on the collected data."""
         related_cache = self.build_related_cache()
-        existing_objs = self.model.objects.in_bulk(field_name=self.id_field)
+
+        # Only consider existing objects that have been imported from NocoDB.
+        objs_with_external_id = self.model.objects.filter(
+            **{f"{self.id_field}__isnull": False}
+        )
+        existing_objs = objs_with_external_id.in_bulk(field_name=self.id_field)
 
         for ext_id, fields in self.obj_data.items():
             obj = existing_objs.get(ext_id)
