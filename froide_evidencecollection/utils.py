@@ -12,13 +12,19 @@ logger = logging.getLogger(__name__)
 CONFIG = settings.FROIDE_EVIDENCECOLLECTION_NOCODB_IMPORT_CONFIG
 
 
-def get_base_class_name(model):
+def get_base_class_name(model, exclude=None):
     """
     Returns the base class name of a Django model.
+
     Returns the name of the first parent class that is not `models.Model`.
+
+    `exclude` can be provided to exclude additional base classes.
     """
+    exclude = exclude or []
+    exclude.append(models.Model)
+
     for base in model.__bases__:
-        if base is not models.Model:
+        if base not in exclude:
             return base.__name__
 
     return model.__name__

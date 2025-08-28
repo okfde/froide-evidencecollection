@@ -13,9 +13,11 @@ from froide_evidencecollection.models import (
     Affiliation,
     Attachment,
     Evidence,
+    ImportableModel,
     Organization,
     Person,
     Role,
+    SyncableModel,
 )
 from froide_evidencecollection.utils import (
     ImportStatsCollection,
@@ -80,7 +82,9 @@ class TableImporter:
         self.debug = settings.DEBUG
         self.model = model
         self.model_name = model.__name__
-        self.base_model_name = get_base_class_name(model)
+        self.base_model_name = get_base_class_name(
+            model, exclude=[ImportableModel, SyncableModel]
+        )
         self.field_map = CONFIG["field_map"][self.model_name]
         self.relation_config = CONFIG["relations"][self.model_name]
         self.null_label = CONFIG["null_label"]
