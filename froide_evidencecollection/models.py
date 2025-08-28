@@ -13,8 +13,42 @@ from django.utils.translation import pgettext_lazy
 from froide.georegion.models import GeoRegion
 
 
-class AbstractActor(models.Model):
-    """Abstract base model for `Person` and `Organization`."""
+class ImportableModel(models.Model):
+    """
+    Base class for models that are imported from an external source (NocoDB) but should
+    not be synced back to it.
+
+    These models need an unnullable `external_id` field to keep track of the mapping
+    between the local model instance and the external source.
+    """
+
+    external_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("external ID")
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
+
+    class Meta:
+        abstract = True
+
+
+class SyncableModel(models.Model):
+    """
+    Base class for models that are synced with an external source (NocoDB) in both
+    directions.
+
+    These models need a nullable `external_id` field to keep track of the mapping
+    between the local model instance and the external source. The field is nullable
+    to allow creating new instances locally that are not yet synced to the external
+    source.
+
+    In addition, a `sync_uuid` field is used to uniquely identify the instance
+    across systems, even if the `external_id` is not yet set.
+
+    The field `synced_at` is used to keep track of the last time the instance
+    was synced with the external source, i.e. when local changes have been pushed to
+    the external source.
+    """
 
     external_id = models.PositiveIntegerField(
         unique=True, null=True, blank=True, verbose_name=_("external ID")
@@ -25,6 +59,14 @@ class AbstractActor(models.Model):
     sync_uuid = models.UUIDField(
         unique=True, editable=False, default=uuid.uuid4, verbose_name=_("sync UUID")
     )
+
+    class Meta:
+        abstract = True
+
+
+class AbstractActor(SyncableModel):
+    """Abstract base model for `Person` and `Organization`."""
+
     also_known_as = ArrayField(
         models.CharField(max_length=50),
         default=list,
@@ -132,7 +174,7 @@ class OrganizationStatus(models.Model):
         return self.name
 
 
-class Actor(models.Model):
+class Actor(ImportableModel):
     """
     Intermediate model that can be used as a foreign key in places where either
     a `Person` or `Organization` is needed.
@@ -149,11 +191,6 @@ class Actor(models.Model):
     https://lukeplant.me.uk/blog/posts/avoid-django-genericforeignkey/#alternatives
     """
 
-    external_id = models.PositiveIntegerField(
-        unique=True, verbose_name=_("external ID")
-    )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
-    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
     name = models.CharField(
         max_length=255,
         blank=True,
@@ -227,16 +264,7 @@ class InstitutionalLevel(models.Model):
         return self.name
 
 
-class Role(models.Model):
-    external_id = models.PositiveIntegerField(
-        unique=True, null=True, blank=True, verbose_name=_("external ID")
-    )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
-    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
-    synced_at = models.DateTimeField(blank=True, null=True, verbose_name=_("synced at"))
-    sync_uuid = models.UUIDField(
-        unique=True, editable=False, default=uuid.uuid4, verbose_name=_("sync UUID")
-    )
+class Role(SyncableModel):
     name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
 
     class Meta:
@@ -247,16 +275,7 @@ class Role(models.Model):
         return self.name
 
 
-class Affiliation(models.Model):
-    external_id = models.PositiveIntegerField(
-        unique=True, null=True, blank=True, verbose_name=_("external ID")
-    )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
-    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
-    synced_at = models.DateTimeField(blank=True, null=True, verbose_name=_("synced at"))
-    sync_uuid = models.UUIDField(
-        unique=True, editable=False, default=uuid.uuid4, verbose_name=_("sync UUID")
-    )
+class Affiliation(SyncableModel):
     aw_id = models.PositiveIntegerField(
         unique=True, blank=True, null=True, verbose_name=_("abgeordnetenwatch.de ID")
     )
@@ -318,12 +337,7 @@ class Affiliation(models.Model):
         verbose_name_plural = _("affiliations")
 
 
-class Evidence(models.Model):
-    external_id = models.PositiveIntegerField(
-        unique=True, verbose_name=_("external ID")
-    )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
-    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
+class Evidence(ImportableModel):
     citation = models.TextField(blank=False, default="", verbose_name=_("citation"))
     description = models.TextField(
         blank=False, default="", verbose_name=_("description")
@@ -425,12 +439,11 @@ class Collection(models.Model):
         return self.name
 
 
-class Attachment(models.Model):
+class Attachment(ImportableModel):
+    # The external ID is a string in this case.
     external_id = models.CharField(
         unique=True, max_length=20, verbose_name=_("external ID")
     )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
-    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
     evidence = models.ForeignKey(
         Evidence,
         on_delete=models.CASCADE,
