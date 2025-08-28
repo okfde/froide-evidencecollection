@@ -430,14 +430,16 @@ class EvidenceImporter(TableImporter):
             missing_ids = set(new_values) - set(existing_ids)
 
             for person in Person.objects.filter(external_id__in=missing_ids):
-                Actor.objects.create(
+                obj = Actor.objects.create(
                     person=person,
                 )
+                self.stats.track_created(Actor, obj)
 
             for orga in Organization.objects.filter(external_id__in=missing_ids):
-                Actor.objects.create(
+                obj = Actor.objects.create(
                     organization=orga,
                 )
+                self.stats.track_created(Actor, obj)
 
         return super().get_related_instances(model, new_values, lookup_field, create)
 
