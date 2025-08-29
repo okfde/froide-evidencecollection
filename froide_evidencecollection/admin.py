@@ -18,6 +18,14 @@ from .models import (
 from .utils import selectable_regions
 
 
+class SyncableMixin:
+    def is_synced_display(self, obj):
+        return obj.is_synced
+
+    is_synced_display.boolean = True
+    is_synced_display.short_description = _("is synced")
+
+
 class ReadOnlyAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         if obj is None or settings.DEBUG:
@@ -51,7 +59,7 @@ class AffiliationInline(admin.TabularInline):
 
 
 @admin.register(Person)
-class PersonAdmin(ReadOnlyAdmin):
+class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
     inlines = [AffiliationInline]
     list_display = [
         "last_name",
@@ -59,9 +67,8 @@ class PersonAdmin(ReadOnlyAdmin):
         "also_known_as",
         "wikidata_link",
         "aw_link",
-        "created_at",
-        "updated_at",
         "synced_at",
+        "is_synced_display",
     ]
     fields = [
         "external_id",
@@ -76,6 +83,7 @@ class PersonAdmin(ReadOnlyAdmin):
         "created_at",
         "updated_at",
         "synced_at",
+        "is_synced_display",
     ]
     readonly_fields = [
         "sync_uuid",
@@ -84,8 +92,11 @@ class PersonAdmin(ReadOnlyAdmin):
         "created_at",
         "updated_at",
         "synced_at",
+        "is_synced_display",
     ]
     list_filter = [
+        "is_synced",
+        "synced_at",
         "affiliations__organization__institutional_level",
         "affiliations__role",
         "affiliations__organization",
@@ -112,7 +123,7 @@ class OrganizationAdminForm(forms.ModelForm):
 
 
 @admin.register(Organization)
-class OrganizationAdmin(ReadOnlyAdmin):
+class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
     form = OrganizationAdminForm
     list_display = [
         "organization_name",
@@ -120,9 +131,8 @@ class OrganizationAdmin(ReadOnlyAdmin):
         "wikidata_link",
         "institutional_level",
         "region_list",
-        "created_at",
-        "updated_at",
         "synced_at",
+        "is_synced_display",
     ]
     fields = [
         "external_id",
@@ -137,6 +147,7 @@ class OrganizationAdmin(ReadOnlyAdmin):
         "created_at",
         "updated_at",
         "synced_at",
+        "is_synced_display",
     ]
     readonly_fields = [
         "sync_uuid",
@@ -144,9 +155,15 @@ class OrganizationAdmin(ReadOnlyAdmin):
         "created_at",
         "updated_at",
         "synced_at",
+        "is_synced_display",
     ]
     filter_horizontal = ("regions",)
-    list_filter = ["institutional_level", "affiliations__person"]
+    list_filter = [
+        "is_synced",
+        "synced_at",
+        "institutional_level",
+        "affiliations__person",
+    ]
     search_fields = ["organization_name", "also_known_as"]
 
     def wikidata_link(self, obj):
@@ -161,11 +178,88 @@ class OrganizationAdmin(ReadOnlyAdmin):
 
 
 @admin.register(Role)
-class RoleAdmin(ReadOnlyAdmin):
-    list_display = ["name", "created_at", "updated_at", "synced_at"]
-    fields = ["name", "sync_uuid", "created_at", "updated_at", "synced_at"]
-    readonly_fields = ["sync_uuid", "created_at", "updated_at", "synced_at"]
+class RoleAdmin(SyncableMixin, ReadOnlyAdmin):
+    list_display = [
+        "name",
+        "external_id",
+        "sync_uuid",
+        "synced_at",
+        "is_synced_display",
+    ]
+    fields = [
+        "external_id",
+        "name",
+        "sync_uuid",
+        "created_at",
+        "updated_at",
+        "synced_at",
+        "is_synced_display",
+    ]
+    readonly_fields = [
+        "sync_uuid",
+        "created_at",
+        "updated_at",
+        "synced_at",
+        "is_synced_display",
+    ]
+    list_filter = ["is_synced", "synced_at"]
     search_fields = ["name"]
+
+
+@admin.register(Affiliation)
+class AffiliationAdmin(SyncableMixin, ReadOnlyAdmin):
+    list_display = [
+        "person",
+        "organization",
+        "role",
+        "start_date_string",
+        "end_date_string",
+        "synced_at",
+        "is_synced_display",
+    ]
+    fields = [
+        "external_id",
+        "sync_uuid",
+        "person",
+        "organization",
+        "role",
+        "start_date_string",
+        "end_date_string",
+        "aw_link",
+        "reference_url",
+        "comment",
+        "created_at",
+        "updated_at",
+        "synced_at",
+        "is_synced_display",
+    ]
+    readonly_fields = [
+        "sync_uuid",
+        "aw_link",
+        "created_at",
+        "updated_at",
+        "synced_at",
+        "is_synced_display",
+    ]
+    list_filter = [
+        "is_synced",
+        "synced_at",
+        "organization__institutional_level",
+        "role",
+        "person",
+        "organization",
+    ]
+    search_fields = [
+        "person__first_name",
+        "person__last_name",
+        "organization__organization_name",
+        "role__name",
+    ]
+
+    def aw_link(self, obj):
+        if obj.aw_url:
+            return mark_safe(f'<a href="{obj.aw_url}" target="_blank">{obj.aw_id}</a>')
+        return ""
 
 
 class AttachmentInline(admin.TabularInline):
@@ -181,8 +275,6 @@ class EvidenceAdmin(ReadOnlyAdmin):
         "title",
         "evidence_type",
         "originator_list",
-        "created_at",
-        "updated_at",
     ]
     filter_horizontal = [
         "collections",
@@ -196,6 +288,8 @@ class EvidenceAdmin(ReadOnlyAdmin):
 
     def originator_list(self, obj):
         return ", ".join([originator.name for originator in obj.originators.all()])
+
+    originator_list.short_description = _("originators")
 
 
 @admin.register(ImportExportRun)
