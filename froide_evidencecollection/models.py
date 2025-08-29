@@ -73,6 +73,14 @@ class SyncableModel(models.Model):
     class Meta:
         abstract = True
 
+    def save(self, *args, sync=False, **kwargs):
+        super().save(*args, **kwargs)
+
+        if sync:
+            # Direct update in the database to avoid auto update of updated_at.
+            type(self).objects.filter(pk=self.pk).update(synced_at=self.updated_at)
+            self.refresh_from_db()
+
 
 class AbstractActor(SyncableModel):
     """Abstract base model for `Person` and `Organization`."""
