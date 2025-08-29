@@ -172,10 +172,10 @@ class TableImporter:
             if obj and not self.stats.instance_failed(self.model):
                 self.process_m2m_relations(obj, fields, related_cache)
 
-            if created:
-                self.stats.track_created(self.model, obj)
-            else:
-                self.stats.track_updated(self.model, old_obj_data, obj)
+                if created:
+                    self.stats.track_created(self.model, obj)
+                else:
+                    self.stats.track_updated(self.model, old_obj_data, obj)
 
         self.delete_instances(self.model, existing_objs.keys(), self.obj_data.keys())
         self.stats.log_summary(self.model)
