@@ -59,6 +59,16 @@ class SyncableModel(models.Model):
     sync_uuid = models.UUIDField(
         unique=True, editable=False, default=uuid.uuid4, verbose_name=_("sync UUID")
     )
+    is_synced = models.GeneratedField(
+        expression=models.Case(
+            models.When(synced_at__isnull=True, then=models.Value(False)),
+            models.When(synced_at__gte=models.F("updated_at"), then=models.Value(True)),
+            default=models.Value(False),
+        ),
+        output_field=models.BooleanField(),
+        db_persist=True,
+        verbose_name=_("is synced"),
+    )
 
     class Meta:
         abstract = True
