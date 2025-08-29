@@ -1,5 +1,6 @@
 import datetime
 import logging
+import uuid
 from itertools import chain
 
 from django.conf import settings
@@ -49,6 +50,12 @@ def equals(old_value, new_value):
         except ValueError:
             return False
 
+    if isinstance(old_value, uuid.UUID) and isinstance(new_value, str):
+        try:
+            new_value = uuid.UUID(new_value)
+        except ValueError:
+            return False
+
     return old_value == new_value
 
 
@@ -65,7 +72,12 @@ def selectable_regions():
 def is_serializable(field):
     return not isinstance(
         field,
-        (models.DateTimeField, models.DateField, models.UUIDField, models.FileField),
+        (
+            models.DateTimeField,
+            models.DateField,
+            models.FileField,
+            models.GeneratedField,
+        ),
     )
 
 
@@ -78,7 +90,11 @@ def to_dict(instance):
 
     for f in chain(opts.concrete_fields, opts.private_fields):
         if f.name != "id" and is_serializable(f):
-            data[f.name] = f.value_from_object(instance)
+            value = f.value_from_object(instance)
+            if isinstance(f, models.UUIDField):
+                value = str(value)
+
+            data[f.name] = value
 
     for f in opts.many_to_many:
         data[f.name] = [i.id for i in f.value_from_object(instance)]

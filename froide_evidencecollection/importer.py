@@ -228,21 +228,47 @@ class TableImporter:
         init_fields = {k: v for k, v in fields.items() if k not in self.relation_config}
 
         if obj:
+            if not self.check_sync_uuid(obj, fields):
+                return None
+
             for k, v in init_fields.items():
                 if not equals(getattr(obj, k), v):
                     setattr(obj, k, v)
                     update = True
+
             if update:
                 if related_cache:
                     self.process_fk_relations(obj, fields, related_cache)
-                self.save_instance(obj)
+                self.save_instance(obj, sync=True)
         else:
             obj = model(**init_fields)
             if related_cache:
                 self.process_fk_relations(obj, fields, related_cache)
-            self.save_instance(obj)
+
+            sync = init_fields.get("sync_uuid") is not None
+            self.save_instance(obj, sync=sync)
 
         return obj
+
+    def check_sync_uuid(self, obj, fields):
+        """Check if the sync UUID is present and consistent, and handle accordingly."""
+        sync_uuid = fields.get("sync_uuid")
+
+        if sync_uuid is None:
+            msg = f"{self.model_name} with ID {obj.pk} has no sync UUID in import data, skipping update"
+            logger.warning(msg)
+            self.stats.track_skipped(self.model, msg)
+            return False
+
+        if not equals(obj.sync_uuid, sync_uuid):
+            msg = (
+                f"Sync UUID conflict for {self.model_name} with ID {obj.pk}"
+                f"(existing: {obj.sync_uuid}, new: {sync_uuid})"
+            )
+            self.handle_error(msg, self.model)
+            return False
+
+        return True
 
     def process_fk_relations(self, obj, fields, related_cache):
         """Update FK relations if they have changed."""
@@ -299,11 +325,14 @@ class TableImporter:
             delete_qs.delete()
             self.stats.track_deleted(model, deleted_pks)
 
-    def save_instance(self, obj):
+    def save_instance(self, obj, sync=False):
         """Save the instance, track the operation, and handle errors."""
         try:
             with transaction.atomic():
-                obj.save()
+                if isinstance(obj, SyncableModel):
+                    obj.save(sync=sync)
+                else:
+                    obj.save()
         except Exception as e:
             model = obj._meta.model
             msg = f"Error saving {model.__name__} instance: {e}"
