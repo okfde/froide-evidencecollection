@@ -387,6 +387,15 @@ class Affiliation(SyncableModel):
         verbose_name = _("affiliation")
         verbose_name_plural = _("affiliations")
 
+    def __str__(self):
+        return f"{self.person} - {self.organization} ({self.role})"
+
+    @cached_property
+    def aw_url(self):
+        if self.aw_id:
+            return f"https://www.abgeordnetenwatch.de/api/v2/candidacies-mandates/{self.aw_id}"
+        return None
+
 
 class Evidence(ImportableModel):
     citation = models.TextField(blank=False, default="", verbose_name=_("citation"))
