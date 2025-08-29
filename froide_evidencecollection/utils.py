@@ -210,7 +210,75 @@ class ImportStatsCollection:
         for model, other_stats in other.stats.items():
             if model not in self.stats:
                 self.stats[model] = ImportStats()
+
             self.stats[model].created.extend(other_stats.created)
             self.stats[model].updated.extend(other_stats.updated)
             self.stats[model].skipped.extend(other_stats.skipped)
             self.stats[model].deleted.extend(other_stats.deleted)
+
+
+class ExportStats:
+    def __init__(self):
+        self.created = []
+        self.updated = []
+
+    def reset(self):
+        self.created = []
+        self.updated = []
+
+    def track(self, operation, data):
+        if hasattr(self, operation):
+            stats = getattr(self, operation)
+            if isinstance(data, list):
+                stats.extend(data)
+            else:
+                stats.append(data)
+            setattr(self, operation, stats)
+
+    def get_summary(self):
+        return f"{len(self.created)} created, {len(self.updated)} updated."
+
+    def to_dict(self):
+        return {
+            "created": self.created,
+            "updated": self.updated,
+        }
+
+
+class ExportStatsCollection:
+    def __init__(self):
+        self.stats = {}
+
+    def reset(self):
+        for stats in self.stats.values():
+            stats.reset()
+
+    def track(self, operation, model, data):
+        if model not in self.stats:
+            self.stats[model] = ExportStats()
+
+        self.stats[model].track(operation, data)
+
+    def track_created(self, model, obj):
+        data = {"id": obj.id, "fields": to_dict(obj)}
+
+        self.track("created", model, data)
+
+    def track_updated(self, model, ids):
+        self.track("updated", model, ids)
+
+    def log_summary(self, model):
+        if model in self.stats:
+            logger.info(
+                f"Model {model.__name__} processed: {self.stats[model].get_summary()}"
+            )
+
+    def to_dict(self):
+        return {model.__name__: stats.to_dict() for model, stats in self.stats.items()}
+
+    def merge(self, other: "ExportStatsCollection"):
+        for model, other_stats in other.stats.items():
+            if model not in self.stats:
+                self.stats[model] = ExportStats()
+            self.stats[model].created += other_stats.created
+            self.stats[model].updated += other_stats.updated
