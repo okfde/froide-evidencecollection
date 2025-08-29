@@ -237,12 +237,14 @@ class Actor(ImportableModel):
     def __str__(self):
         return self.name
 
-    def save(self, **kwargs):
-        assert [self.person, self.organization].count(None) == 1
+    def save(self, *args, **kwargs):
+        if [self.person, self.organization].count(None) != 1:
+            raise ValueError("Exactly one of 'person' or 'organization' must be set.")
+
         self.external_id = self.target.external_id
         self.name = str(self.target)
 
-        return super(Actor, self).save(**kwargs)
+        return super(Actor, self).save(*args, **kwargs)
 
     @cached_property
     def target(self):
