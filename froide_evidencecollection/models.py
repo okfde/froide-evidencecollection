@@ -95,6 +95,9 @@ class SyncableModel(models.Model):
     def get_current_state(self):
         return to_dict(self)
 
+    def get_additional_payload_data(self, field_map):
+        return {}
+
 
 class AbstractActor(SyncableModel):
     """Abstract base model for `Person` and `Organization`."""
@@ -154,6 +157,9 @@ class Person(AbstractActor):
             return f"https://www.abgeordnetenwatch.de/politician/{self.aw_id}"
         return None
 
+    def get_additional_payload_data(self, field_map):
+        return {"Typ": "Person"}
+
 
 class PersonStatus(models.Model):
     name = models.CharField(unique=True, max_length=50, verbose_name=_("name"))
@@ -193,6 +199,17 @@ class Organization(AbstractActor):
     class Meta:
         verbose_name = _("organization")
         verbose_name_plural = _("organizations")
+
+    def get_additional_payload_data(self, field_map):
+        regions = (
+            list(self.regions.values_list("name", flat=True)) + self.special_regions
+        )
+        region_col_name = field_map.get("regions")
+
+        return {
+            "Typ": "Organisation",
+            region_col_name: ",".join(regions) or None,
+        }
 
 
 class OrganizationStatus(models.Model):

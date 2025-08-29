@@ -89,7 +89,7 @@ def to_dict(instance):
     data = {}
 
     for f in chain(opts.concrete_fields, opts.private_fields):
-        if f.name != "id" and is_serializable(f):
+        if f.name not in ["id", "last_synced_state"] and is_serializable(f):
             value = f.value_from_object(instance)
             if isinstance(f, models.UUIDField):
                 value = str(value)
@@ -226,7 +226,100 @@ class ImportStatsCollection:
         for model, other_stats in other.stats.items():
             if model not in self.stats:
                 self.stats[model] = ImportStats()
+
             self.stats[model].created.extend(other_stats.created)
             self.stats[model].updated.extend(other_stats.updated)
             self.stats[model].skipped.extend(other_stats.skipped)
             self.stats[model].deleted.extend(other_stats.deleted)
+
+
+class ExportStats:
+    def __init__(self):
+        self.created = []
+        self.updated = []
+        self.failed_links = []
+
+    def reset(self):
+        self.created = []
+        self.updated = []
+        self.failed_links = []
+
+    def track(self, operation, data):
+        if hasattr(self, operation):
+            stats = getattr(self, operation)
+            if isinstance(data, list):
+                stats.extend(data)
+            else:
+                stats.append(data)
+            setattr(self, operation, stats)
+
+    def get_summary(self):
+        return (
+            f"{len(self.created)} created, {len(self.updated)} updated, "
+            f"{len(self.failed_links)} failed links."
+        )
+
+    def to_dict(self):
+        return {
+            "created": self.created,
+            "updated": self.updated,
+            "failed_links": self.failed_links,
+        }
+
+
+class ExportStatsCollection:
+    def __init__(self):
+        self.stats = {}
+
+    def reset(self):
+        for stats in self.stats.values():
+            stats.reset()
+
+    def track(self, operation, model, data):
+        if model not in self.stats:
+            self.stats[model] = ExportStats()
+
+        self.stats[model].track(operation, data)
+
+    def track_created(self, model, obj):
+        data = {"id": obj.id, "fields": to_dict(obj)}
+
+        self.track("created", model, data)
+
+    def track_updated(self, model, new_obj):
+        new_obj_data = to_dict(new_obj)
+        old_obj_data = new_obj.last_synced_state
+        diff = get_changes(old_obj_data, new_obj_data)
+
+        if diff:
+            data = {
+                "id": new_obj.id,
+                "diff": diff,
+            }
+
+            self.track("updated", model, data)
+
+    def track_failed_link(self, model, field_id, record_id, rel_instance_id):
+        data = {
+            "field_id": field_id,
+            "record_id": record_id,
+            "rel_instance_id": rel_instance_id,
+        }
+
+        self.track("failed_links", model, data)
+
+    def log_summary(self, model):
+        if model in self.stats:
+            logger.info(
+                f"Model {model.__name__} processed: {self.stats[model].get_summary()}"
+            )
+
+    def to_dict(self):
+        return {model.__name__: stats.to_dict() for model, stats in self.stats.items()}
+
+    def merge(self, other: "ExportStatsCollection"):
+        for model, other_stats in other.stats.items():
+            if model not in self.stats:
+                self.stats[model] = ExportStats()
+            self.stats[model].created += other_stats.created
+            self.stats[model].updated += other_stats.updated
