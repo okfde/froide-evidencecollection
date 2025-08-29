@@ -1,6 +1,7 @@
 import logging
 
 from froide.celery import app as celery_app
+from froide_evidencecollection.exporter import NocoDBExporter
 from froide_evidencecollection.importer import NocoDBImporter
 from froide_evidencecollection.models import ImportExportRun
 
@@ -23,3 +24,21 @@ def import_evidence_nocodb(full=False):
         run.complete(False, notes=str(e))
     else:
         run.complete(True, changes=importer.log_stats())
+
+
+@celery_app.task(name="froide_evidencecollection.export_evidence_nocodb")
+def export_evidence_nocodb():
+    exporter = NocoDBExporter()
+    run = ImportExportRun.objects.create(
+        operation=ImportExportRun.EXPORT,
+        source=ImportExportRun.FROIDE_EVIDENCECOLLECTION,
+        target=ImportExportRun.NOCODB,
+    )
+
+    try:
+        exporter.run()
+    except Exception as e:
+        logger.exception(f"Failed to export data to NocoDB: {e}")
+        run.complete(False, notes=str(e))
+    else:
+        run.complete(True, changes=exporter.log_stats())
