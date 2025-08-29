@@ -162,9 +162,23 @@ class OrganizationAdmin(ReadOnlyAdmin):
 
 @admin.register(Role)
 class RoleAdmin(ReadOnlyAdmin):
-    list_display = ["name", "created_at", "updated_at", "synced_at"]
-    fields = ["name", "sync_uuid", "created_at", "updated_at", "synced_at"]
-    readonly_fields = ["sync_uuid", "created_at", "updated_at", "synced_at"]
+    list_display = ["name", "created_at", "updated_at", "synced_at", "is_synced"]
+    fields = [
+        "external_id",
+        "name",
+        "sync_uuid",
+        "created_at",
+        "updated_at",
+        "synced_at",
+        "is_synced",
+    ]
+    readonly_fields = [
+        "sync_uuid",
+        "created_at",
+        "updated_at",
+        "synced_at",
+        "is_synced",
+    ]
     search_fields = ["name"]
 
 
