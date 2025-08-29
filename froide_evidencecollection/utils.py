@@ -210,7 +210,7 @@ class ImportStatsCollection:
         for model, other_stats in other.stats.items():
             if model not in self.stats:
                 self.stats[model] = ImportStats()
-            self.stats[model].created += other_stats.created
-            self.stats[model].updated += other_stats.updated
-            self.stats[model].skipped += other_stats.skipped
-            self.stats[model].deleted += other_stats.deleted
+            self.stats[model].created.extend(other_stats.created)
+            self.stats[model].updated.extend(other_stats.updated)
+            self.stats[model].skipped.extend(other_stats.skipped)
+            self.stats[model].deleted.extend(other_stats.deleted)
