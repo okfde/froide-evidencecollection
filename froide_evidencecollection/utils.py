@@ -65,7 +65,13 @@ def selectable_regions():
 def is_serializable(field):
     return not isinstance(
         field,
-        (models.DateTimeField, models.DateField, models.UUIDField, models.FileField),
+        (
+            models.DateTimeField,
+            models.DateField,
+            models.UUIDField,
+            models.FileField,
+            models.GeneratedField,
+        ),
     )
 
 
