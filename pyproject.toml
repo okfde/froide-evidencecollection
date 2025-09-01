@@ -36,5 +36,25 @@ known-first-party = ["froide"]
 [tool.ruff.lint.isort.sections]
 django = ["django"]
 
+[tool.coverage.run]
+source = ["froide_evidencecollection"]
+omit = ["*/migrations/*", "*/tests/*"]
+plugins = ["django_coverage_plugin"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = ["pragma: no cover"]
+
 [tool.djlint]
 ignore = "T002,T003,H005,H006,H021,H023,H029,H030,H031"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "froide_evidencecollection.settings"
+DJANGO_CONFIGURATION = "Test"
+addopts = ["--reuse-db"]
+filterwarnings = [
+    "ignore::DeprecationWarning:(?!froide_evidencecollection).*",
+    "ignore::PendingDeprecationWarning:(?!froide_evidencecollection)*",
+]
