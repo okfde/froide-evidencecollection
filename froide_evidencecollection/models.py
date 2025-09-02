@@ -74,12 +74,20 @@ class SyncableModel(models.Model):
         abstract = True
 
     def save(self, *args, sync=False, **kwargs):
+        if not self.sync_uuid:
+            self.sync_uuid = uuid.uuid4()
+
         super().save(*args, **kwargs)
 
         if sync:
-            # Direct update in the database to avoid auto update of updated_at.
-            type(self).objects.filter(pk=self.pk).update(synced_at=self.updated_at)
-            self.refresh_from_db()
+            self.mark_synced(self.updated_at)
+
+    def mark_synced(obj, synced_at=None):
+        obj.synced_at = synced_at or timezone.now()
+        obj.save(update_fields=["synced_at"])
+
+        # Refresh for correct value of `is_synced` field.
+        obj.refresh_from_db()
 
 
 class AbstractActor(SyncableModel):
