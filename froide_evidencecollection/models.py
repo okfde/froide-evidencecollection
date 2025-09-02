@@ -57,7 +57,7 @@ class SyncableModel(models.Model):
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
     synced_at = models.DateTimeField(blank=True, null=True, verbose_name=_("synced at"))
     sync_uuid = models.UUIDField(
-        unique=True, editable=False, default=uuid.uuid4, verbose_name=_("sync UUID")
+        unique=True, editable=False, verbose_name=_("sync UUID")
     )
     is_synced = models.GeneratedField(
         expression=models.Case(
