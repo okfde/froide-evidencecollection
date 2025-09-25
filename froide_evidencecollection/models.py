@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.translation import pgettext_lazy
 
 from froide.georegion.models import GeoRegion
+from froide_evidencecollection.utils import to_dict
 
 
 class ImportableModel(models.Model):
@@ -69,6 +70,7 @@ class SyncableModel(models.Model):
         db_persist=True,
         verbose_name=_("is synced"),
     )
+    last_synced_state = models.JSONField(default=dict, editable=False)
 
     class Meta:
         abstract = True
@@ -82,12 +84,16 @@ class SyncableModel(models.Model):
         if sync:
             self.mark_synced(self.updated_at)
 
-    def mark_synced(obj, synced_at=None):
-        obj.synced_at = synced_at or timezone.now()
-        obj.save(update_fields=["synced_at"])
-
         # Refresh for correct value of `is_synced` field.
-        obj.refresh_from_db()
+        self.refresh_from_db()
+
+    def mark_synced(self, synced_at=None):
+        self.synced_at = synced_at or timezone.now()
+        self.last_synced_state = self.get_current_state()
+        self.save(update_fields=["synced_at", "last_synced_state"])
+
+    def get_current_state(self):
+        return to_dict(self)
 
 
 class AbstractActor(SyncableModel):
