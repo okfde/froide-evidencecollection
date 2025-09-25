@@ -250,9 +250,9 @@ class Actor(ImportableModel):
         verbose_name_plural = _("actors")
         constraints = [
             models.CheckConstraint(
-                check=models.Q(person__isnull=False)
-                | models.Q(organization__isnull=False),
                 name="actor_person_or_organization_required",
+                condition=models.Q(person__isnull=False)
+                | models.Q(organization__isnull=False),
             ),
             models.UniqueConstraint(
                 fields=["person"],
