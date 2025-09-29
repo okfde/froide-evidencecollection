@@ -1,6 +1,6 @@
 # froide evidencecollection
 
-## Import from NocoDB
+## Import and Export from and to NocoDB
 
 ### Setup
 
@@ -20,7 +20,7 @@ In order to import data from NocoDB, you need to set the following environment v
 
 ### Run the Import
 
-The import can be run manually using the following command:
+The import can be run manually using the following command from the Django project in which `froide_evidencecollection` is installed:
 
 ```bash
 python manage.py import_nocodb
@@ -34,6 +34,14 @@ python manage.py import_nocodb --full
 
 If `DEBUG` is set to `True`, any import errors will be caught and logged. If `DEBUG` is set to `False`, the import will fail immediately on any error and any changes will be rolled back.
 
+### Run the Export
+
+Similarly to the import, you can export data to NocoDB using the following command:
+
+```bash
+python manage.py export_nocodb
+```
+
 ## Rebuild Search Index
 
 To rebuild the search index for the `froide_evidencecollection` app, you can use the following command:
@@ -41,3 +49,21 @@ To rebuild the search index for the `froide_evidencecollection` app, you can use
 ```bash
 python manage.py search_index --rebuild --models froide_evidencecollection
 ```
+
+## Running Tests
+
+Run tests with pytest:
+
+```bash
+docker compose -f compose-dev.yaml up
+# --create-db option is only needed the first time.
+pytest --create-db
+```
+
+Run tests with coverage:
+
+```bash
+coverage run -m pytest && coverage report
+```
+
+Alternatively, you can run `make test` or `make testci`.
