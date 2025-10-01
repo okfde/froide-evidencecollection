@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-08-27 15:08+0200\n"
+"POT-Creation-Date: 2025-10-01 15:43+0200\n"
 "PO-Revision-Date: 2024-10-28 15:01+0000\n"
 "Last-Translator: Kara Engelhardt <kara.engelhardt@okfn.de>\n"
 "Language-Team: German <https://weblate.frag-den-staat.de/projects/froide/"
@@ -20,6 +20,14 @@ msgstr ""
 "X-Generator: Weblate 4.14.2\n"
 
 #: froide_evidencecollection/admin.py froide_evidencecollection/models.py
+msgid "is synced"
+msgstr "ist synchronisiert"
+
+#: froide_evidencecollection/admin.py froide_evidencecollection/models.py
+msgid "originators"
+msgstr "Urheber"
+
+#: froide_evidencecollection/admin.py froide_evidencecollection/models.py
 msgid "changes"
 msgstr "Änderungen"
 
@@ -28,16 +36,16 @@ msgid "Evidence Collection CMS App"
 msgstr "Belegsammlungs-CMS-App"
 
 #: froide_evidencecollection/models.py
-msgid "external ID"
-msgstr "externe ID"
-
-#: froide_evidencecollection/models.py
 msgid "created at"
 msgstr "erstellt am"
 
 #: froide_evidencecollection/models.py
 msgid "updated at"
 msgstr "aktualisiert am"
+
+#: froide_evidencecollection/models.py
+msgid "external ID"
+msgstr "externe ID"
 
 #: froide_evidencecollection/models.py
 msgid "synced at"
@@ -190,10 +198,6 @@ msgstr "Art des Belegs"
 #: froide_evidencecollection/models.py
 msgid "collections"
 msgstr "Sammlungen"
-
-#: froide_evidencecollection/models.py
-msgid "originators"
-msgstr "Urheber"
 
 #: froide_evidencecollection/models.py
 msgid "related actors"
