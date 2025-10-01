@@ -426,7 +426,7 @@ class TestPersonImporter:
         assert instance.is_synced is (sync_uuid is not None)
         assert instance.first_name == "Vorname"
         assert instance.last_name == "Nachname"
-        assert instance.title == title
+        assert instance.title == (title or "")
         assert instance.wikidata_id == wikidata_id
         assert instance.aw_id == aw_id
 
@@ -466,7 +466,7 @@ class TestPersonImporter:
                         "first_name": "Vorname",
                         "last_name": "Nachname",
                         "status": person_status.id if person_status else None,
-                        "title": title,
+                        "title": (title or ""),
                         "wikidata_id": wikidata_id,
                         "sync_uuid": str(instance.sync_uuid),
                     },
@@ -649,11 +649,11 @@ class TestAffiliationImporter:
         assert instance.person_id == person.id
         assert instance.organization_id == organization.id
         assert instance.role_id == role.id
-        assert instance.start_date_string == start_date
-        assert instance.end_date_string == end_date
+        assert instance.start_date_string == (start_date or "")
+        assert instance.end_date_string == (end_date or "")
         assert instance.start_date is None
         assert instance.end_date is None
-        assert instance.reference_url == reference_url
+        assert instance.reference_url == (reference_url or "")
         assert instance.comment == (comment or "")
         assert instance.aw_id == aw_id
 
@@ -680,9 +680,9 @@ class TestAffiliationImporter:
                         "role": role.id,
                         "start_date": None,
                         "end_date": None,
-                        "start_date_string": start_date,
-                        "end_date_string": end_date,
-                        "reference_url": reference_url,
+                        "start_date_string": (start_date or ""),
+                        "end_date_string": (end_date or ""),
+                        "reference_url": (reference_url or ""),
                         "comment": comment or "",
                         "aw_id": aw_id,
                         "external_id": external_id,
@@ -836,9 +836,9 @@ class TestEvicenceImporter:
         assert instance.attribution_justification == (attribution_justification or "")
         assert instance.legal_assessment == legal_assessment
         assert instance.primary_source_info == (primary_source_info or "")
-        assert instance.primary_source_url == primary_source_url
+        assert instance.primary_source_url == (primary_source_url or "")
         assert instance.reference_info == (reference_info or "")
-        assert instance.reference_url == reference_url
+        assert instance.reference_url == (reference_url or "")
 
         if event_date:
             assert str(instance.event_date) == event_date
@@ -929,10 +929,10 @@ class TestEvicenceImporter:
                         "legal_assessment": legal_assessment,
                         "originators": originators,
                         "primary_source_info": (primary_source_info or ""),
-                        "primary_source_url": primary_source_url,
+                        "primary_source_url": (primary_source_url or ""),
                         "reference_info": (reference_info or ""),
                         "publishing_date": publishing_date,
-                        "reference_url": reference_url,
+                        "reference_url": (reference_url or ""),
                         "related_actors": related_actors,
                     },
                 }

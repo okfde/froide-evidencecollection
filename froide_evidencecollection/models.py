@@ -148,7 +148,7 @@ class Person(AbstractActor):
     title = models.CharField(
         max_length=20,
         blank=True,
-        null=True,
+        default="",
         verbose_name=_("title"),
     )
     aw_id = models.PositiveIntegerField(
@@ -371,7 +371,7 @@ class Affiliation(SyncableModel):
     start_date_string = models.CharField(
         max_length=10,
         blank=True,
-        null=True,
+        default="",
         verbose_name=_("start date (string)"),
     )
     end_date = models.DateField(
@@ -382,13 +382,13 @@ class Affiliation(SyncableModel):
     end_date_string = models.CharField(
         max_length=10,
         blank=True,
-        null=True,
+        default="",
         verbose_name=_("end date (string)"),
     )
     reference_url = models.URLField(
         max_length=500,
         blank=True,
-        null=True,
+        default="",
         verbose_name=_("reference URL"),
     )
     comment = models.TextField(
@@ -412,9 +412,9 @@ class Affiliation(SyncableModel):
 
 
 class Evidence(ImportableModel):
-    citation = models.TextField(blank=False, default="", verbose_name=_("citation"))
+    citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
     description = models.TextField(
-        blank=False, default="", verbose_name=_("description")
+        blank=True, default="", verbose_name=_("description")
     )
     evidence_type = models.ForeignKey(
         "EvidenceType",
@@ -442,13 +442,13 @@ class Evidence(ImportableModel):
         null=True, blank=True, verbose_name=_("documentation date")
     )
     reference_url = models.URLField(
-        max_length=500, blank=True, null=True, verbose_name=_("reference (URL)")
+        max_length=500, blank=True, default="", verbose_name=_("reference (URL)")
     )
     reference_info = models.TextField(
         blank=True, default="", verbose_name=_("reference (additional information)")
     )
     primary_source_url = models.URLField(
-        max_length=500, blank=True, null=True, verbose_name=_("primary source URL")
+        max_length=500, blank=True, default="", verbose_name=_("primary source URL")
     )
     primary_source_info = models.TextField(
         blank=True,
@@ -528,7 +528,9 @@ class Attachment(ImportableModel):
     file = models.FileField(
         upload_to="attachments", max_length=255, verbose_name=_("file")
     )
-    mimetype = models.CharField(max_length=100, blank=True, verbose_name=_("mimetype"))
+    mimetype = models.CharField(
+        max_length=100, blank=True, default="", verbose_name=_("mimetype")
+    )
     size = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("size"))
     width = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("width"))
     height = models.PositiveIntegerField(
