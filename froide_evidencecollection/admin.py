@@ -9,9 +9,12 @@ from django.utils.translation import gettext_lazy as _
 from .models import (
     Affiliation,
     Attachment,
+    Election,
     Evidence,
     ImportExportRun,
+    LegislativePeriod,
     Organization,
+    Parliament,
     Person,
     Role,
 )
@@ -51,11 +54,17 @@ class AffiliationInline(admin.TabularInline):
         "role",
         "start_date_string",
         "end_date_string",
-        "aw_id",
+        "aw_link",
         "reference_url",
         "comment",
     ]
     readonly_fields = fields
+    ordering = ("start_date_string",)
+
+    def aw_link(self, obj):
+        if obj.aw_url:
+            return mark_safe(f'<a href="{obj.aw_url}" target="_blank">{obj.aw_id}</a>')
+        return ""
 
 
 @admin.register(Person)
@@ -324,3 +333,13 @@ class ImportExportRunAdmin(ReadOnlyAdmin):
         return mark_safe(f"<pre>{pretty}</pre>")
 
     pretty_changes.short_description = _("changes")
+
+
+@admin.register(LegislativePeriod)
+class LegislativePeriodAdmin(admin.ModelAdmin):
+    list_display = ["name", "start_date", "end_date", "reference_url"]
+    search_fields = ["name"]
+
+
+admin.site.register(Parliament, ReadOnlyAdmin)
+admin.site.register(Election, ReadOnlyAdmin)

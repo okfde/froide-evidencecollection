@@ -46,7 +46,7 @@ def get_default_value(model, field_name):
 def equals(old_value, new_value):
     if isinstance(old_value, datetime.date) and isinstance(new_value, str):
         try:
-            new_value = datetime.datetime.strptime(new_value, "%Y-%m-%d").date()
+            new_value = datetime.date.fromisoformat(new_value)
         except ValueError:
             return False
 
@@ -104,6 +104,22 @@ def get_changes(old_data, new_data):
             }
 
     return changes
+
+
+def get_today():
+    """Get today's date. Abstracted for easier mocking in testing."""
+    return datetime.date.today()
+
+
+def filter_future_date(date):
+    """Return None if the date is in the future, otherwise return the date."""
+    if isinstance(date, str):
+        date = datetime.date.fromisoformat(date)
+
+    if date and date > get_today():
+        return None
+
+    return date
 
 
 class ImportStats:

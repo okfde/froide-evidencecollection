@@ -404,6 +404,15 @@ class Affiliation(SyncableModel):
     def __str__(self):
         return f"{self.person} - {self.organization} ({self.role})"
 
+    def save(self, *args, **kwargs):
+        # Update string date fields if corresponding date fields are set.
+        if self.start_date:
+            self.start_date_string = str(self.start_date)
+        if self.end_date:
+            self.end_date_string = str(self.end_date)
+
+        return super().save(*args, **kwargs)
+
     @cached_property
     def aw_url(self):
         if self.aw_id:
@@ -580,9 +589,11 @@ class ImportExportRun(models.Model):
 
     FROIDE_EVIDENCECOLLECTION = "FE"
     NOCODB = "NC"
+    ABGEORDNETENWATCH = "AW"
     DATA_ENDPOINTS = {
         FROIDE_EVIDENCECOLLECTION: _("Froide EvidenceCollection"),
         NOCODB: _("NocoDB"),
+        ABGEORDNETENWATCH: _("abgeordnetenwatch.de"),
     }
 
     operation = models.CharField(
@@ -619,3 +630,95 @@ class ImportExportRun(models.Model):
         self.notes = notes
         self.finished_at = timezone.now()
         self.save()
+
+
+class Parliament(models.Model):
+    aw_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("abgeordnetenwatch.de ID")
+    )
+    name = models.CharField(unique=True, max_length=50, verbose_name=_("name"))
+    fraction = models.OneToOneField(
+        Organization,
+        on_delete=models.PROTECT,
+        verbose_name=_("fraction"),
+    )
+
+    class Meta:
+        verbose_name = _("🏛️ Parliament")
+        verbose_name_plural = _("🏛️ Parliaments")
+
+    def __str__(self):
+        return self.name
+
+    def find_matching_fraction(self):
+        # Match the parliament name as a whole word between word boundaries
+        # in the organization name. Hyphen - is explicitely allowed as part of
+        # the word to avoid "Sachsen" matching in "Sachsen-Anhalt".
+        regex = f"([^\\w-]|^){self.name}([^\\w-]|$)"
+
+        candidates = Organization.objects.filter(organization_name__regex=regex)
+
+        if candidates.count() == 1:
+            return candidates.first()
+        elif candidates.count() > 1:
+            cand_str = ", ".join(str(c) for c in candidates)
+            msg = f"Multiple matching fractions found for parliament {self.name}: {cand_str}"
+            raise ValueError(msg)
+        else:
+            raise ValueError(f"No matching fraction found for parliament {self.name}")
+
+
+class ParliamentPeriod(models.Model):
+    aw_id = models.PositiveIntegerField(
+        unique=True, verbose_name=_("abgeordnetenwatch.de ID")
+    )
+    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
+    start_date = models.DateField(verbose_name=_("start date"))
+    end_date = models.DateField(verbose_name=_("end date"))
+
+    class Meta:
+        abstract = True
+        unique_together = ("parliament", "start_date", "end_date")
+
+    def __str__(self):
+        return self.name
+
+
+class Election(ParliamentPeriod):
+    parliament = models.ForeignKey(
+        Parliament,
+        on_delete=models.CASCADE,
+        related_name="elections",
+        verbose_name=_("parliament"),
+    )
+
+    class Meta(ParliamentPeriod.Meta):
+        verbose_name = _("🏛️ Election")
+        verbose_name_plural = _("🏛️ Elections")
+
+
+class LegislativePeriod(ParliamentPeriod):
+    parliament = models.ForeignKey(
+        Parliament,
+        on_delete=models.CASCADE,
+        related_name="legislative_periods",
+        verbose_name=_("parliament"),
+    )
+    election = models.OneToOneField(
+        Election,
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        verbose_name=_("election"),
+        related_name="legislative_period",
+    )
+    reference_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name=_("reference URL"),
+    )
+
+    class Meta(ParliamentPeriod.Meta):
+        verbose_name = _("🏛️ Legislative period")
+        verbose_name_plural = _("🏛️ Legislative periods")
