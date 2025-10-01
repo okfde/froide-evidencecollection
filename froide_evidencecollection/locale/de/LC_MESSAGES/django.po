@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-10-01 15:43+0200\n"
+"POT-Creation-Date: 2025-10-14 20:55+0200\n"
 "PO-Revision-Date: 2024-10-28 15:01+0000\n"
 "Last-Translator: Kara Engelhardt <kara.engelhardt@okfn.de>\n"
 "Language-Team: German <https://weblate.frag-den-staat.de/projects/froide/"
@@ -318,6 +318,10 @@ msgid "NocoDB"
 msgstr "NocoDB"
 
 #: froide_evidencecollection/models.py
+msgid "abgeordnetenwatch.de"
+msgstr "abgeordnetenwatch.de"
+
+#: froide_evidencecollection/models.py
 msgid "operation"
 msgstr "Operation"
 
@@ -352,6 +356,43 @@ msgstr "🔧 Import/Export"
 #: froide_evidencecollection/models.py
 msgid "🔧 Import/export runs"
 msgstr "🔧 Importe/Exporte"
+
+#: froide_evidencecollection/models.py
+#, fuzzy
+msgid "fraction"
+msgstr "Fraktion"
+
+#: froide_evidencecollection/models.py
+msgid "🏛️ Parliament"
+msgstr "🏛️ Parlament"
+
+#: froide_evidencecollection/models.py
+msgid "🏛️ Parliaments"
+msgstr "🏛️ Parlamente"
+
+#: froide_evidencecollection/models.py
+msgid "parliament"
+msgstr "Parlament"
+
+#: froide_evidencecollection/models.py
+msgid "🏛️ Election"
+msgstr "🏛️ Wahl"
+
+#: froide_evidencecollection/models.py
+msgid "🏛️ Elections"
+msgstr "🏛️ Wahlen"
+
+#: froide_evidencecollection/models.py
+msgid "election"
+msgstr "Wahl"
+
+#: froide_evidencecollection/models.py
+msgid "🏛️ Legislative period"
+msgstr "🏛️ Legislaturperiode"
+
+#: froide_evidencecollection/models.py
+msgid "🏛️ Legislative periods"
+msgstr "🏛️ Legislaturperioden"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 #, python-format

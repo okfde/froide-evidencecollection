@@ -1,3 +1,5 @@
+import uuid
+
 from froide.settings import Test as FroideTest
 
 
@@ -182,4 +184,11 @@ class Test(FroideTest):
         # },
         "special_regions": ["Ausland"],
         "null_label": "Keine Angabe",
+    }
+
+    FROIDE_EVIDENCECOLLECTION_ABGEORDNETENWATCH_CONFIG = {
+        "mandate_role_uuid": uuid.uuid4(),  # "Abgeordnete*r"
+        "candidate_role_uuid": uuid.uuid4(),  # "Kandidatur"
+        "party_id": 9,  # AfD
+        "fractions": ["AfD"],
     }
