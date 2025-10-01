@@ -14,7 +14,18 @@ from froide.georegion.models import GeoRegion
 from froide_evidencecollection.utils import to_dict
 
 
-class ImportableModel(models.Model):
+class TrackableModel(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
+
+    class Meta:
+        abstract = True
+
+    def exclude_from_serialization(self):
+        return ["id", "created_at", "updated_at"]
+
+
+class ImportableModel(TrackableModel):
     """
     Base class for models that are imported from an external source (NocoDB) but should
     not be synced back to it.
@@ -26,14 +37,12 @@ class ImportableModel(models.Model):
     external_id = models.PositiveIntegerField(
         unique=True, verbose_name=_("external ID")
     )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
-    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
 
     class Meta:
         abstract = True
 
 
-class SyncableModel(models.Model):
+class SyncableModel(TrackableModel):
     """
     Base class for models that are synced with an external source (NocoDB) in both
     directions.
@@ -54,8 +63,6 @@ class SyncableModel(models.Model):
     external_id = models.PositiveIntegerField(
         unique=True, null=True, blank=True, verbose_name=_("external ID")
     )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
-    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("updated at"))
     synced_at = models.DateTimeField(blank=True, null=True, verbose_name=_("synced at"))
     sync_uuid = models.UUIDField(
         unique=True, editable=False, verbose_name=_("sync UUID")
@@ -91,6 +98,13 @@ class SyncableModel(models.Model):
         self.synced_at = synced_at or timezone.now()
         self.last_synced_state = self.get_current_state()
         self.save(update_fields=["synced_at", "last_synced_state"])
+
+    def exclude_from_serialization(self):
+        return super().exclude_from_serialization() + [
+            "synced_at",
+            "is_synced",
+            "last_synced_state",
+        ]
 
     def get_current_state(self):
         return to_dict(self)
@@ -527,6 +541,9 @@ class Attachment(ImportableModel):
 
     def __str__(self):
         return f"{self.evidence} - {self.file.name}"
+
+    def exclude_from_serialization(self):
+        return super().exclude_from_serialization() + ["file"]
 
 
 class AttributionProblem(models.Model):

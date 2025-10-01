@@ -69,18 +69,6 @@ def selectable_regions():
     return queryset
 
 
-def is_serializable(field):
-    return not isinstance(
-        field,
-        (
-            models.DateTimeField,
-            models.DateField,
-            models.FileField,
-            models.GeneratedField,
-        ),
-    )
-
-
 def to_dict(instance):
     if instance is None:
         return {}
@@ -89,9 +77,12 @@ def to_dict(instance):
     data = {}
 
     for f in chain(opts.concrete_fields, opts.private_fields):
-        if f.name not in ["id", "last_synced_state"] and is_serializable(f):
+        if f.name not in instance.exclude_from_serialization():
             value = f.value_from_object(instance)
-            if isinstance(f, models.UUIDField):
+            if (
+                isinstance(f, (models.UUIDField, models.DateField))
+                and value is not None
+            ):
                 value = str(value)
 
             data[f.name] = value
