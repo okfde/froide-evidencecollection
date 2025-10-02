@@ -20,5 +20,6 @@ def import_evidence_nocodb(full=False):
         importer.run()
     except Exception as e:
         logger.exception(f"Failed to import data from NocoDB: {e}")
+        run.complete(False, notes=str(e))
     else:
         run.complete(True, changes=importer.log_stats())
