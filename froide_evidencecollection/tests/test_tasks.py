@@ -76,14 +76,15 @@ class TestExportTask:
         Test that the export task handles exceptions properly and marks the run as failed.
         """
         mock_exporter_instance = MockExporter.return_value
+        mock_exporter_instance.log_stats.return_value = {"exported": 10}
         mock_exporter_instance.run.side_effect = Exception("Export failed")
 
         export_evidence_nocodb()
 
         mock_exporter_instance.run.assert_called_once()
-        mock_exporter_instance.log_stats.assert_not_called()
+        mock_exporter_instance.log_stats.assert_called_once()
 
         run = ImportExportRun.objects.last()
         assert run.success is False
-        assert run.changes == {}
+        assert run.changes == {"exported": 10}
         assert "Export failed" in run.notes
