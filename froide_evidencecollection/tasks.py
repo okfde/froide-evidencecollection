@@ -18,13 +18,18 @@ def import_evidence_nocodb(full=False):
         target=ImportExportRun.FROIDE_EVIDENCECOLLECTION,
     )
 
+    success = False
+
     try:
         importer.run()
     except Exception as e:
         logger.exception(f"Failed to import data from NocoDB: {e}")
-        run.complete(False, notes=str(e))
+        run.complete(success, notes=str(e))
     else:
-        run.complete(True, changes=importer.log_stats())
+        success = True
+        run.complete(success, changes=importer.log_stats())
+    finally:
+        logger.info(f"Import from NocoDB finished with success={success}")
 
 
 @celery_app.task(name="froide_evidencecollection.export_evidence_nocodb")
@@ -36,13 +41,20 @@ def export_evidence_nocodb():
         target=ImportExportRun.NOCODB,
     )
 
+    success = False
+    notes = ""
+
     try:
         exporter.run()
+        success = True
     except Exception as e:
         logger.exception(f"Failed to export data to NocoDB: {e}")
-        run.complete(False, notes=str(e))
-    else:
-        run.complete(True, changes=exporter.log_stats())
+        notes = str(e)
+    finally:
+        # Make sure we log changes up to this point, even on failure.
+        stats = exporter.log_stats()
+        run.complete(success, changes=stats, notes=notes)
+        logger.info(f"Export to NocoDB finished with success={success}")
 
 
 @celery_app.task(name="froide_evidencecollection.import_data_abgeordnetenwatch")
@@ -54,10 +66,15 @@ def import_data_abgeordnetenwatch():
         target=ImportExportRun.FROIDE_EVIDENCECOLLECTION,
     )
 
+    success = False
+
     try:
         importer.run()
     except Exception as e:
         logger.exception(f"Failed to import data from abgeordnetenwatch.de: {e}")
-        run.complete(False, notes=str(e))
+        run.complete(success, notes=str(e))
     else:
-        run.complete(True, changes=importer.log_stats())
+        success = True
+        run.complete(success, changes=importer.log_stats())
+    finally:
+        logger.info(f"Import from abgeordnetenwatch.de finished with success={success}")
