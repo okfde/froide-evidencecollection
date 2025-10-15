@@ -494,15 +494,21 @@ class MandateImporter(AffiliationImporter):
 class AbgeordnetenwatchImporter:
     """Master importer that coordinates all individual importers"""
 
-    def __init__(self):
+    def __init__(self, only_setup=False):
         self.stats = ImportStatsCollection()
         self.importers = [
             ParliamentImporter(),
             ElectionImporter(),
             LegislativePeriodImporter(),
-            CandidacyImporter(),
-            MandateImporter(),
         ]
+
+        if not only_setup:
+            self.importers.extend(
+                [
+                    CandidacyImporter(),
+                    MandateImporter(),
+                ]
+            )
 
     @transaction.atomic
     def run(self):

@@ -58,8 +58,8 @@ def export_evidence_nocodb():
 
 
 @celery_app.task(name="froide_evidencecollection.import_data_abgeordnetenwatch")
-def import_data_abgeordnetenwatch():
-    importer = AbgeordnetenwatchImporter()
+def import_data_abgeordnetenwatch(only_setup=False):
+    importer = AbgeordnetenwatchImporter(only_setup=only_setup)
     run = ImportExportRun.objects.create(
         operation=ImportExportRun.IMPORT,
         source=ImportExportRun.ABGEORDNETENWATCH,
