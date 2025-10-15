@@ -1321,6 +1321,45 @@ class TestAbgeordnetenwatchImporter:
             "skipped": [],
         }
 
+    @pytest.mark.django_db
+    @mock.patch("froide_evidencecollection.abgeordnetenwatch.requests.get")
+    def test_run_only_setup(self, mock_get, aw_mock_response, organization):
+        mock_get.side_effect = aw_mock_response()
+
+        importer = AbgeordnetenwatchImporter(only_setup=True)
+        importer.run()
+
+        assert mock_get.call_count == 3
+
+        parliaments = Parliament.objects.all()
+        assert parliaments.count() == 1
+        assert parliaments[0].aw_id == 1
+        assert parliaments[0].name == "EU-Parlament"
+        assert parliaments[0].fraction == organization
+
+        elections = Election.objects.all()
+        assert elections.count() == 1
+        assert elections[0].aw_id == 151
+        assert elections[0].name == "EU-Parlament Wahl 2024"
+        assert elections[0].parliament == parliaments[0]
+        assert elections[0].start_date == date(2024, 4, 29)
+        assert elections[0].end_date == date(2024, 6, 10)
+
+        periods = LegislativePeriod.objects.all()
+        assert periods.count() == 1
+        assert periods[0].aw_id == 155
+        assert periods[0].name == "EU-Parlament 2024 - 2029"
+        assert periods[0].parliament == parliaments[0]
+        assert periods[0].election == elections[0]
+        assert periods[0].start_date == date(2024, 7, 2)
+        assert periods[0].end_date == date(2029, 7, 1)
+
+        assert Person.objects.exists() is False
+        assert Affiliation.objects.exists() is False
+
+        stats = importer.log_stats()
+        assert len(stats) == 0
+
 
 @pytest.fixture
 def multi_page_responses():
