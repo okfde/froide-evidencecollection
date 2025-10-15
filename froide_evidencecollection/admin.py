@@ -37,6 +37,7 @@ class ReadOnlyAdmin(admin.ModelAdmin):
             return tuple(
                 [field.name for field in obj._meta.fields]
                 + [field.name for field in obj._meta.many_to_many]
+                + list(self.readonly_fields)
             )
 
     def has_add_permission(self, request):
@@ -128,7 +129,8 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
 class OrganizationAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["regions"].queryset = selectable_regions()
+        if "regions" in self.fields:
+            self.fields["regions"].queryset = selectable_regions()
 
 
 @admin.register(Organization)
