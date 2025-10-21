@@ -590,10 +590,12 @@ class ImportExportRun(models.Model):
     FROIDE_EVIDENCECOLLECTION = "FE"
     NOCODB = "NC"
     ABGEORDNETENWATCH = "AW"
+    WIKIDATA = "WD"
     DATA_ENDPOINTS = {
         FROIDE_EVIDENCECOLLECTION: _("Froide EvidenceCollection"),
         NOCODB: _("NocoDB"),
         ABGEORDNETENWATCH: _("abgeordnetenwatch.de"),
+        WIKIDATA: _("Wikidata"),
     }
 
     operation = models.CharField(

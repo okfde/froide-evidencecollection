@@ -5,6 +5,7 @@ from froide_evidencecollection.abgeordnetenwatch import AbgeordnetenwatchImporte
 from froide_evidencecollection.exporter import NocoDBExporter
 from froide_evidencecollection.importer import NocoDBImporter
 from froide_evidencecollection.models import ImportExportRun
+from froide_evidencecollection.wikidata import WikidataImporter
 
 logger = logging.getLogger(__name__)
 
@@ -78,3 +79,26 @@ def import_data_abgeordnetenwatch(only_setup=False):
         run.complete(success, changes=importer.log_stats())
     finally:
         logger.info(f"Import from abgeordnetenwatch.de finished with success={success}")
+
+
+@celery_app.task(name="froide_evidencecollection.import_data_wikidata")
+def import_data_wikidata():
+    importer = WikidataImporter()
+    run = ImportExportRun.objects.create(
+        operation=ImportExportRun.IMPORT,
+        source=ImportExportRun.WIKIDATA,
+        target=ImportExportRun.FROIDE_EVIDENCECOLLECTION,
+    )
+
+    success = False
+
+    try:
+        importer.run()
+    except Exception as e:
+        logger.exception(f"Failed to import data from Wikidata: {e}")
+        run.complete(success, notes=str(e))
+    else:
+        success = True
+        run.complete(success, changes=importer.log_stats())
+    finally:
+        logger.info(f"Import from Wikidata finished with success={success}")
