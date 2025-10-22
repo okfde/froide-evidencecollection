@@ -553,6 +553,28 @@ class TestPoliticianImporter:
         }
 
     @pytest.mark.django_db
+    @mock.patch(
+        "froide_evidencecollection.abgeordnetenwatch.EXCLUDE_POLITICIAN_IDS", [12346]
+    )
+    @mock.patch("froide_evidencecollection.abgeordnetenwatch.requests.get")
+    def test_create_with_excluded_politician_ids(
+        self,
+        mock_get,
+        aw_mock_response,
+    ):
+        mock_get.side_effect = aw_mock_response()
+
+        importer = PoliticianImporter()
+        importer.run()
+
+        mock_get.assert_called_once()
+
+        assert Person.objects.exists() is False
+
+        stats = importer.stats.to_dict()
+        assert stats == {}
+
+    @pytest.mark.django_db
     @mock.patch("froide_evidencecollection.abgeordnetenwatch.requests.get")
     def test_update_if_value_is_not_set(self, mock_get, aw_mock_response, person):
         # Ensure existing person has no wikidata_id to test update.
@@ -711,6 +733,31 @@ class TestCandidacyImporter:
             "deleted": [],
             "skipped": [],
         }
+
+    @pytest.mark.django_db
+    @mock.patch(
+        "froide_evidencecollection.abgeordnetenwatch.EXCLUDE_POLITICIAN_IDS", [12346]
+    )
+    @mock.patch("froide_evidencecollection.abgeordnetenwatch.requests.get")
+    def test_create_with_excluded_politician_ids(
+        self,
+        mock_get,
+        aw_mock_response,
+        legislative_period,
+        candidate_role,
+    ):
+        mock_get.side_effect = aw_mock_response()
+
+        importer = CandidacyImporter()
+        importer.run()
+
+        mock_get.assert_called_once()
+
+        assert Affiliation.objects.exists() is False
+        assert Person.objects.exists() is False
+
+        stats = importer.stats.to_dict()
+        assert stats == {}
 
     @pytest.mark.django_db
     @mock.patch("froide_evidencecollection.abgeordnetenwatch.requests.get")
@@ -979,6 +1026,31 @@ class TestMandateImporter:
             "deleted": [],
             "skipped": [],
         }
+
+    @pytest.mark.django_db
+    @mock.patch(
+        "froide_evidencecollection.abgeordnetenwatch.EXCLUDE_POLITICIAN_IDS", [12346]
+    )
+    @mock.patch("froide_evidencecollection.abgeordnetenwatch.requests.get")
+    def test_create_with_excluded_politician_ids(
+        self,
+        mock_get,
+        aw_mock_response,
+        legislative_period,
+        mandate_role,
+    ):
+        mock_get.side_effect = aw_mock_response()
+
+        importer = MandateImporter()
+        importer.run()
+
+        mock_get.assert_called_once()
+
+        assert Affiliation.objects.exists() is False
+        assert Person.objects.exists() is False
+
+        stats = importer.stats.to_dict()
+        assert stats == {}
 
     @pytest.mark.django_db
     @mock.patch("froide_evidencecollection.abgeordnetenwatch.requests.get")

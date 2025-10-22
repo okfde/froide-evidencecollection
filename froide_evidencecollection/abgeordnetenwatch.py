@@ -27,6 +27,7 @@ MANDATE_ROLE_UUID = CONFIG.get("mandate_role_uuid")
 CANDIDATE_ROLE_UUID = CONFIG.get("candidate_role_uuid")
 PARTY_ID = CONFIG.get("party_id")
 FRACTIONS = CONFIG.get("fractions", [])
+EXCLUDE_POLITICIAN_IDS = CONFIG.get("exclude_politician_ids", [])
 API_URL = "https://www.abgeordnetenwatch.de/api/v2"
 ENTITY_TYPE_PARLIAMENTS = "parliaments"
 ENTITY_TYPE_PARLIAMENT_PERIODS = "parliament-periods"
@@ -348,6 +349,7 @@ class PoliticianImporter(MainModelImporter):
 
         if self.politician_ids:
             missing_ids = set(self.politician_ids) - set(self.existing.keys())
+            missing_ids -= set(EXCLUDE_POLITICIAN_IDS)
 
             if not missing_ids:
                 return
@@ -358,6 +360,9 @@ class PoliticianImporter(MainModelImporter):
             self.process_row(row)
 
     def process_row(self, row):
+        if row["id"] in EXCLUDE_POLITICIAN_IDS:
+            return
+
         self.obj_data[row["id"]] = {
             "aw_id": row["id"],
             "first_name": row["first_name"],
@@ -401,6 +406,9 @@ class AffiliationImporter(MainModelImporter):
         persons = self.get_persons(rows)
 
         for row in rows:
+            if row["politician"]["id"] in EXCLUDE_POLITICIAN_IDS:
+                continue
+
             period_id = row["parliament_period"]["id"]
             period = self.get_period(period_id)
             person = persons.get(row["politician"]["id"])
