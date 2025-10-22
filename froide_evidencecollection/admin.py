@@ -337,11 +337,18 @@ class ImportExportRunAdmin(ReadOnlyAdmin):
     pretty_changes.short_description = _("changes")
 
 
-@admin.register(LegislativePeriod)
-class LegislativePeriodAdmin(admin.ModelAdmin):
-    list_display = ["name", "start_date", "end_date", "reference_url"]
+@admin.register(Parliament)
+class ParliamentAdmin(ReadOnlyAdmin):
+    list_display = ["name", "aw_id", "fraction"]
+
+
+@admin.register(Election)
+class ElectionAdmin(ReadOnlyAdmin):
+    list_display = ["name", "aw_id", "start_date", "end_date"]
     search_fields = ["name"]
 
 
-admin.site.register(Parliament, ReadOnlyAdmin)
-admin.site.register(Election, ReadOnlyAdmin)
+@admin.register(LegislativePeriod)
+class LegislativePeriodAdmin(admin.ModelAdmin):
+    list_display = ["name", "aw_id", "start_date", "end_date"]
+    search_fields = ["name"]
