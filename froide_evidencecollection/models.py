@@ -676,7 +676,7 @@ class ParliamentPeriod(models.Model):
     )
     name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
     start_date = models.DateField(verbose_name=_("start date"))
-    end_date = models.DateField(verbose_name=_("end date"))
+    end_date = models.DateField(null=True, blank=True, verbose_name=_("end date"))
 
     class Meta:
         abstract = True
@@ -713,12 +713,6 @@ class LegislativePeriod(ParliamentPeriod):
         on_delete=models.PROTECT,
         verbose_name=_("election"),
         related_name="legislative_period",
-    )
-    reference_url = models.URLField(
-        max_length=500,
-        blank=True,
-        default="",
-        verbose_name=_("reference URL"),
     )
 
     class Meta(ParliamentPeriod.Meta):
