@@ -30,7 +30,8 @@ class EvidenceDocument(Document):
     class Django:
         model = Evidence
         fields = ["citation", "description", "event_date"]
-        fts_fields = ["citation"]
+        # Fields to be indexed for full text search.
+        fts_fields = ["citation", "description"]
 
     def get_queryset(self):
         return (
