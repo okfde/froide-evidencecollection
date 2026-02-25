@@ -11,8 +11,6 @@ from django.utils.translation import gettext as _
 from django.views.decorators.cache import never_cache
 from django.views.generic import DetailView
 
-import openpyxl
-
 from froide.foirequest.pdf_generator import get_wp
 from froide.helper.breadcrumbs import BreadcrumbView
 from froide.helper.search.views import BaseSearchView
@@ -144,6 +142,8 @@ class EvidenceExporter:
         return f.getvalue().encode(), "text/csv"
 
     def generate_xlsx(self, rows):
+        import openpyxl
+
         wb = openpyxl.Workbook()
         ws = wb.active
         if ws is None:
