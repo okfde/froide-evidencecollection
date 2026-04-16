@@ -2,7 +2,26 @@
 name = "froide-evidencecollection"
 version = "0.0.1"
 requires-python = ">=3.12"
-dependencies = ["django-cms"]
+dependencies = [
+    "django-cms",
+    "django-elasticsearch-dsl",
+    "django-filter",
+    "elasticsearch-dsl",
+    "openpyxl",
+    "requests",
+    "froide @ git+https://github.com/okfde/froide.git@main",
+]
+
+[dependency-groups]
+dev = [
+    "django-configurations",
+    "django-coverage-plugin",
+    "django-extended-makemessages",
+    "djlint",
+    "factory-boy",
+    "pytest",
+    "pytest-django",
+]
 
 [build-system]
 requires = ["setuptools"]
