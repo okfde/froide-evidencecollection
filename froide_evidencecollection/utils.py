@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import logging
 import uuid
 from itertools import chain
@@ -11,6 +12,13 @@ from froide.georegion.models import GeoRegion
 logger = logging.getLogger(__name__)
 
 CONFIG = settings.FROIDE_EVIDENCECOLLECTION_NOCODB_IMPORT_CONFIG
+
+
+def compute_hash(text):
+    if not text:
+        return ""
+
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def get_base_class_name(model, exclude=None):

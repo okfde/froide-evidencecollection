@@ -11,7 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.translation import pgettext_lazy
 
 from froide.georegion.models import GeoRegion
-from froide_evidencecollection.utils import to_dict
+from froide_evidencecollection.utils import compute_hash, to_dict
 
 
 class TrackableModel(models.Model):
@@ -125,9 +125,19 @@ class AbstractActor(SyncableModel):
     wikidata_id = models.CharField(
         max_length=20, unique=True, blank=True, null=True, verbose_name=_("Wikidata ID")
     )
+    name_hash = models.CharField(
+        max_length=64, blank=True, default="", verbose_name=_("name hash")
+    )
 
     class Meta:
         abstract = True
+
+    def save(self, *args, **kwargs):
+        self.name_hash = self.get_name_hash()
+        super().save(*args, **kwargs)
+
+    def get_name_hash(self):
+        raise NotImplementedError
 
     @cached_property
     def wikidata_url(self):
@@ -164,6 +174,9 @@ class Person(AbstractActor):
 
     def __str__(self):
         return f"{self.title or ''} {self.first_name} {self.last_name}".strip()
+
+    def get_name_hash(self):
+        return compute_hash(f"{self.first_name} {self.last_name}")
 
     @cached_property
     def aw_url(self):
@@ -209,6 +222,9 @@ class Organization(AbstractActor):
 
     def __str__(self):
         return self.organization_name.strip()
+
+    def get_name_hash(self):
+        return compute_hash(self.organization_name)
 
     class Meta:
         verbose_name = _("organization")
@@ -486,6 +502,9 @@ class Evidence(ImportableModel):
         blank=True,
         verbose_name=_("legal assessment"),
     )
+    url_hash = models.CharField(
+        max_length=64, blank=True, default="", verbose_name=_("URL hash")
+    )
 
     class Meta:
         verbose_name = _("piece of evidence")
@@ -506,6 +525,10 @@ class Evidence(ImportableModel):
 
     def get_absolute_url(self):
         return reverse("evidencecollection:evidence-detail", kwargs={"pk": self.pk})
+
+    def save(self, *args, **kwargs):
+        self.url_hash = compute_hash(self.reference_url)
+        super().save(*args, **kwargs)
 
 
 class Collection(models.Model):
