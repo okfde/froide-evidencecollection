@@ -100,6 +100,7 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
     fields = [
         "external_id",
         "sync_uuid",
+        "name_hash",
         "title",
         "first_name",
         "last_name",
@@ -114,6 +115,7 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
     ]
     readonly_fields = [
         "sync_uuid",
+        "name_hash",
         "wikidata_link",
         "aw_link",
         "created_at",
