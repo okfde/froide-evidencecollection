@@ -645,6 +645,42 @@ class EvidenceType(models.Model):
         return self.name
 
 
+class Category(models.Model):
+    name = models.CharField(max_length=255, unique=True, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("category")
+        verbose_name_plural = _("categories")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class EvidenceMention(models.Model):
+    evidence = models.ForeignKey(
+        Evidence,
+        on_delete=models.CASCADE,
+        related_name="mentions",
+        verbose_name=_("evidence"),
+    )
+    category = models.ForeignKey(
+        "Category",
+        on_delete=models.CASCADE,
+        related_name="mentions",
+        verbose_name=_("category"),
+    )
+    page = models.PositiveIntegerField(verbose_name=_("page"))
+
+    class Meta:
+        verbose_name = _("evidence mention")
+        verbose_name_plural = _("evidence mentions")
+        ordering = ["page"]
+
+    def __str__(self):
+        return f"{self.evidence} — {self.category} (p. {self.page})"
+
+
 class ImportExportRun(models.Model):
     IMPORT = "I"
     EXPORT = "E"

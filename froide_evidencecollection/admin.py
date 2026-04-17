@@ -9,8 +9,10 @@ from django.utils.translation import gettext_lazy as _
 from .models import (
     Affiliation,
     Attachment,
+    Category,
     Election,
     Evidence,
+    EvidenceMention,
     ImportExportRun,
     LegislativePeriod,
     Organization,
@@ -288,9 +290,31 @@ class AttachmentInline(admin.TabularInline):
     extra = 0
 
 
+class EvidenceMentionInline(admin.TabularInline):
+    model = EvidenceMention
+    extra = 0
+    fields = ["category", "page"]
+    readonly_fields = fields
+
+
+class CategoryMentionInline(admin.TabularInline):
+    model = EvidenceMention
+    fk_name = "category"
+    extra = 0
+    fields = ["evidence", "page"]
+    readonly_fields = fields
+
+
+@admin.register(Category)
+class CategoryAdmin(ReadOnlyAdmin):
+    inlines = [CategoryMentionInline]
+    list_display = ["name"]
+    search_fields = ["name"]
+
+
 @admin.register(Evidence)
 class EvidenceAdmin(ReadOnlyAdmin):
-    inlines = [AttachmentInline]
+    inlines = [AttachmentInline, EvidenceMentionInline]
     list_display = [
         "external_id",
         "title",
