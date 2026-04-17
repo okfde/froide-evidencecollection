@@ -1,6 +1,6 @@
 {% extends "froide_evidencecollection/base.html" %}
 {% load i18n %}
-{% load markup %}
+{% load evidence_tags %}
 {% block app_body %}
     <div class="container mb-3">
         <div class="box-card border border-2 border-yellow-200 md:shadow-yellow bg-body mb-5">
@@ -37,9 +37,9 @@
                             </dl>
                         </div>
                         <div class="col col-12 col-md-8">
-                            {{ object.citation|markdown }}
+                            {{ object.citation|plain_text }}
                             <br>
-                            {{ object.description|markdown }}
+                            {{ object.description|plain_text }}
                             {% for attachment in object.attachments.all %}
                                 <div class="mt-3">
                                     <a href="{{ attachment.file.url }}" target="_blank">{{ attachment.title }}</a>
