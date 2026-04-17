@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-10-14 20:55+0200\n"
+"POT-Creation-Date: 2026-04-17 14:14+0200\n"
 "PO-Revision-Date: 2024-10-28 15:01+0000\n"
 "Last-Translator: Kara Engelhardt <kara.engelhardt@okfn.de>\n"
 "Language-Team: German <https://weblate.frag-den-staat.de/projects/froide/"
@@ -322,6 +322,10 @@ msgid "abgeordnetenwatch.de"
 msgstr "abgeordnetenwatch.de"
 
 #: froide_evidencecollection/models.py
+msgid "Wikidata"
+msgstr "Wikidata"
+
+#: froide_evidencecollection/models.py
 msgid "operation"
 msgstr "Operation"
 
@@ -358,7 +362,6 @@ msgid "🔧 Import/export runs"
 msgstr "🔧 Importe/Exporte"
 
 #: froide_evidencecollection/models.py
-#, fuzzy
 msgid "fraction"
 msgstr "Fraktion"
 
@@ -462,8 +465,6 @@ msgid "Id"
 msgstr "Id"
 
 #: froide_evidencecollection/views.py
-#, fuzzy
-#| msgid "affiliation"
 msgid "Citation"
 msgstr "Zitat"
 
@@ -480,8 +481,6 @@ msgid "Evidence Category"
 msgstr "Belegkategorie"
 
 #: froide_evidencecollection/views.py
-#, fuzzy
-#| msgid "Source URLs"
 msgid "Source URL"
 msgstr "Quellen-URL"
 
