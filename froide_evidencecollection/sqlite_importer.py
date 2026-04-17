@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sqlite3
@@ -10,7 +11,9 @@ from django.db import transaction
 from froide_evidencecollection.models import (
     Actor,
     Attachment,
+    Category,
     Evidence,
+    EvidenceMention,
     Person,
     SocialMediaAccount,
 )
@@ -26,6 +29,17 @@ PLATFORM_MAP = {
     "twitter": SocialMediaAccount.Platform.X,
     "youtube": SocialMediaAccount.Platform.YOUTUBE,
 }
+
+
+def parse_list(value):
+    """Parse a Python list literal string like "['a', 'b']" or "[1, 2]"."""
+    if not value:
+        return []
+    try:
+        return json.loads(value.replace("'", '"'))
+    except (ValueError, json.JSONDecodeError):
+        logger.warning("Could not parse list: %s", value)
+        return []
 
 
 def parse_date(value):
@@ -238,6 +252,21 @@ class SQLiteImporter:
                         person_id_hash,
                         url,
                     )
+
+            # Clear existing mentions and recreate from current data.
+            evidence.mentions.all().delete()
+            categories = parse_list(row["thema"])
+            pages = parse_list(row["page"])
+            for category_name, page in zip(categories, pages, strict=False):
+                category_name = str(category_name).strip()
+                if not category_name:
+                    continue
+                category, _ = Category.objects.get_or_create(name=category_name)
+                EvidenceMention.objects.create(
+                    evidence=evidence,
+                    category=category,
+                    page=int(page),
+                )
 
         self.stats["evidence"] = evidence_stats
         logger.info("Evidence import: %s", evidence_stats)
