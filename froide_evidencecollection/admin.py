@@ -17,6 +17,7 @@ from .models import (
     Parliament,
     Person,
     Role,
+    SocialMediaAccount,
 )
 from .utils import selectable_regions
 
@@ -47,6 +48,13 @@ class ReadOnlyAdmin(admin.ModelAdmin):
         return settings.DEBUG
 
 
+class SocialMediaAccountInline(admin.TabularInline):
+    model = SocialMediaAccount
+    extra = 0
+    fields = ["platform", "username"]
+    readonly_fields = fields
+
+
 class AffiliationInline(admin.TabularInline):
     model = Affiliation
     extra = 0
@@ -70,7 +78,7 @@ class AffiliationInline(admin.TabularInline):
 
 @admin.register(Person)
 class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
-    inlines = [AffiliationInline]
+    inlines = [AffiliationInline, SocialMediaAccountInline]
     list_display = [
         "last_name",
         "first_name",

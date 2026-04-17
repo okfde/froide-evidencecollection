@@ -436,6 +436,41 @@ class Affiliation(SyncableModel):
         return None
 
 
+class SocialMediaAccount(models.Model):
+    class Platform(models.TextChoices):
+        FACEBOOK = "facebook", _("Facebook")
+        INSTAGRAM = "instagram", _("Instagram")
+        TELEGRAM = "telegram", _("Telegram")
+        TIKTOK = "tiktok", _("TikTok")
+        X = "x", _("X")
+        YOUTUBE = "youtube", _("YouTube")
+
+    person = models.ForeignKey(
+        Person,
+        on_delete=models.CASCADE,
+        related_name="social_media_accounts",
+        verbose_name=_("person"),
+    )
+    platform = models.CharField(
+        max_length=20, choices=Platform.choices, verbose_name=_("platform")
+    )
+    username = models.CharField(max_length=255, verbose_name=_("username"))
+
+    class Meta:
+        verbose_name = _("social media account")
+        verbose_name_plural = _("social media accounts")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["platform", "username"],
+                name="unique_social_media_account",
+            ),
+        ]
+        ordering = ("platform", "username")
+
+    def __str__(self):
+        return f"{self.person} - {self.get_platform_display()}: {self.username}"
+
+
 class Evidence(ImportableModel):
     citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
     description = models.TextField(
@@ -488,6 +523,14 @@ class Evidence(ImportableModel):
     )
     attribution_problems = models.ManyToManyField(
         "AttributionProblem", blank=True, verbose_name=_("attribution problems")
+    )
+    posted_by = models.ForeignKey(
+        SocialMediaAccount,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="posted_evidence",
+        verbose_name=_("posted by"),
     )
     comment = models.TextField(blank=True, default="", verbose_name=_("comment"))
     legal_assessment = models.PositiveIntegerField(
