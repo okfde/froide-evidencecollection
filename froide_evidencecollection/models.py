@@ -566,6 +566,10 @@ class Evidence(ImportableModel):
     def domain(self) -> str:
         return urlparse(self.reference_url).netloc
 
+    @cached_property
+    def categories(self):
+        return Category.objects.filter(mentions__evidence=self).distinct()
+
     def get_absolute_url(self):
         return reverse("evidencecollection:evidence-detail", kwargs={"pk": self.pk})
 
