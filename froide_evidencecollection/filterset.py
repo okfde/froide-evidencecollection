@@ -6,7 +6,14 @@ from elasticsearch_dsl.query import Q as ESQ
 from froide.helper.search.filters import BaseSearchFilterSet
 from froide.helper.widgets import DateRangeWidget
 
-from .models import Evidence
+from .models import (
+    Category,
+    Evidence,
+    InstitutionalLevel,
+    Organization,
+    Role,
+    SocialMediaAccount,
+)
 
 
 def override_field_default(cls, field, overrides=None, extra=None):
@@ -23,8 +30,44 @@ def override_field_default(cls, field, overrides=None, extra=None):
 class EvidenceFilterSet(BaseSearchFilterSet):
     query_fields = ["citation", "description"]
 
+    category = django_filters.ModelChoiceFilter(
+        field_name="categories",
+        queryset=Category.objects.all(),
+        method="filter_id_list",
+        label="Category",
+    )
+    platform = django_filters.ChoiceFilter(
+        choices=SocialMediaAccount.Platform.choices,
+        method="filter_keyword",
+        label="Platform",
+    )
+    organization = django_filters.ModelChoiceFilter(
+        field_name="originator_organizations",
+        queryset=Organization.objects.all(),
+        method="filter_id_list",
+        label="Organization",
+    )
+    role = django_filters.ModelChoiceFilter(
+        field_name="originator_roles",
+        queryset=Role.objects.all(),
+        method="filter_id_list",
+        label="Role",
+    )
+    institutional_level = django_filters.ModelChoiceFilter(
+        field_name="originator_institutional_levels",
+        queryset=InstitutionalLevel.objects.all(),
+        method="filter_id_list",
+        label="Institutional level",
+    )
+
     def filter_foreignkey(self, qs, name, value):
         return self.apply_filter(qs, name, **{name: value.id})
+
+    def filter_id_list(self, qs, name, value):
+        return self.apply_filter(qs, name, **{name: value.id})
+
+    def filter_keyword(self, qs, name, value):
+        return self.apply_filter(qs, name, **{name: value})
 
     def filter_date_range(self, qs, name, value):
         range_kwargs = {}
@@ -39,8 +82,13 @@ class EvidenceFilterSet(BaseSearchFilterSet):
         model = Evidence
         fields = [
             "q",
-            "event_date",
+            "publishing_date",
             "evidence_type",
+            "category",
+            "platform",
+            "organization",
+            "role",
+            "institutional_level",
         ]
 
         filter_overrides = {
