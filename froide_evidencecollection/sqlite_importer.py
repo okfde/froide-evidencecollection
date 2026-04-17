@@ -12,10 +12,20 @@ from froide_evidencecollection.models import (
     Attachment,
     Evidence,
     Person,
+    SocialMediaAccount,
 )
 from froide_evidencecollection.utils import compute_hash
 
 logger = logging.getLogger(__name__)
+
+PLATFORM_MAP = {
+    "facebook": SocialMediaAccount.Platform.FACEBOOK,
+    "instagram": SocialMediaAccount.Platform.INSTAGRAM,
+    "telegram": SocialMediaAccount.Platform.TELEGRAM,
+    "tiktok": SocialMediaAccount.Platform.TIKTOK,
+    "twitter": SocialMediaAccount.Platform.X,
+    "youtube": SocialMediaAccount.Platform.YOUTUBE,
+}
 
 
 def parse_date(value):
@@ -69,15 +79,78 @@ class SQLiteImporter:
 
     @transaction.atomic
     def run(self):
+        self.import_social_media()
         self.import_evidence()
         self.import_attachments()
         return self.stats
+
+    def import_social_media(self):
+        rows = self.read_table("socialmedia")
+
+        persons_by_hash = {p.name_hash: p for p in Person.objects.all() if p.name_hash}
+
+        stats = {
+            "created": 0,
+            "skipped_exists": 0,
+            "skipped_no_person": 0,
+            "skipped_unknown_platform": 0,
+        }
+
+        for row in rows:
+            person_id_hash = (row["person_id"] or "").strip()
+            username = (row["username"] or "").strip()
+            raw_platform = (row["social_media"] or "").strip()
+
+            platform = PLATFORM_MAP.get(raw_platform.lower())
+            if not platform:
+                logger.warning("Unknown platform: %s", raw_platform)
+                stats["skipped_unknown_platform"] += 1
+                continue
+
+            person = persons_by_hash.get(person_id_hash)
+            if not person:
+                logger.warning(
+                    "No person found for name_hash=%s (platform=%s, username=%s)",
+                    person_id_hash,
+                    raw_platform,
+                    username,
+                )
+                stats["skipped_no_person"] += 1
+                continue
+
+            if self.dry_run:
+                logger.info(
+                    "Would create social media account: %s %s for %s",
+                    platform,
+                    username,
+                    person,
+                )
+                stats["created"] += 1
+                continue
+
+            _, created = SocialMediaAccount.objects.get_or_create(
+                platform=platform,
+                username=username,
+                defaults={"person": person},
+            )
+            if created:
+                stats["created"] += 1
+            else:
+                stats["skipped_exists"] += 1
+
+        self.stats["social_media"] = stats
+        logger.info("Social media import: %s", stats)
 
     def import_evidence(self):
         rows = self.read_table("belege")
 
         # Build lookup for person_id (name_hash) -> Person.
         persons_by_hash = {p.name_hash: p for p in Person.objects.all() if p.name_hash}
+
+        # Build lookup for (platform, username) -> SocialMediaAccount.
+        accounts_by_key = {
+            (a.platform, a.username): a for a in SocialMediaAccount.objects.all()
+        }
 
         # Determine the next external_id to use.
         max_external_id = (
@@ -105,6 +178,15 @@ class SQLiteImporter:
             publishing_date = parse_date(row["date"])
             documentation_date = parse_date(row["date_collected"])
 
+            # Resolve social media account for posted_by.
+            raw_sm = (row["sm"] or "").strip()
+            sm_username = (row["username"] or "").strip()
+            posted_by = None
+            if raw_sm and sm_username:
+                sm_platform = PLATFORM_MAP.get(raw_sm.lower())
+                if sm_platform:
+                    posted_by = accounts_by_key.get((sm_platform, sm_username))
+
             existing = existing_by_url_hash.get(url_hash)
 
             if self.dry_run:
@@ -126,6 +208,7 @@ class SQLiteImporter:
                 evidence.citation = citation
                 evidence.publishing_date = publishing_date
                 evidence.documentation_date = documentation_date
+                evidence.posted_by = posted_by
                 evidence.save()
                 evidence_stats["updated"] += 1
             else:
@@ -135,6 +218,7 @@ class SQLiteImporter:
                     citation=citation,
                     publishing_date=publishing_date,
                     documentation_date=documentation_date,
+                    posted_by=posted_by,
                 )
                 evidence.save()
                 next_external_id += 1
