@@ -1,4 +1,6 @@
+from django import forms
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 import django_filters
 from elasticsearch_dsl.query import Q as ESQ
@@ -30,6 +32,14 @@ def override_field_default(cls, field, overrides=None, extra=None):
 class EvidenceFilterSet(BaseSearchFilterSet):
     query_fields = ["citation", "description"]
 
+    originator = django_filters.CharFilter(
+        field_name="originator_names",
+        method="filter_originator",
+        label="Originator",
+        widget=forms.TextInput(
+            attrs={"placeholder": _("Name"), "class": "form-control"}
+        ),
+    )
     category = django_filters.ModelChoiceFilter(
         field_name="categories",
         queryset=Category.objects.all(),
@@ -69,6 +79,13 @@ class EvidenceFilterSet(BaseSearchFilterSet):
     def filter_keyword(self, qs, name, value):
         return self.apply_filter(qs, name, **{name: value})
 
+    def filter_originator(self, qs, name, value):
+        if value:
+            return qs.filter(
+                ESQ("match", originator_names={"query": value, "operator": "and"})
+            )
+        return qs
+
     def filter_date_range(self, qs, name, value):
         range_kwargs = {}
         if value.start is not None:
@@ -82,6 +99,7 @@ class EvidenceFilterSet(BaseSearchFilterSet):
         model = Evidence
         fields = [
             "q",
+            "originator",
             "publishing_date",
             "evidence_type",
             "category",
