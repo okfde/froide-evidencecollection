@@ -19,117 +19,144 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
 "X-Generator: Weblate 4.14.2\n"
 
-#: froide_evidencecollection/admin.py froide_evidencecollection/models.py
-msgid "is synced"
-msgstr "ist synchronisiert"
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+msgid "\"Page \" counter(page) \" of \" counter(pages);"
+msgstr "\"Seite \" counter(page) \" von \" counter(pages);"
 
-#: froide_evidencecollection/admin.py froide_evidencecollection/models.py
-msgid "originators"
-msgstr "Urheber"
+#: froide_evidencecollection/views.py
+msgid "Citation"
+msgstr "Zitat"
 
-#: froide_evidencecollection/admin.py froide_evidencecollection/models.py
-msgid "changes"
-msgstr "Änderungen"
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
+msgid "Date"
+msgstr "Datum"
+
+#: froide_evidencecollection/views.py
+msgid "Description"
+msgstr "Beschreibung"
+
+#: froide_evidencecollection/views.py
+msgid "Event Date"
+msgstr "Datum der Originaläußerung"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#, python-format
+msgid "Evidence #%(pk)s: %(title)s"
+msgstr "Beleg #%(pk)s: %(title)s"
+
+#: froide_evidencecollection/views.py
+#, python-format
+msgid "Evidence #%s"
+msgstr "Beleg #%s"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+msgid "Evidence Categories"
+msgstr "Belegkategorien"
+
+#: froide_evidencecollection/views.py
+msgid "Evidence Category"
+msgstr "Belegkategorie"
 
 #: froide_evidencecollection/cms_apps.py
 msgid "Evidence Collection CMS App"
 msgstr "Belegsammlungs-CMS-App"
 
-#: froide_evidencecollection/models.py
-msgid "created at"
-msgstr "erstellt am"
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+#: froide_evidencecollection/views.py
+msgid "Evidence Type"
+msgstr "Art des Belegs"
 
 #: froide_evidencecollection/models.py
-msgid "updated at"
-msgstr "aktualisiert am"
+msgctxt "froide-evidencecollection"
+msgid "Export"
+msgstr "Export"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+msgid "Export as PDF"
+msgstr "Als PDF exportieren"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Export search as ..."
+msgstr "Suche exportieren als ..."
 
 #: froide_evidencecollection/models.py
-msgid "external ID"
-msgstr "externe ID"
+msgid "Froide EvidenceCollection"
+msgstr "Froide EvidenceCollection"
+
+#: froide_evidencecollection/views.py
+msgid "Id"
+msgstr "Id"
 
 #: froide_evidencecollection/models.py
-msgid "synced at"
-msgstr "synchronisiert am"
+msgctxt "froide-evidencecollection"
+msgid "Import"
+msgstr "Import"
+
+#: froide_evidencecollection/views.py
+#, python-format
+msgid "No %(verbose_name)s found matching the query"
+msgstr "Keine %(verbose_name)s gefunden, die der Suche entsprechen"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "No results"
+msgstr "Keine Ergebnisse"
 
 #: froide_evidencecollection/models.py
-msgid "sync UUID"
-msgstr "Sync-UUID"
+msgid "NocoDB"
+msgstr "NocoDB"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+msgid "Originators"
+msgstr "Urheber"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Persons Or Organizations"
+msgstr "Personen oder Organisationen"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Refine your query"
+msgstr "Suche verfeinern"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Search"
+msgstr "Suchen"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
+msgid "Source"
+msgstr "Quelle"
+
+#: froide_evidencecollection/views.py
+msgid "Source (Additional Information)"
+msgstr "Quelle (zusätzliche Informationen)"
+
+#: froide_evidencecollection/views.py
+msgid "Source URL"
+msgstr "Quellen-URL"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/list.html
+msgid "Title"
+msgstr "Titel"
 
 #: froide_evidencecollection/models.py
-msgid "also known as"
-msgstr "auch bekannt als"
+msgid "Wikidata"
+msgstr "Wikidata"
 
 #: froide_evidencecollection/models.py
 msgid "Wikidata ID"
 msgstr "Wikidata-ID"
 
 #: froide_evidencecollection/models.py
-msgid "first name"
-msgstr "Vorname"
-
-#: froide_evidencecollection/models.py
-msgid "last name"
-msgstr "Nachname"
-
-#: froide_evidencecollection/models.py
-msgid "title"
-msgstr "Titel"
+msgid "abgeordnetenwatch.de"
+msgstr "abgeordnetenwatch.de"
 
 #: froide_evidencecollection/models.py
 msgid "abgeordnetenwatch.de ID"
 msgstr "abgeordnetenwatch.de-ID"
-
-#: froide_evidencecollection/models.py
-msgid "person"
-msgstr "Person"
-
-#: froide_evidencecollection/models.py
-msgid "persons"
-msgstr "Personen"
-
-#: froide_evidencecollection/models.py
-msgid "name"
-msgstr "Name"
-
-#: froide_evidencecollection/models.py
-msgid "person status"
-msgstr "Personenstatus"
-
-#: froide_evidencecollection/models.py
-msgid "person statuses"
-msgstr "Personenstatus"
-
-#: froide_evidencecollection/models.py
-msgid "organization name"
-msgstr "Organisationsname"
-
-#: froide_evidencecollection/models.py
-msgid "institutional level"
-msgstr "institutionelle Ebene"
-
-#: froide_evidencecollection/models.py
-msgid "regions"
-msgstr "Regionen"
-
-#: froide_evidencecollection/models.py
-msgid "special regions"
-msgstr "besondere Regionen"
-
-#: froide_evidencecollection/models.py
-msgid "organization"
-msgstr "Organisation"
-
-#: froide_evidencecollection/models.py
-msgid "organizations"
-msgstr "Organisationen"
-
-#: froide_evidencecollection/models.py
-msgid "organization status"
-msgstr "Organisationsstatus"
-
-#: froide_evidencecollection/models.py
-msgid "organization statuses"
-msgstr "Organisationsstatus"
 
 #: froide_evidencecollection/models.py
 msgid "actor"
@@ -140,42 +167,6 @@ msgid "actors"
 msgstr "Akteure"
 
 #: froide_evidencecollection/models.py
-msgid "institutional levels"
-msgstr "Institutionelle Ebenen"
-
-#: froide_evidencecollection/models.py
-msgid "role"
-msgstr "Rolle"
-
-#: froide_evidencecollection/models.py
-msgid "roles"
-msgstr "Rollen"
-
-#: froide_evidencecollection/models.py
-msgid "start date"
-msgstr "Anfangsdatum"
-
-#: froide_evidencecollection/models.py
-msgid "start date (string)"
-msgstr "Anfangsdatum (String)"
-
-#: froide_evidencecollection/models.py
-msgid "end date"
-msgstr "Enddatum"
-
-#: froide_evidencecollection/models.py
-msgid "end date (string)"
-msgstr "Enddatum (String)"
-
-#: froide_evidencecollection/models.py
-msgid "reference URL"
-msgstr "Referenz-URL"
-
-#: froide_evidencecollection/models.py
-msgid "comment"
-msgstr "Kommentar/Notiz"
-
-#: froide_evidencecollection/models.py
 msgid "affiliation"
 msgstr "Zugehörigkeit"
 
@@ -184,104 +175,8 @@ msgid "affiliations"
 msgstr "Zugehörigkeiten"
 
 #: froide_evidencecollection/models.py
-msgid "citation"
-msgstr "Zitat"
-
-#: froide_evidencecollection/models.py
-msgid "description"
-msgstr "Beschreibung"
-
-#: froide_evidencecollection/models.py
-msgid "evidence type"
-msgstr "Art des Belegs"
-
-#: froide_evidencecollection/models.py
-msgid "collections"
-msgstr "Sammlungen"
-
-#: froide_evidencecollection/models.py
-msgid "related actors"
-msgstr "zugehörige Akteure"
-
-#: froide_evidencecollection/models.py
-msgid "event date"
-msgstr "Datum der Originaläußerung"
-
-#: froide_evidencecollection/models.py
-msgid "publishing date"
-msgstr "Datum der Veröffentlichung"
-
-#: froide_evidencecollection/models.py
-msgid "documentation date"
-msgstr "Datum der Dokumentation"
-
-#: froide_evidencecollection/models.py
-msgid "reference (URL)"
-msgstr "Fundstelle (URL)"
-
-#: froide_evidencecollection/models.py
-msgid "reference (additional information)"
-msgstr "Fundstelle (zusätzliche Informationen)"
-
-#: froide_evidencecollection/models.py
-msgid "primary source URL"
-msgstr "Primärquelle (URL)"
-
-#: froide_evidencecollection/models.py
-msgid "primary source (additional information)"
-msgstr "Primärquelle (zusätzliche Informationen)"
-
-#: froide_evidencecollection/models.py
-msgid "attribution justification"
-msgstr "Zurechnungsbegründung"
-
-#: froide_evidencecollection/models.py
-msgid "attribution evidence"
-msgstr "Zurechnungsbelege"
-
-#: froide_evidencecollection/models.py
-msgid "attribution problems"
-msgstr "Zurechnungsprobleme"
-
-#: froide_evidencecollection/models.py
-msgid "legal assessment"
-msgstr "juristische Bewertung"
-
-#: froide_evidencecollection/models.py
-msgid "piece of evidence"
-msgstr "Beleg"
-
-#: froide_evidencecollection/models.py
-msgid "pieces of evidence"
-msgstr "Belege"
-
-#: froide_evidencecollection/models.py
-msgid "collection"
-msgstr "Sammlung"
-
-#: froide_evidencecollection/models.py
-msgid "evidence"
-msgstr "Beleg"
-
-#: froide_evidencecollection/models.py
-msgid "file"
-msgstr "Datei"
-
-#: froide_evidencecollection/models.py
-msgid "mimetype"
-msgstr "MIME-Typ"
-
-#: froide_evidencecollection/models.py
-msgid "size"
-msgstr "Größe"
-
-#: froide_evidencecollection/models.py
-msgid "width"
-msgstr "Breite"
-
-#: froide_evidencecollection/models.py
-msgid "height"
-msgstr "Höhe"
+msgid "also known as"
+msgstr "auch bekannt als"
 
 #: froide_evidencecollection/models.py
 msgid "attachment"
@@ -292,90 +187,284 @@ msgid "attachments"
 msgstr "Anhänge"
 
 #: froide_evidencecollection/models.py
+msgid "attribution evidence"
+msgstr "Zurechnungsbelege"
+
+#: froide_evidencecollection/models.py
+msgid "attribution justification"
+msgstr "Zurechnungsbegründung"
+
+#: froide_evidencecollection/models.py
 msgid "attribution problem"
 msgstr "Zurechnungsproblem"
+
+#: froide_evidencecollection/models.py
+msgid "attribution problems"
+msgstr "Zurechnungsprobleme"
+
+#: froide_evidencecollection/admin.py froide_evidencecollection/models.py
+msgid "changes"
+msgstr "Änderungen"
+
+#: froide_evidencecollection/models.py
+msgid "citation"
+msgstr "Zitat"
+
+#: froide_evidencecollection/models.py
+msgid "collection"
+msgstr "Sammlung"
+
+#: froide_evidencecollection/models.py
+msgid "collections"
+msgstr "Sammlungen"
+
+#: froide_evidencecollection/models.py
+msgid "comment"
+msgstr "Kommentar/Notiz"
+
+#: froide_evidencecollection/models.py
+msgid "created at"
+msgstr "erstellt am"
+
+#: froide_evidencecollection/models.py
+msgid "description"
+msgstr "Beschreibung"
+
+#: froide_evidencecollection/models.py
+msgid "documentation date"
+msgstr "Datum der Dokumentation"
+
+#: froide_evidencecollection/models.py
+msgid "election"
+msgstr "Wahl"
+
+#: froide_evidencecollection/models.py
+msgid "end date"
+msgstr "Enddatum"
+
+#: froide_evidencecollection/models.py
+msgid "end date (string)"
+msgstr "Enddatum (String)"
+
+#: froide_evidencecollection/models.py
+msgid "event date"
+msgstr "Datum der Originaläußerung"
+
+#: froide_evidencecollection/models.py
+msgid "evidence"
+msgstr "Beleg"
+
+#: froide_evidencecollection/models.py
+msgid "evidence type"
+msgstr "Art des Belegs"
 
 #: froide_evidencecollection/models.py
 msgid "evidence types"
 msgstr "Arten von Belegen"
 
 #: froide_evidencecollection/models.py
-msgctxt "froide-evidencecollection"
-msgid "Import"
-msgstr "Import"
+msgid "external ID"
+msgstr "externe ID"
 
 #: froide_evidencecollection/models.py
-msgctxt "froide-evidencecollection"
-msgid "Export"
-msgstr "Export"
-
-#: froide_evidencecollection/models.py
-msgid "Froide EvidenceCollection"
-msgstr "Froide EvidenceCollection"
-
-#: froide_evidencecollection/models.py
-msgid "NocoDB"
-msgstr "NocoDB"
-
-#: froide_evidencecollection/models.py
-msgid "abgeordnetenwatch.de"
-msgstr "abgeordnetenwatch.de"
-
-#: froide_evidencecollection/models.py
-msgid "Wikidata"
-msgstr "Wikidata"
-
-#: froide_evidencecollection/models.py
-msgid "operation"
-msgstr "Operation"
-
-#: froide_evidencecollection/models.py
-msgid "source"
-msgstr "Quelle"
-
-#: froide_evidencecollection/models.py
-msgid "target"
-msgstr "Ziel"
-
-#: froide_evidencecollection/models.py
-msgid "started at"
-msgstr "gestartet am"
+msgid "file"
+msgstr "Datei"
 
 #: froide_evidencecollection/models.py
 msgid "finished at"
 msgstr "beendet am"
 
 #: froide_evidencecollection/models.py
-msgid "success"
-msgstr "Erfolg"
-
-#: froide_evidencecollection/models.py
-msgid "notes"
-msgstr "Notizen"
-
-#: froide_evidencecollection/models.py
-msgid "🔧 Import/export run"
-msgstr "🔧 Import/Export"
-
-#: froide_evidencecollection/models.py
-msgid "🔧 Import/export runs"
-msgstr "🔧 Importe/Exporte"
+msgid "first name"
+msgstr "Vorname"
 
 #: froide_evidencecollection/models.py
 msgid "fraction"
 msgstr "Fraktion"
 
 #: froide_evidencecollection/models.py
-msgid "🏛️ Parliament"
-msgstr "🏛️ Parlament"
+msgid "height"
+msgstr "Höhe"
 
 #: froide_evidencecollection/models.py
-msgid "🏛️ Parliaments"
-msgstr "🏛️ Parlamente"
+msgid "institutional level"
+msgstr "institutionelle Ebene"
+
+#: froide_evidencecollection/models.py
+msgid "institutional levels"
+msgstr "Institutionelle Ebenen"
+
+#: froide_evidencecollection/admin.py froide_evidencecollection/models.py
+msgid "is synced"
+msgstr "ist synchronisiert"
+
+#: froide_evidencecollection/models.py
+msgid "last name"
+msgstr "Nachname"
+
+#: froide_evidencecollection/models.py
+msgid "legal assessment"
+msgstr "juristische Bewertung"
+
+#: froide_evidencecollection/models.py
+msgid "mimetype"
+msgstr "MIME-Typ"
+
+#: froide_evidencecollection/models.py
+msgid "name"
+msgstr "Name"
+
+#: froide_evidencecollection/models.py
+msgid "notes"
+msgstr "Notizen"
+
+#: froide_evidencecollection/models.py
+msgid "operation"
+msgstr "Operation"
+
+#: froide_evidencecollection/models.py
+msgid "organization"
+msgstr "Organisation"
+
+#: froide_evidencecollection/models.py
+msgid "organization name"
+msgstr "Organisationsname"
+
+#: froide_evidencecollection/models.py
+msgid "organization status"
+msgstr "Organisationsstatus"
+
+#: froide_evidencecollection/models.py
+msgid "organization statuses"
+msgstr "Organisationsstatus"
+
+#: froide_evidencecollection/models.py
+msgid "organizations"
+msgstr "Organisationen"
+
+#: froide_evidencecollection/admin.py froide_evidencecollection/models.py
+msgid "originators"
+msgstr "Urheber"
 
 #: froide_evidencecollection/models.py
 msgid "parliament"
 msgstr "Parlament"
+
+#: froide_evidencecollection/models.py
+msgid "person"
+msgstr "Person"
+
+#: froide_evidencecollection/models.py
+msgid "person status"
+msgstr "Personenstatus"
+
+#: froide_evidencecollection/models.py
+msgid "person statuses"
+msgstr "Personenstatus"
+
+#: froide_evidencecollection/models.py
+msgid "persons"
+msgstr "Personen"
+
+#: froide_evidencecollection/models.py
+msgid "piece of evidence"
+msgstr "Beleg"
+
+#: froide_evidencecollection/models.py
+msgid "pieces of evidence"
+msgstr "Belege"
+
+#: froide_evidencecollection/models.py
+msgid "primary source (additional information)"
+msgstr "Primärquelle (zusätzliche Informationen)"
+
+#: froide_evidencecollection/models.py
+msgid "primary source URL"
+msgstr "Primärquelle (URL)"
+
+#: froide_evidencecollection/models.py
+msgid "publishing date"
+msgstr "Datum der Veröffentlichung"
+
+#: froide_evidencecollection/models.py
+msgid "reference (URL)"
+msgstr "Fundstelle (URL)"
+
+#: froide_evidencecollection/models.py
+msgid "reference (additional information)"
+msgstr "Fundstelle (zusätzliche Informationen)"
+
+#: froide_evidencecollection/models.py
+msgid "reference URL"
+msgstr "Referenz-URL"
+
+#: froide_evidencecollection/models.py
+msgid "regions"
+msgstr "Regionen"
+
+#: froide_evidencecollection/models.py
+msgid "related actors"
+msgstr "zugehörige Akteure"
+
+#: froide_evidencecollection/models.py
+msgid "role"
+msgstr "Rolle"
+
+#: froide_evidencecollection/models.py
+msgid "roles"
+msgstr "Rollen"
+
+#: froide_evidencecollection/models.py
+msgid "size"
+msgstr "Größe"
+
+#: froide_evidencecollection/models.py
+msgid "source"
+msgstr "Quelle"
+
+#: froide_evidencecollection/models.py
+msgid "special regions"
+msgstr "besondere Regionen"
+
+#: froide_evidencecollection/models.py
+msgid "start date"
+msgstr "Anfangsdatum"
+
+#: froide_evidencecollection/models.py
+msgid "start date (string)"
+msgstr "Anfangsdatum (String)"
+
+#: froide_evidencecollection/models.py
+msgid "started at"
+msgstr "gestartet am"
+
+#: froide_evidencecollection/models.py
+msgid "success"
+msgstr "Erfolg"
+
+#: froide_evidencecollection/models.py
+msgid "sync UUID"
+msgstr "Sync-UUID"
+
+#: froide_evidencecollection/models.py
+msgid "synced at"
+msgstr "synchronisiert am"
+
+#: froide_evidencecollection/models.py
+msgid "target"
+msgstr "Ziel"
+
+#: froide_evidencecollection/models.py
+msgid "title"
+msgstr "Titel"
+
+#: froide_evidencecollection/models.py
+msgid "updated at"
+msgstr "aktualisiert am"
+
+#: froide_evidencecollection/models.py
+msgid "width"
+msgstr "Breite"
 
 #: froide_evidencecollection/models.py
 msgid "🏛️ Election"
@@ -386,10 +475,6 @@ msgid "🏛️ Elections"
 msgstr "🏛️ Wahlen"
 
 #: froide_evidencecollection/models.py
-msgid "election"
-msgstr "Wahl"
-
-#: froide_evidencecollection/models.py
 msgid "🏛️ Legislative period"
 msgstr "🏛️ Legislaturperiode"
 
@@ -397,103 +482,18 @@ msgstr "🏛️ Legislaturperiode"
 msgid "🏛️ Legislative periods"
 msgstr "🏛️ Legislaturperioden"
 
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-#, python-format
-msgid "Evidence #%(pk)s: %(title)s"
-msgstr "Beleg #%(pk)s: %(title)s"
+#: froide_evidencecollection/models.py
+msgid "🏛️ Parliament"
+msgstr "🏛️ Parlament"
 
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-msgid "Export as PDF"
-msgstr "Als PDF exportieren"
+#: froide_evidencecollection/models.py
+msgid "🏛️ Parliaments"
+msgstr "🏛️ Parlamente"
 
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-#: froide_evidencecollection/templates/froide_evidencecollection/list.html
-#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
-#: froide_evidencecollection/views.py
-msgid "Date"
-msgstr "Datum"
+#: froide_evidencecollection/models.py
+msgid "🔧 Import/export run"
+msgstr "🔧 Import/Export"
 
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
-msgid "Source"
-msgstr "Quelle"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
-#: froide_evidencecollection/views.py
-msgid "Evidence Type"
-msgstr "Art des Belegs"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-msgid "Evidence Categories"
-msgstr "Belegkategorien"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-msgid "Originators"
-msgstr "Urheber"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "Refine your query"
-msgstr "Suche verfeinern"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "Search"
-msgstr "Suchen"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "Title"
-msgstr "Titel"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "Persons Or Organizations"
-msgstr "Personen oder Organisationen"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "Export search as ..."
-msgstr "Suche exportieren als ..."
-
-#: froide_evidencecollection/templates/froide_evidencecollection/list.html
-msgid "No results"
-msgstr "Keine Ergebnisse"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/pdf_export.html
-msgid "\"Page \" counter(page) \" of \" counter(pages);"
-msgstr "\"Seite\" counter(page) \"von\" counter(pages);"
-
-#: froide_evidencecollection/views.py
-msgid "Id"
-msgstr "Id"
-
-#: froide_evidencecollection/views.py
-msgid "Citation"
-msgstr "Zitat"
-
-#: froide_evidencecollection/views.py
-msgid "Description"
-msgstr "Beschreibung"
-
-#: froide_evidencecollection/views.py
-msgid "Event Date"
-msgstr "Datum der Originaläußerung"
-
-#: froide_evidencecollection/views.py
-msgid "Evidence Category"
-msgstr "Belegkategorie"
-
-#: froide_evidencecollection/views.py
-msgid "Source URL"
-msgstr "Quellen-URL"
-
-#: froide_evidencecollection/views.py
-msgid "Source (Additional Information)"
-msgstr "Quelle (zusätzliche Informationen)"
-
-#: froide_evidencecollection/views.py
-#, python-format
-msgid "Evidence #%s"
-msgstr "Beleg #%s"
-
-#: froide_evidencecollection/views.py
-#, python-format
-msgid "No %(verbose_name)s found matching the query"
-msgstr "Keine %(verbose_name)s gefunden, die der Suche entsprechen"
+#: froide_evidencecollection/models.py
+msgid "🔧 Import/export runs"
+msgstr "🔧 Importe/Exporte"
