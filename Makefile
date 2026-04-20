@@ -7,4 +7,4 @@ testci:
 	coverage report
 
 messagesde:
-	django-admin makemessages -l de --add-location file --no-obsolete
+	python manage.py extendedmakemessages -l de --add-location file --no-wrap --sort-output --keep-header
