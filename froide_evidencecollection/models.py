@@ -445,11 +445,11 @@ class SocialMediaAccount(models.Model):
         X = "x", _("X")
         YOUTUBE = "youtube", _("YouTube")
 
-    person = models.ForeignKey(
-        Person,
+    actor = models.ForeignKey(
+        Actor,
         on_delete=models.CASCADE,
         related_name="social_media_accounts",
-        verbose_name=_("person"),
+        verbose_name=_("actor"),
     )
     platform = models.CharField(
         max_length=20, choices=Platform.choices, verbose_name=_("platform")
@@ -468,7 +468,7 @@ class SocialMediaAccount(models.Model):
         ordering = ("platform", "username")
 
     def __str__(self):
-        return f"{self.person} - {self.get_platform_display()}: {self.username}"
+        return f"{self.actor} - {self.get_platform_display()}: {self.username}"
 
 
 class Evidence(ImportableModel):

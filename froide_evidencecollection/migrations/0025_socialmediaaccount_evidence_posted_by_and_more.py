@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('platform', models.CharField(choices=[('facebook', 'Facebook'), ('instagram', 'Instagram'), ('telegram', 'Telegram'), ('tiktok', 'TikTok'), ('x', 'X'), ('youtube', 'YouTube')], max_length=20, verbose_name='platform')),
                 ('username', models.CharField(max_length=255, verbose_name='username')),
-                ('person', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='social_media_accounts', to='froide_evidencecollection.person', verbose_name='person')),
+                ('actor', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='social_media_accounts', to='froide_evidencecollection.actor', verbose_name='actor')),
             ],
             options={
                 'verbose_name': 'social media account',
