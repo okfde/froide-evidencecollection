@@ -8,6 +8,7 @@ from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
 from .models import (
+    Actor,
     Affiliation,
     Attachment,
     Category,
@@ -95,9 +96,16 @@ class AffiliationInline(admin.TabularInline):
         return ""
 
 
+@admin.register(Actor)
+class ActorAdmin(ReadOnlyAdmin):
+    inlines = [SocialMediaAccountInline]
+    list_display = ["name", "external_id"]
+    search_fields = ["name"]
+
+
 @admin.register(Person)
 class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
-    inlines = [AffiliationInline, SocialMediaAccountInline]
+    inlines = [AffiliationInline]
     list_display = [
         "last_name",
         "first_name",
