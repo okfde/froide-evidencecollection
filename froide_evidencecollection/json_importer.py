@@ -415,6 +415,35 @@ def _extract_youtube(item):
     }
 
 
+def _twitter_ref(kind, blob):
+    """Turn a nested twitter status blob into a reference spec, or None."""
+    if not isinstance(blob, dict):
+        return None
+    tweet_id = blob.get("tweet_id") or blob.get("id_str") or blob.get("id")
+    if not tweet_id:
+        return None
+    user = blob.get("user") or {}
+    username = user.get("username") or user.get("screen_name") or ""
+    posted = _parse_twitter_creation(blob.get("creation_date")) or _parse_epoch(
+        blob.get("timestamp")
+    )
+    return {
+        "kind": kind,
+        "platform_post_id": str(tweet_id),
+        "url": (f"https://x.com/{username}/status/{tweet_id}" if username else ""),
+        "posted_at": posted,
+        "text": blob.get("text") or "",
+        "account": {
+            "username": username,
+            "platform_user_id": str(user.get("user_id") or ""),
+            "display_name": user.get("name") or "",
+        }
+        if username
+        else None,
+        "raw": blob,
+    }
+
+
 def _extract_twitter(item):
     user = item.get("user") or {}
     profile = None
@@ -439,6 +468,14 @@ def _extract_twitter(item):
         if (item.get("retweet_count") or item.get("quote_count"))
         else None
     )
+    references = []
+    for kind, key in (
+        ("quoted", "quoted_status"),
+        ("repost", "retweeted_status"),
+    ):
+        ref = _twitter_ref(kind, item.get(key))
+        if ref:
+            references.append(ref)
     return {
         "platform_post_id": str(item.get("tweet_id") or ""),
         "posted_at": posted,
@@ -459,6 +496,7 @@ def _extract_twitter(item):
         "foreign_repost": item.get("retweet_tweet_id"),
         "user_blob": user or None,
         "profile": profile,
+        "references": references,
     }
 
 
@@ -667,6 +705,65 @@ class JSONImporter:
             extracted["foreign_repost"],
             account.id,
         )
+
+        link_updates = {}
+        for ref in extracted.get("references") or []:
+            stub = self._upsert_stub_post(platform, ref)
+            if not stub:
+                continue
+            if ref["kind"] == "reply":
+                link_updates["reply_to"] = stub
+            elif ref["kind"] == "quoted":
+                link_updates["quoted"] = stub
+            elif ref["kind"] == "repost":
+                link_updates["repost_of"] = stub
+        if link_updates:
+            for field, value in link_updates.items():
+                setattr(post, field, value)
+            post.save(update_fields=list(link_updates.keys()))
+
+    # ------------------------------------------------------------------
+    # Stub account/post upsert (referenced but not directly scraped)
+    # ------------------------------------------------------------------
+    def _upsert_stub_post(self, platform, ref):
+        platform_value = PLATFORM_MAP[platform]
+        acct_data = ref.get("account") or {}
+        username = (acct_data.get("username") or "").strip()
+        if not username or not ref.get("platform_post_id"):
+            return None
+
+        account, created_account = SocialMediaAccount.objects.get_or_create(
+            platform=platform_value,
+            username=username,
+            defaults={
+                "actor": None,
+                "platform_user_id": acct_data.get("platform_user_id") or "",
+                "display_name": acct_data.get("display_name") or "",
+            },
+        )
+        if created_account:
+            self.stats[f"{platform}_stub_accounts_created"] += 1
+
+        raw_blob = ref.get("raw")
+        raw_payload = (
+            _strip(raw_blob, RAW_DROP_KEYS.get(platform, set()))
+            if isinstance(raw_blob, dict)
+            else {}
+        )
+        post, created_post = SocialMediaPost.objects.get_or_create(
+            account=account,
+            platform_post_id=ref["platform_post_id"],
+            defaults={
+                "url": ref.get("url") or "",
+                "posted_at": ref.get("posted_at"),
+                "text": ref.get("text") or "",
+                "raw": raw_payload,
+            },
+        )
+        if created_post:
+            self.stats[f"{platform}_stub_posts_created"] += 1
+            self._post_index[(account.id, post.platform_post_id)] = post.id
+        return post
 
     # ------------------------------------------------------------------
     # Account upsert + profile freshness
