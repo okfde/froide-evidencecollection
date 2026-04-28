@@ -455,6 +455,34 @@ class SocialMediaAccount(models.Model):
         max_length=20, choices=Platform.choices, verbose_name=_("platform")
     )
     username = models.CharField(max_length=255, verbose_name=_("username"))
+    platform_user_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("platform user ID"),
+    )
+    display_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("display name"),
+    )
+    bio = models.TextField(blank=True, default="", verbose_name=_("bio"))
+    profile_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name=_("profile URL"),
+    )
+    is_verified = models.BooleanField(
+        null=True, blank=True, verbose_name=_("is verified")
+    )
+    follower_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("follower count")
+    )
+    profile_retrieved_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("profile retrieved at")
+    )
 
     class Meta:
         verbose_name = _("social media account")
@@ -532,6 +560,14 @@ class Evidence(ImportableModel):
         related_name="posted_evidence",
         verbose_name=_("posted by"),
     )
+    source = models.ForeignKey(
+        "EvidenceSource",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="evidence_set",
+        verbose_name=_("source"),
+    )
     comment = models.TextField(blank=True, default="", verbose_name=_("comment"))
     legal_assessment = models.PositiveIntegerField(
         choices=[
@@ -572,6 +608,133 @@ class Evidence(ImportableModel):
     def save(self, *args, **kwargs):
         self.url_hash = compute_hash(self.reference_url)
         super().save(*args, **kwargs)
+
+
+class SocialMediaPost(models.Model):
+    account = models.ForeignKey(
+        SocialMediaAccount,
+        on_delete=models.PROTECT,
+        related_name="posts",
+        verbose_name=_("account"),
+    )
+    platform_post_id = models.CharField(
+        max_length=255, verbose_name=_("platform post ID")
+    )
+    url = models.URLField(max_length=500, verbose_name=_("URL"))
+    posted_at = models.DateTimeField(null=True, blank=True, verbose_name=_("posted at"))
+    edited_at = models.DateTimeField(null=True, blank=True, verbose_name=_("edited at"))
+    text = models.TextField(blank=True, default="", verbose_name=_("text"))
+    title = models.TextField(blank=True, default="", verbose_name=_("title"))
+    description = models.TextField(
+        blank=True, default="", verbose_name=_("description")
+    )
+    caption = models.TextField(blank=True, default="", verbose_name=_("caption"))
+    transcription = models.TextField(
+        blank=True, default="", verbose_name=_("transcription")
+    )
+    view_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("view count")
+    )
+    like_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("like count")
+    )
+    comment_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("comment count")
+    )
+    share_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("share count")
+    )
+    reactions = models.JSONField(null=True, blank=True, verbose_name=_("reactions"))
+    reply_to = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="replies",
+        verbose_name=_("reply to"),
+    )
+    quoted = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="quoted_by",
+        verbose_name=_("quoted post"),
+    )
+    repost_of = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reposts",
+        verbose_name=_("repost of"),
+    )
+    user_snapshot = models.JSONField(
+        null=True, blank=True, verbose_name=_("user snapshot")
+    )
+    raw = models.JSONField(verbose_name=_("raw payload"))
+
+    class Meta:
+        verbose_name = _("social media post")
+        verbose_name_plural = _("social media posts")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["account", "platform_post_id"],
+                name="unique_post_per_account",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.account} #{self.platform_post_id}"
+
+
+class EvidenceSource(models.Model):
+    """
+    Intermediate model that can be used as a foreign key on `Evidence` to point
+    at exactly one concrete source record (currently only `SocialMediaPost`,
+    later potentially news articles, court documents, etc.).
+
+    Mirrors the `Actor` pattern: instead of putting a nullable FK per source
+    type on `Evidence`, we route through this table so `Evidence` only knows
+    about a single `source` field.
+    """
+
+    social_media_post = models.OneToOneField(
+        SocialMediaPost,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="source",
+        verbose_name=_("social media post"),
+    )
+
+    class Meta:
+        verbose_name = _("evidence source")
+        verbose_name_plural = _("evidence sources")
+        constraints = [
+            models.CheckConstraint(
+                name="evidence_source_target_required",
+                condition=models.Q(social_media_post__isnull=False),
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            str(self.target)
+            if self.target is not None
+            else f"EvidenceSource #{self.pk}"
+        )
+
+    @cached_property
+    def target(self):
+        if self.social_media_post_id is not None:
+            return self.social_media_post
+        return None
+
+    def save(self, *args, **kwargs):
+        if self.social_media_post_id is None:
+            raise ValueError("EvidenceSource requires a concrete source target.")
+        return super().save(*args, **kwargs)
 
 
 class Collection(models.Model):

@@ -14,6 +14,7 @@ from .models import (
     Election,
     Evidence,
     EvidenceMention,
+    EvidenceSource,
     ImportExportRun,
     LegislativePeriod,
     Organization,
@@ -21,6 +22,7 @@ from .models import (
     Person,
     Role,
     SocialMediaAccount,
+    SocialMediaPost,
 )
 from .utils import selectable_regions
 
@@ -54,8 +56,76 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 class SocialMediaAccountInline(admin.TabularInline):
     model = SocialMediaAccount
     extra = 0
-    fields = ["platform", "username"]
+    fields = ["platform", "username", "display_name", "is_verified", "follower_count"]
     readonly_fields = fields
+
+
+@admin.register(SocialMediaAccount)
+class SocialMediaAccountAdmin(ReadOnlyAdmin):
+    list_display = [
+        "platform",
+        "username",
+        "display_name",
+        "is_verified",
+        "follower_count",
+        "profile_retrieved_at",
+    ]
+    list_filter = ["platform", "is_verified"]
+    search_fields = ["username", "display_name", "platform_user_id"]
+    readonly_fields = [
+        "actor",
+        "platform",
+        "username",
+        "platform_user_id",
+        "display_name",
+        "bio",
+        "profile_url",
+        "is_verified",
+        "follower_count",
+        "profile_retrieved_at",
+    ]
+
+
+@admin.register(SocialMediaPost)
+class SocialMediaPostAdmin(ReadOnlyAdmin):
+    list_display = [
+        "platform_post_id",
+        "account",
+        "posted_at",
+        "view_count",
+        "like_count",
+        "comment_count",
+    ]
+    list_filter = ["account__platform"]
+    search_fields = ["platform_post_id", "url", "text", "title", "caption"]
+    readonly_fields = [
+        "account",
+        "platform_post_id",
+        "url",
+        "posted_at",
+        "edited_at",
+        "text",
+        "title",
+        "description",
+        "caption",
+        "transcription",
+        "view_count",
+        "like_count",
+        "comment_count",
+        "share_count",
+        "reactions",
+        "reply_to",
+        "quoted",
+        "repost_of",
+        "user_snapshot",
+        "raw",
+    ]
+
+
+@admin.register(EvidenceSource)
+class EvidenceSourceAdmin(ReadOnlyAdmin):
+    list_display = ["id", "social_media_post"]
+    readonly_fields = ["social_media_post"]
 
 
 class AffiliationInline(admin.TabularInline):
