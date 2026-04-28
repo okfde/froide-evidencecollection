@@ -447,6 +447,8 @@ class SocialMediaAccount(models.Model):
 
     actor = models.ForeignKey(
         Actor,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name="social_media_accounts",
         verbose_name=_("actor"),
@@ -496,7 +498,8 @@ class SocialMediaAccount(models.Model):
         ordering = ("platform", "username")
 
     def __str__(self):
-        return f"{self.actor} - {self.get_platform_display()}: {self.username}"
+        actor = self.actor or _("(unknown)")
+        return f"{actor} - {self.get_platform_display()}: {self.username}"
 
 
 class Evidence(ImportableModel):
