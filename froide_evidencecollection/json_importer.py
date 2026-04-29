@@ -244,8 +244,52 @@ def _strip(d, drop_keys):
 # ---------------------------------------------------------------------------
 
 
+def _telegram_ref(blob):
+    """Stub spec from a Telegram fwd_from blob, or None.
+
+    Telegram forwards usually carry only a numeric channel id, not a username,
+    so we can only materialize a stub when the scraper preserved a username.
+    """
+    if not isinstance(blob, dict):
+        return None
+    channel_post = blob.get("channel_post")
+    if not channel_post:
+        return None
+    username = (
+        blob.get("from_username")
+        or blob.get("channel_username")
+        or blob.get("username")
+        or "<UNKOWN>"
+    )
+    if not username:
+        return None
+    from_id = blob.get("from_id")
+    if isinstance(from_id, dict):
+        channel_id = from_id.get("channel_id") or from_id.get("user_id") or ""
+    else:
+        channel_id = from_id or ""
+    return {
+        "kind": "repost",
+        "platform_post_id": str(channel_post),
+        "url": f"https://t.me/{username}/{channel_post}",
+        "posted_at": _parse_iso(blob.get("date")),
+        "text": "",
+        "account": {
+            "username": str(username),
+            "platform_user_id": str(channel_id),
+            "display_name": blob.get("from_name") or blob.get("post_author") or "",
+        },
+        "raw": blob,
+    }
+
+
 def _extract_telegram(item):
     replies = item.get("replies") or {}
+    fwd = item.get("fwd_from") or {}
+    references = []
+    ref = _telegram_ref(fwd)
+    if ref:
+        references.append(ref)
     return {
         "platform_post_id": str(item.get("message_id") or item.get("id") or ""),
         "posted_at": _parse_iso(item.get("date")),
@@ -268,6 +312,7 @@ def _extract_telegram(item):
         else None,
         "user_blob": None,
         "profile": None,
+        "references": references,
     }
 
 
@@ -352,6 +397,38 @@ def _extract_tiktok(item):
     }
 
 
+def _facebook_ref(blob):
+    """Stub spec from a Facebook attached_post blob, or None."""
+    if not isinstance(blob, dict):
+        return None
+    post_id = blob.get("post_id")
+    if not post_id:
+        return None
+    author = blob.get("author") or {}
+    username = author.get("name") or ""
+    if not username and author.get("url"):
+        url = author["url"].rstrip("/")
+        tail = url.rsplit("/", 1)[-1] if "/" in url else ""
+        # Skip numeric "profile.php?id=..." tails — not stable usernames.
+        if tail and "?" not in tail and not tail.isdigit():
+            username = tail
+    if not username:
+        return None
+    return {
+        "kind": "repost",
+        "platform_post_id": str(post_id),
+        "url": blob.get("url") or "",
+        "posted_at": _parse_epoch(blob.get("timestamp")),
+        "text": blob.get("message") or "",
+        "account": {
+            "username": str(username),
+            "platform_user_id": str(author.get("id") or ""),
+            "display_name": author.get("name") or "",
+        },
+        "raw": blob,
+    }
+
+
 def _extract_facebook(item):
     reactions = item.get("reactions") or {}
     like = reactions.get("like") if isinstance(reactions, dict) else None
@@ -368,6 +445,10 @@ def _extract_facebook(item):
         }
     scraped = item.get("scraped_date") or item.get("date_collected")
     attached = item.get("attached_post") or {}
+    references = []
+    ref = _facebook_ref(attached)
+    if ref:
+        references.append(ref)
     return {
         "platform_post_id": str(item.get("post_id") or ""),
         "posted_at": _parse_epoch(item.get("timestamp")),
@@ -388,6 +469,7 @@ def _extract_facebook(item):
         "foreign_repost": attached.get("post_id") if attached else None,
         "user_blob": author or None,
         "profile": profile,
+        "references": references,
     }
 
 
