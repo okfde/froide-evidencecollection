@@ -63,6 +63,7 @@ class SocialMediaAccountInline(admin.TabularInline):
 @admin.register(SocialMediaAccount)
 class SocialMediaAccountAdmin(ReadOnlyAdmin):
     list_display = [
+        "actor",
         "platform",
         "username",
         "display_name",
@@ -95,6 +96,9 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
         "view_count",
         "like_count",
         "comment_count",
+        "reply_to",
+        "quoted",
+        "repost_of",
     ]
     list_filter = ["account__platform"]
     search_fields = ["platform_post_id", "url", "text", "title", "caption"]
