@@ -8,7 +8,9 @@ from django.db import transaction
 
 from froide_evidencecollection.models import (
     Actor,
+    Category,
     Evidence,
+    EvidenceMention,
     EvidenceSource,
     Person,
     SocialMediaAccount,
@@ -794,6 +796,8 @@ class JSONImporter:
             evidence.save(update_fields=["source"])
             self.stats[f"{platform}_imported"] += 1
 
+        self._upsert_mentions(evidence, item)
+
         self._post_index[(account.id, post.platform_post_id)] = post.id
         self._pending_links[post.id] = (
             extracted["foreign_reply_to"],
@@ -909,6 +913,38 @@ class JSONImporter:
             if not self.dry_run:
                 account.save()
         return account
+
+    # ------------------------------------------------------------------
+    # Evidence mentions (category/page/footnote triples)
+    # ------------------------------------------------------------------
+    def _upsert_mentions(self, evidence, item):
+        categories = item.get("thema") or []
+        pages = item.get("page") or []
+        # footnotes = item.get("fussnote") or []
+        if not (categories or pages):  # or footnotes):
+            return
+        # if not (len(categories) == len(pages) == len(footnotes)):
+        #    logger.warning(
+        #        "Mismatched mention list lengths for evidence=%s: "
+        #        "thema=%d, page=%d, fussnote=%d",
+        #        evidence.external_id,
+        #        len(categories),
+        #        len(pages),
+        #        len(footnotes),
+        #    )
+        evidence.mentions.all().delete()
+        for category_name, page in zip(categories, pages, strict=False):
+            category_name = str(category_name).strip()
+            if not category_name:
+                continue
+            category, _ = Category.objects.get_or_create(name=category_name)
+            EvidenceMention.objects.create(
+                evidence=evidence,
+                category=category,
+                page=int(page),
+                # footnote=int(footnote),
+            )
+            self.stats["mentions_created"] += 1
 
     # ------------------------------------------------------------------
     # Second-pass link resolution
