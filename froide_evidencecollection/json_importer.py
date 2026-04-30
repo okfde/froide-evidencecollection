@@ -239,7 +239,7 @@ def _strip(d, drop_keys):
 #   platform_post_id, posted_at, edited_at, scraped_at,
 #   text, title, description, caption, transcription,
 #   view_count, like_count, comment_count, share_count, reactions,
-#   foreign_reply_to, foreign_quoted, foreign_repost,
+#   foreign_reply_to, foreign_reference, foreign_reference_type,
 #   user_blob (raw dict or None), profile (normalized account-profile dict or None)
 # ---------------------------------------------------------------------------
 
@@ -306,10 +306,12 @@ def _extract_telegram(item):
         "share_count": _coerce_int(item.get("forwards")),
         "reactions": item.get("reactions"),
         "foreign_reply_to": (item.get("reply_to") or {}).get("reply_to_msg_id"),
-        "foreign_quoted": None,
-        "foreign_repost": (item.get("fwd_from") or {}).get("from_id")
+        "foreign_reference": (item.get("fwd_from") or {}).get("from_id")
         if item.get("fwd_from")
         else None,
+        "foreign_reference_type": SocialMediaPost.ReferenceType.REPOST
+        if item.get("fwd_from")
+        else "",
         "user_blob": None,
         "profile": None,
         "references": references,
@@ -350,8 +352,8 @@ def _extract_instagram(item):
         "share_count": None,
         "reactions": None,
         "foreign_reply_to": None,
-        "foreign_quoted": None,
-        "foreign_repost": None,
+        "foreign_reference": None,
+        "foreign_reference_type": "",
         "user_blob": user or None,
         "profile": profile,
     }
@@ -390,8 +392,8 @@ def _extract_tiktok(item):
         "share_count": _coerce_int(stats.get("shareCount")),
         "reactions": None,
         "foreign_reply_to": None,
-        "foreign_quoted": None,
-        "foreign_repost": None,
+        "foreign_reference": None,
+        "foreign_reference_type": "",
         "user_blob": author or None,
         "profile": profile,
     }
@@ -465,8 +467,10 @@ def _extract_facebook(item):
         "share_count": None,
         "reactions": reactions or None,
         "foreign_reply_to": None,
-        "foreign_quoted": None,
-        "foreign_repost": attached.get("post_id") if attached else None,
+        "foreign_reference": attached.get("post_id") if attached else None,
+        "foreign_reference_type": SocialMediaPost.ReferenceType.REPOST
+        if attached.get("post_id")
+        else "",
         "user_blob": author or None,
         "profile": profile,
         "references": references,
@@ -490,8 +494,8 @@ def _extract_youtube(item):
         "share_count": None,
         "reactions": None,
         "foreign_reply_to": None,
-        "foreign_quoted": None,
-        "foreign_repost": None,
+        "foreign_reference": None,
+        "foreign_reference_type": "",
         "user_blob": None,
         "profile": None,
     }
@@ -552,12 +556,21 @@ def _extract_twitter(item):
     )
     references = []
     for kind, key in (
-        ("quoted", "quoted_status"),
+        ("quote", "quoted_status"),
         ("repost", "retweeted_status"),
     ):
         ref = _twitter_ref(kind, item.get(key))
         if ref:
             references.append(ref)
+    if item.get("quoted_status_id"):
+        foreign_reference = item.get("quoted_status_id")
+        foreign_reference_type = SocialMediaPost.ReferenceType.QUOTE
+    elif item.get("retweet_tweet_id"):
+        foreign_reference = item.get("retweet_tweet_id")
+        foreign_reference_type = SocialMediaPost.ReferenceType.REPOST
+    else:
+        foreign_reference = None
+        foreign_reference_type = ""
     return {
         "platform_post_id": str(item.get("tweet_id") or ""),
         "posted_at": posted,
@@ -574,8 +587,8 @@ def _extract_twitter(item):
         "share_count": share,
         "reactions": None,
         "foreign_reply_to": item.get("in_reply_to_status_id"),
-        "foreign_quoted": item.get("quoted_status_id"),
-        "foreign_repost": item.get("retweet_tweet_id"),
+        "foreign_reference": foreign_reference,
+        "foreign_reference_type": foreign_reference_type,
         "user_blob": user or None,
         "profile": profile,
         "references": references,
@@ -619,8 +632,9 @@ class JSONImporter:
     EvidenceSource). Profile fields on SocialMediaAccount are updated only when
     the post's scrape date is newer than the account's `profile_retrieved_at`.
 
-    Reply/quote/repost relationships are resolved in a second pass over posts
-    inserted during this run (cross-import resolution would be additive).
+    Reply and reference (quote/repost) relationships are resolved in a second
+    pass over posts inserted during this run (cross-import resolution would be
+    additive).
     """
 
     def __init__(self, json_path, dry_run=False):
@@ -629,7 +643,7 @@ class JSONImporter:
         self.stats = defaultdict(int)
         # (account_id, platform_post_id) -> SocialMediaPost.id
         self._post_index = {}
-        # SocialMediaPost.id -> (foreign_reply_to, foreign_quoted, foreign_repost, account_id)
+        # SocialMediaPost.id -> (foreign_reply_to, foreign_reference, foreign_reference_type, account_id)
         self._pending_links = {}
 
     def load(self):
@@ -783,8 +797,8 @@ class JSONImporter:
         self._post_index[(account.id, post.platform_post_id)] = post.id
         self._pending_links[post.id] = (
             extracted["foreign_reply_to"],
-            extracted["foreign_quoted"],
-            extracted["foreign_repost"],
+            extracted["foreign_reference"],
+            extracted["foreign_reference_type"],
             account.id,
         )
 
@@ -795,10 +809,12 @@ class JSONImporter:
                 continue
             if ref["kind"] == "reply":
                 link_updates["reply_to"] = stub
-            elif ref["kind"] == "quoted":
-                link_updates["quoted"] = stub
-            elif ref["kind"] == "repost":
-                link_updates["repost_of"] = stub
+            elif ref["kind"] in (
+                SocialMediaPost.ReferenceType.QUOTE,
+                SocialMediaPost.ReferenceType.REPOST,
+            ):
+                link_updates["references"] = stub
+                link_updates["reference_type"] = ref["kind"]
         if link_updates:
             for field, value in link_updates.items():
                 setattr(post, field, value)
@@ -902,8 +918,8 @@ class JSONImporter:
             return
         for post_id, (
             reply_id,
-            quote_id,
-            repost_id,
+            reference_id,
+            reference_type,
             account_id,
         ) in self._pending_links.items():
             updates = {}
@@ -911,14 +927,11 @@ class JSONImporter:
                 target = self._post_index.get((account_id, str(reply_id)))
                 if target:
                     updates["reply_to_id"] = target
-            if quote_id:
-                target = self._lookup_post(str(quote_id))
+            if reference_id:
+                target = self._lookup_post(str(reference_id))
                 if target:
-                    updates["quoted_id"] = target
-            if repost_id:
-                target = self._lookup_post(str(repost_id))
-                if target:
-                    updates["repost_of_id"] = target
+                    updates["references_id"] = target
+                    updates["reference_type"] = reference_type
             if updates:
                 SocialMediaPost.objects.filter(pk=post_id).update(**updates)
                 self.stats["links_resolved"] += 1

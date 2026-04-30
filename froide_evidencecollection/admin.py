@@ -114,8 +114,8 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
         "like_count",
         "comment_count",
         "reply_to",
-        "quoted",
-        "repost_of",
+        "references",
+        "reference_type",
     ]
     list_filter = ["account__platform"]
     search_fields = ["platform_post_id", "url", "text", "title", "caption"]
@@ -136,8 +136,8 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
         "share_count",
         "reactions",
         "reply_to",
-        "quoted",
-        "repost_of",
+        "references",
+        "reference_type",
         "user_snapshot",
         "raw",
     ]
