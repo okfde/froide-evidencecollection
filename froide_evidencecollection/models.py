@@ -844,6 +844,7 @@ class EvidenceMention(models.Model):
         verbose_name=_("category"),
     )
     page = models.PositiveIntegerField(verbose_name=_("page"))
+    # footnote = models.PositiveIntegerField(verbose_name=_("footnote"))
 
     class Meta:
         verbose_name = _("evidence mention")
