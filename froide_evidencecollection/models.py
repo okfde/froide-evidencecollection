@@ -618,6 +618,10 @@ class Evidence(ImportableModel):
 
 
 class SocialMediaPost(models.Model):
+    class ReferenceType(models.TextChoices):
+        QUOTE = "quote", _("Quote")
+        REPOST = "repost", _("Repost")
+
     account = models.ForeignKey(
         SocialMediaAccount,
         on_delete=models.PROTECT,
@@ -660,21 +664,20 @@ class SocialMediaPost(models.Model):
         related_name="replies",
         verbose_name=_("reply to"),
     )
-    quoted = models.ForeignKey(
+    references = models.ForeignKey(
         "self",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="quoted_by",
-        verbose_name=_("quoted post"),
+        related_name="referenced_by",
+        verbose_name=_("referenced post"),
     )
-    repost_of = models.ForeignKey(
-        "self",
-        null=True,
+    reference_type = models.CharField(
+        max_length=16,
         blank=True,
-        on_delete=models.SET_NULL,
-        related_name="reposts",
-        verbose_name=_("repost of"),
+        default="",
+        choices=ReferenceType.choices,
+        verbose_name=_("reference type"),
     )
     user_snapshot = models.JSONField(
         null=True, blank=True, verbose_name=_("user snapshot")
