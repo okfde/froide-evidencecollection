@@ -469,12 +469,14 @@ class SocialMediaAccount(models.Model):
         default="",
         verbose_name=_("display name"),
     )
-    bio = models.TextField(blank=True, default="", verbose_name=_("bio"))
-    profile_url = models.URLField(
+    description = models.TextField(
+        blank=True, default="", verbose_name=_("description")
+    )
+    url = models.URLField(
         max_length=500,
         blank=True,
         default="",
-        verbose_name=_("profile URL"),
+        verbose_name=_("URL"),
     )
     is_verified = models.BooleanField(
         null=True, blank=True, verbose_name=_("is verified")
@@ -482,8 +484,8 @@ class SocialMediaAccount(models.Model):
     follower_count = models.PositiveBigIntegerField(
         null=True, blank=True, verbose_name=_("follower count")
     )
-    profile_retrieved_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("profile retrieved at")
+    collected_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("collected_at")
     )
 
     class Meta:

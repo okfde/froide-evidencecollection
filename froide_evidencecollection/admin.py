@@ -69,7 +69,7 @@ class SocialMediaAccountAdmin(ReadOnlyAdmin):
         "display_name",
         "is_verified",
         "follower_count",
-        "profile_retrieved_at",
+        "collected_at",
     ]
     list_filter = ["platform", "is_verified"]
     search_fields = ["username", "display_name", "platform_user_id"]
@@ -79,11 +79,11 @@ class SocialMediaAccountAdmin(ReadOnlyAdmin):
         "username",
         "platform_user_id",
         "display_name",
-        "bio",
-        "profile_url",
+        "description",
+        "url",
         "is_verified",
         "follower_count",
-        "profile_retrieved_at",
+        "collected_at",
     ]
 
 
