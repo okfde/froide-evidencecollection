@@ -503,6 +503,9 @@ class SocialMediaAccount(models.Model):
         actor = self.actor or _("(unknown)")
         return f"{actor} - {self.get_platform_display()}: {self.username}"
 
+    def exclude_from_serialization(self):
+        return ["id"]
+
 
 class Evidence(ImportableModel):
     citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
@@ -706,6 +709,11 @@ class SocialMediaPost(models.Model):
     @property
     def display_text(self) -> str:
         return textwrap.shorten(self.full_text, width=50, placeholder="...")
+
+    def exclude_from_serialization(self):
+        # Large JSON payloads are persisted but excluded from diffs so
+        # ImportExportRun.changes stays readable.
+        return ["id", "raw", "user_snapshot"]
 
 
 class Document(models.Model):
@@ -1066,6 +1074,9 @@ class EvidenceMention(models.Model):
     def __str__(self):
         return f"{self.evidence} — {self.category} (p. {self.page})"
 
+    def exclude_from_serialization(self):
+        return ["id"]
+
 
 class ImportExportRun(models.Model):
     IMPORT = "I"
@@ -1079,11 +1090,13 @@ class ImportExportRun(models.Model):
     NOCODB = "NC"
     ABGEORDNETENWATCH = "AW"
     WIKIDATA = "WD"
+    JSON = "JS"
     DATA_ENDPOINTS = {
         FROIDE_EVIDENCECOLLECTION: _("Froide EvidenceCollection"),
         NOCODB: _("NocoDB"),
         ABGEORDNETENWATCH: _("abgeordnetenwatch.de"),
         WIKIDATA: _("Wikidata"),
+        JSON: _("JSON dump"),
     }
 
     operation = models.CharField(

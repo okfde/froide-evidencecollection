@@ -4,6 +4,7 @@ from froide.celery import app as celery_app
 from froide_evidencecollection.abgeordnetenwatch import AbgeordnetenwatchImporter
 from froide_evidencecollection.exporter import NocoDBExporter
 from froide_evidencecollection.importer import NocoDBImporter
+from froide_evidencecollection.json_importer import JSONImporter
 from froide_evidencecollection.models import ImportExportRun
 from froide_evidencecollection.wikidata import WikidataImporter
 
@@ -79,6 +80,35 @@ def import_data_abgeordnetenwatch(only_setup=False):
         run.complete(success, changes=importer.log_stats())
     finally:
         logger.info(f"Import from abgeordnetenwatch.de finished with success={success}")
+
+
+@celery_app.task(name="froide_evidencecollection.import_evidence_json")
+def import_evidence_json(json_path, dry_run=False):
+    importer = JSONImporter(json_path=json_path, dry_run=dry_run)
+
+    if dry_run:
+        importer.run()
+        logger.info("Dry-run import from JSON finished")
+        return
+
+    run = ImportExportRun.objects.create(
+        operation=ImportExportRun.IMPORT,
+        source=ImportExportRun.JSON,
+        target=ImportExportRun.FROIDE_EVIDENCECOLLECTION,
+    )
+
+    success = False
+
+    try:
+        importer.run()
+    except Exception as e:
+        logger.exception(f"Failed to import data from JSON: {e}")
+        run.complete(success, notes=str(e))
+    else:
+        success = True
+        run.complete(success, changes=importer.log_stats())
+    finally:
+        logger.info(f"Import from JSON finished with success={success}")
 
 
 @celery_app.task(name="froide_evidencecollection.import_data_wikidata")
