@@ -11,10 +11,14 @@ from .models import (
     Affiliation,
     Attachment,
     Category,
+    Document,
     Election,
     Evidence,
+    EvidenceActorRelation,
+    EvidenceActorRelationRole,
     EvidenceMention,
-    EvidenceSource,
+    EvidenceRelation,
+    EvidenceRelationRole,
     ImportExportRun,
     LegislativePeriod,
     Organization,
@@ -103,6 +107,7 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
     list_filter = ["account__platform"]
     search_fields = ["platform_post_id", "url", "text", "title", "caption"]
     readonly_fields = [
+        "evidence",
         "account",
         "platform_post_id",
         "url",
@@ -126,10 +131,56 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
     ]
 
 
-@admin.register(EvidenceSource)
-class EvidenceSourceAdmin(ReadOnlyAdmin):
-    list_display = ["id", "social_media_post"]
-    readonly_fields = ["social_media_post"]
+@admin.register(Document)
+class DocumentAdmin(ReadOnlyAdmin):
+    list_display = ["id", "title", "issuer", "published_at"]
+    search_fields = ["title", "url"]
+    readonly_fields = [
+        "evidence",
+        "title",
+        "file",
+        "url",
+        "issuer",
+        "published_at",
+        "text",
+        "collected_at",
+    ]
+
+
+@admin.register(EvidenceActorRelationRole)
+class EvidenceActorRelationRoleAdmin(admin.ModelAdmin):
+    list_display = ["name", "description"]
+    search_fields = ["name"]
+
+
+@admin.register(EvidenceRelationRole)
+class EvidenceRelationRoleAdmin(admin.ModelAdmin):
+    list_display = ["name", "description"]
+    search_fields = ["name"]
+
+
+class EvidenceActorRelationInline(admin.TabularInline):
+    model = EvidenceActorRelation
+    extra = 0
+    fields = ["actor", "role"]
+
+
+class EvidenceOutgoingRelationInline(admin.TabularInline):
+    model = EvidenceRelation
+    fk_name = "from_evidence"
+    extra = 0
+    fields = ["to_evidence", "role"]
+    verbose_name = _("outgoing relation")
+    verbose_name_plural = _("outgoing relations")
+
+
+class EvidenceIncomingRelationInline(admin.TabularInline):
+    model = EvidenceRelation
+    fk_name = "to_evidence"
+    extra = 0
+    fields = ["from_evidence", "role"]
+    verbose_name = _("incoming relation")
+    verbose_name_plural = _("incoming relations")
 
 
 class AffiliationInline(admin.TabularInline):
@@ -396,25 +447,25 @@ class CategoryAdmin(ReadOnlyAdmin):
 
 @admin.register(Evidence)
 class EvidenceAdmin(ReadOnlyAdmin):
-    inlines = [AttachmentInline, EvidenceMentionInline]
+    inlines = [
+        AttachmentInline,
+        EvidenceMentionInline,
+        EvidenceActorRelationInline,
+        EvidenceOutgoingRelationInline,
+        EvidenceIncomingRelationInline,
+    ]
     list_display = [
         "external_id",
         "title",
         "evidence_type",
         "originator_list",
     ]
-    filter_horizontal = [
-        "collections",
-        "originators",
-        "related_actors",
-        "attribution_evidence",
-        "attribution_problems",
-    ]
-    list_filter = ["collections", "evidence_type", "legal_assessment", "originators"]
+    filter_horizontal = ["collections"]
+    list_filter = ["collections", "evidence_type"]
     search_fields = ["citation", "description"]
 
     def originator_list(self, obj):
-        return ", ".join([originator.name for originator in obj.originators.all()])
+        return ", ".join([originator.name for originator in obj.originators])
 
     originator_list.short_description = _("originators")
 

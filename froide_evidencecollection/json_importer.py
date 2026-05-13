@@ -10,11 +10,11 @@ from froide_evidencecollection.models import (
     Category,
     Evidence,
     EvidenceMention,
-    EvidenceSource,
     Person,
     SocialMediaAccount,
     SocialMediaPost,
 )
+from froide_evidencecollection.relation_seeding import seed_relations_from_source
 
 logger = logging.getLogger(__name__)
 
@@ -40,18 +40,6 @@ def _parse_dt(value):
     return datetime.fromisoformat(value)
 
 
-def compose_citation(item):
-    """Compose the citation text from the post's textual fields."""
-    parts = []
-    for key in ("title", "text"):
-        val = item.get(key)
-        if val:
-            parts.append(val.strip())
-    if item.get("transcription"):
-        parts.append("[Transkript]\n" + item["transcription"].strip())
-    return "\n\n".join(parts)
-
-
 def get_or_create_actor(person):
     try:
         return person.actor
@@ -67,13 +55,16 @@ class JSONImporter:
     (top-level fields named uniformly across platforms, an `account` dict per
     post, and a `references` list for quote/repost relationships).
 
-    Each post becomes one Evidence + one SocialMediaPost (linked via
-    EvidenceSource). Profile fields on SocialMediaAccount are updated only when
-    the post's `collected_at` is newer than the account's `collected_at`.
+    Each post becomes one SocialMediaPost and (if not yet curated) one
+    Evidence linked via Evidence.social_media_post. Profile fields on
+    SocialMediaAccount are updated only when the post's `collected_at` is
+    newer than the account's `collected_at`.
 
     Quote/repost references are materialized inline from each post's
     `references` list (stub accounts/posts via get_or_create). Replies are
-    resolved in a second pass over posts inserted during this run.
+    resolved in a second pass over posts inserted during this run. A final
+    sweep re-runs the relation seeding so cross-references between Evidence
+    pairs created in the same run pick each other up.
     """
 
     def __init__(self, json_path, dry_run=False):
@@ -116,6 +107,7 @@ class JSONImporter:
                     external_id += 1
 
         self._resolve_replies()
+        self._seed_all_evidence_relations()
         return dict(self.stats)
 
     # ------------------------------------------------------------------
@@ -150,12 +142,7 @@ class JSONImporter:
             "raw": item,
         }
         evidence_fields = {
-            "citation": compose_citation(item),
-            "reference_url": item["url"],
-            "event_date": posted_at.date() if posted_at else None,
-            "publishing_date": posted_at.date() if posted_at else None,
             "documentation_date": collected_at.date() if collected_at else None,
-            "posted_by": account,
         }
 
         existing_post = SocialMediaPost.objects.filter(
@@ -166,37 +153,31 @@ class JSONImporter:
                 setattr(existing_post, field, value)
             existing_post.save()
             post = existing_post
-            source = EvidenceSource.objects.filter(social_media_post=post).first()
-            evidence = (
-                Evidence.objects.filter(source=source).first() if source else None
-            )
+            evidence = Evidence.objects.filter(social_media_post=post).first()
             if evidence is None:
                 evidence = Evidence.objects.create(
-                    external_id=external_id, **evidence_fields
+                    external_id=external_id,
+                    social_media_post=post,
+                    **evidence_fields,
                 )
-                if source is None:
-                    source = EvidenceSource.objects.create(social_media_post=post)
-                evidence.source = source
-                evidence.save(update_fields=["source"])
             else:
                 for field, value in evidence_fields.items():
                     setattr(evidence, field, value)
                 evidence.save()
-            evidence.originators.add(actor)
+            seed_relations_from_source(evidence)
             self.stats[f"{platform}_updated"] += 1
         else:
-            evidence = Evidence.objects.create(
-                external_id=external_id, **evidence_fields
-            )
-            evidence.originators.add(actor)
             post = SocialMediaPost.objects.create(
                 account=account,
                 platform_post_id=platform_post_id,
                 **post_fields,
             )
-            source = EvidenceSource.objects.create(social_media_post=post)
-            evidence.source = source
-            evidence.save(update_fields=["source"])
+            evidence = Evidence.objects.create(
+                external_id=external_id,
+                social_media_post=post,
+                **evidence_fields,
+            )
+            seed_relations_from_source(evidence)
             self.stats[f"{platform}_imported"] += 1
 
         self._upsert_mentions(evidence, item)
@@ -339,3 +320,19 @@ class JSONImporter:
             if target:
                 SocialMediaPost.objects.filter(pk=post_id).update(reply_to_id=target)
                 self.stats["replies_resolved"] += 1
+
+    # ------------------------------------------------------------------
+    # End-of-run relation sweep
+    # ------------------------------------------------------------------
+    def _seed_all_evidence_relations(self):
+        """Re-seed every Evidence touched this run so that cross-references
+        between Evidence rows created in the same run pick each other up.
+
+        seed_relations_from_source is idempotent — get_or_create on every row —
+        so this is safe to call after the inline per-item seeding."""
+        if self.dry_run or not self._post_index:
+            return
+        post_ids = list(self._post_index.values())
+        qs = Evidence.objects.filter(social_media_post_id__in=post_ids).iterator()
+        for evidence in qs:
+            seed_relations_from_source(evidence)

@@ -1,6 +1,7 @@
 from django.db import models as db_models
 
-from django_elasticsearch_dsl import Document, fields
+from django_elasticsearch_dsl import Document as DSLDocument
+from django_elasticsearch_dsl import fields
 
 from froide.helper.search import (
     get_index,
@@ -28,7 +29,7 @@ def _make_text_field():
 
 
 @evidence_index.document
-class EvidenceDocument(Document):
+class EvidenceDocument(DSLDocument):
     evidence_type = fields.IntegerField(attr="evidence_type_id")
 
     originators = fields.ListField(fields.IntegerField())
@@ -39,7 +40,8 @@ class EvidenceDocument(Document):
 
     platform = fields.KeywordField()
 
-    # Originator affiliation metadata, resolved to publishing_date when available.
+    # Originator affiliation metadata, resolved against the source's posted_at
+    # date when the source is a SocialMediaPost.
     originator_organizations = fields.ListField(fields.IntegerField())
     originator_organization_names = _make_text_field()
     originator_roles = fields.ListField(fields.IntegerField())
@@ -47,7 +49,7 @@ class EvidenceDocument(Document):
 
     class Django:
         model = Evidence
-        fields = ["citation", "description", "publishing_date"]
+        fields = ["citation", "description"]
         # Fields to be indexed for full text search.
         fts_fields = ["citation", "description"]
 
@@ -56,28 +58,41 @@ class EvidenceDocument(Document):
             super()
             .get_queryset()
             .prefetch_related(
-                "originators",
-                "originators__person__affiliations__organization__institutional_level",
-                "originators__person__affiliations__role",
+                "actor_relations__actor__person__affiliations__organization__institutional_level",
+                "actor_relations__actor__person__affiliations__role",
+                "actor_relations__role",
                 "mentions__category",
             )
-            .select_related("evidence_type", "posted_by")
+            .select_related(
+                "evidence_type",
+                "social_media_post__account",
+            )
         )
 
+    def _publishing_date(self, obj: Evidence):
+        post = obj.social_media_post
+        if post is not None and post.posted_at is not None:
+            return post.posted_at.date()
+        document = obj.document
+        if document is not None:
+            return document.published_at
+        return None
+
     def _get_active_affiliations(self, obj: Evidence):
-        """Return affiliations active at publishing_date, or all if no date."""
+        """Return affiliations active at the source's publication date, or all if no date."""
         person_ids = obj.originators.filter(person__isnull=False).values_list(
             "person_id", flat=True
         )
 
         affiliations = Affiliation.objects.filter(person_id__in=person_ids)
 
-        if obj.publishing_date:
+        publishing_date = self._publishing_date(obj)
+        if publishing_date:
             affiliations = affiliations.filter(
                 db_models.Q(start_date__isnull=True)
-                | db_models.Q(start_date__lte=obj.publishing_date),
+                | db_models.Q(start_date__lte=publishing_date),
                 db_models.Q(end_date__isnull=True)
-                | db_models.Q(end_date__gte=obj.publishing_date),
+                | db_models.Q(end_date__gte=publishing_date),
             )
 
         return affiliations
@@ -95,8 +110,9 @@ class EvidenceDocument(Document):
         return list(obj.mentions.values_list("category__name", flat=True).distinct())
 
     def prepare_platform(self, obj: Evidence):
-        if obj.posted_by:
-            return obj.posted_by.platform
+        post = obj.social_media_post
+        if post is not None:
+            return post.account.platform
         return None
 
     def prepare_originator_organizations(self, obj: Evidence):
@@ -142,7 +158,7 @@ class EvidenceDocument(Document):
 
 
 @person_index.document
-class PersonDocument(Document):
+class PersonDocument(DSLDocument):
     class Django:
         model = Person
         fields = ["first_name", "last_name"]

@@ -521,102 +521,99 @@ class Evidence(ImportableModel):
         blank=True,
         verbose_name=_("collections"),
     )
-    originators = models.ManyToManyField(
-        Actor, verbose_name=_("originators"), related_name="originated_evidence"
+    social_media_post = models.OneToOneField(
+        "SocialMediaPost",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="evidence",
+        verbose_name=_("social media post"),
+    )
+    document = models.OneToOneField(
+        "Document",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="evidence",
+        verbose_name=_("document"),
     )
     related_actors = models.ManyToManyField(
-        Actor, verbose_name=_("related actors"), related_name="related_evidence"
+        Actor,
+        through="EvidenceActorRelation",
+        through_fields=("evidence", "actor"),
+        related_name="related_evidence",
+        verbose_name=_("related actors"),
     )
-    event_date = models.DateField(null=True, blank=True, verbose_name=_("event date"))
-    publishing_date = models.DateField(
-        null=True, blank=True, verbose_name=_("publishing date")
+    related_evidence = models.ManyToManyField(
+        "self",
+        through="EvidenceRelation",
+        through_fields=("from_evidence", "to_evidence"),
+        symmetrical=False,
+        verbose_name=_("related evidence"),
     )
     documentation_date = models.DateField(
         null=True, blank=True, verbose_name=_("documentation date")
-    )
-    reference_url = models.URLField(
-        max_length=500, blank=True, default="", verbose_name=_("reference (URL)")
-    )
-    reference_info = models.TextField(
-        blank=True, default="", verbose_name=_("reference (additional information)")
-    )
-    primary_source_url = models.URLField(
-        max_length=500, blank=True, default="", verbose_name=_("primary source URL")
-    )
-    primary_source_info = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("primary source (additional information)"),
-    )
-    attribution_justification = models.TextField(
-        blank=True, default="", verbose_name=_("attribution justification")
-    )
-    attribution_evidence = models.ManyToManyField(
-        "Evidence", blank=True, verbose_name=_("attribution evidence")
-    )
-    attribution_problems = models.ManyToManyField(
-        "AttributionProblem", blank=True, verbose_name=_("attribution problems")
-    )
-    posted_by = models.ForeignKey(
-        SocialMediaAccount,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="posted_evidence",
-        verbose_name=_("posted by"),
-    )
-    source = models.ForeignKey(
-        "EvidenceSource",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="evidence_set",
-        verbose_name=_("source"),
-    )
-    comment = models.TextField(blank=True, default="", verbose_name=_("comment"))
-    legal_assessment = models.PositiveIntegerField(
-        choices=[
-            (1, "⭐"),
-            (2, "⭐⭐"),
-            (3, "⭐⭐⭐"),
-            (4, "⭐⭐⭐⭐"),
-            (5, "⭐⭐⭐⭐⭐"),
-        ],
-        null=True,
-        blank=True,
-        verbose_name=_("legal assessment"),
-    )
-    url_hash = models.CharField(
-        max_length=64, blank=True, default="", verbose_name=_("URL hash")
     )
 
     class Meta:
         verbose_name = _("piece of evidence")
         verbose_name_plural = _("pieces of evidence")
+        constraints = [
+            models.CheckConstraint(
+                name="evidence_exactly_one_source",
+                condition=(
+                    models.Q(social_media_post__isnull=False, document__isnull=True)
+                    | models.Q(social_media_post__isnull=True, document__isnull=False)
+                ),
+            ),
+        ]
 
     def __str__(self):
         return f"{self.external_id} - {self.title}"
 
+    @property
+    def source(self):
+        return self.social_media_post or self.document
+
+    @property
+    def url(self) -> str:
+        source = self.source
+        return source.url if source is not None else ""
+
+    @property
+    def url_hash(self) -> str:
+        url = self.url
+        return compute_hash(url) if url else ""
+
     @cached_property
-    def title(self):
-        return textwrap.shorten(
-            self.citation or self.description, width=50, placeholder="..."
-        )
+    def title(self) -> str:
+        source = self.source
+        return source.display_text if source is not None else ""
 
     @cached_property
     def domain(self) -> str:
-        return urlparse(self.reference_url).netloc
+        return urlparse(self.url).netloc
 
     @cached_property
     def categories(self):
         return Category.objects.filter(mentions__evidence=self).distinct()
 
+    def actors_with_role(self, role_name: str):
+        return Actor.objects.filter(
+            evidence_relations__evidence=self,
+            evidence_relations__role=role_name,
+        ).distinct()
+
+    @property
+    def originators(self):
+        return self.actors_with_role("posted_by")
+
+    @property
+    def mentions_actors(self):
+        return self.actors_with_role("mentions")
+
     def get_absolute_url(self):
         return reverse("evidencecollection:evidence-detail", kwargs={"pk": self.pk})
-
-    def save(self, *args, **kwargs):
-        self.url_hash = compute_hash(self.reference_url)
-        super().save(*args, **kwargs)
 
 
 class SocialMediaPost(models.Model):
@@ -699,54 +696,278 @@ class SocialMediaPost(models.Model):
     def __str__(self):
         return f"{self.account} #{self.platform_post_id}"
 
+    @property
+    def full_text(self) -> str:
+        parts = [v.strip() for v in (self.title, self.text) if v]
+        if self.transcription:
+            parts.append("[Transkript]\n" + self.transcription.strip())
+        return "\n\n".join(parts)
 
-class EvidenceSource(models.Model):
-    """
-    Intermediate model that can be used as a foreign key on `Evidence` to point
-    at exactly one concrete source record (currently only `SocialMediaPost`,
-    later potentially news articles, court documents, etc.).
+    @property
+    def display_text(self) -> str:
+        return textwrap.shorten(self.full_text, width=50, placeholder="...")
 
-    Mirrors the `Actor` pattern: instead of putting a nullable FK per source
-    type on `Evidence`, we route through this table so `Evidence` only knows
-    about a single `source` field.
-    """
 
-    social_media_post = models.OneToOneField(
-        SocialMediaPost,
+class Document(models.Model):
+    title = models.CharField(max_length=255, verbose_name=_("title"))
+    file = models.FileField(
+        upload_to="documents", max_length=255, verbose_name=_("file")
+    )
+    url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name=_("source URL"),
+        help_text=_("Original URL where the document was obtained, if any."),
+    )
+    issuer = models.ForeignKey(
+        Actor,
         null=True,
         blank=True,
-        on_delete=models.CASCADE,
-        related_name="source",
-        verbose_name=_("social media post"),
+        on_delete=models.PROTECT,
+        related_name="issued_documents",
+        verbose_name=_("issuer"),
+    )
+    published_at = models.DateField(
+        null=True, blank=True, verbose_name=_("published at")
+    )
+    text = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("extracted text"),
+        help_text=_("Plain-text content (OCR or extraction)."),
+    )
+    collected_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("collected at")
     )
 
     class Meta:
-        verbose_name = _("evidence source")
-        verbose_name_plural = _("evidence sources")
+        verbose_name = _("document")
+        verbose_name_plural = _("documents")
+
+    def __str__(self):
+        return self.title
+
+    @property
+    def display_text(self) -> str:
+        return self.title
+
+
+EVIDENCE_ACTOR_ROLE_LABELS = {
+    "posted_by": pgettext_lazy("evidence–actor relation role", "posted by"),
+    "mentions": pgettext_lazy("evidence–actor relation role", "mentions"),
+    "depicts": pgettext_lazy("evidence–actor relation role", "depicts"),
+    "target_of": pgettext_lazy("evidence–actor relation role", "is target of"),
+    "endorses": pgettext_lazy("evidence–actor relation role", "endorses"),
+    "opposes": pgettext_lazy("evidence–actor relation role", "opposes"),
+    "attributed_to": pgettext_lazy("evidence–actor relation role", "attributed to"),
+}
+
+EVIDENCE_ACTOR_ROLE_DESCRIPTIONS = {
+    "posted_by": pgettext_lazy(
+        "evidence–actor relation role description",
+        "Actor who originated or published this piece of evidence.",
+    ),
+    "mentions": pgettext_lazy(
+        "evidence–actor relation role description",
+        "Actor referenced by name or handle within the evidence.",
+    ),
+    "depicts": pgettext_lazy(
+        "evidence–actor relation role description",
+        "Actor visually depicted in the evidence (image or video).",
+    ),
+    "target_of": pgettext_lazy(
+        "evidence–actor relation role description",
+        "Actor that is the subject or target of the evidence.",
+    ),
+    "endorses": pgettext_lazy(
+        "evidence–actor relation role description",
+        "Actor expressing support.",
+    ),
+    "opposes": pgettext_lazy(
+        "evidence–actor relation role description",
+        "Actor expressing opposition.",
+    ),
+    "attributed_to": pgettext_lazy(
+        "evidence–actor relation role description",
+        "Soft attribution that has not been fully confirmed.",
+    ),
+}
+
+EVIDENCE_RELATION_ROLE_LABELS = {
+    "quotes": pgettext_lazy("evidence–evidence relation role", "quotes"),
+    "reposts": pgettext_lazy("evidence–evidence relation role", "reposts"),
+    "replies_to": pgettext_lazy("evidence–evidence relation role", "replies to"),
+    "refers_to": pgettext_lazy("evidence–evidence relation role", "refers to"),
+    "contradicts": pgettext_lazy("evidence–evidence relation role", "contradicts"),
+    "supports": pgettext_lazy("evidence–evidence relation role", "supports"),
+    "corrects": pgettext_lazy("evidence–evidence relation role", "corrects"),
+    "duplicates": pgettext_lazy("evidence–evidence relation role", "duplicates"),
+}
+
+EVIDENCE_RELATION_ROLE_DESCRIPTIONS = {
+    "quotes": pgettext_lazy(
+        "evidence–evidence relation role description",
+        "Embeds or cites the other evidence.",
+    ),
+    "reposts": pgettext_lazy(
+        "evidence–evidence relation role description",
+        "Shares the other evidence without commentary.",
+    ),
+    "replies_to": pgettext_lazy(
+        "evidence–evidence relation role description",
+        "Direct reply (threaded relationship).",
+    ),
+    "refers_to": pgettext_lazy(
+        "evidence–evidence relation role description",
+        "Generic reference.",
+    ),
+    "contradicts": pgettext_lazy(
+        "evidence–evidence relation role description",
+        "Disagrees with the other evidence.",
+    ),
+    "supports": pgettext_lazy(
+        "evidence–evidence relation role description",
+        "Agrees with or reinforces the other evidence.",
+    ),
+    "corrects": pgettext_lazy(
+        "evidence–evidence relation role description",
+        "Corrects information in the other evidence.",
+    ),
+    "duplicates": pgettext_lazy(
+        "evidence–evidence relation role description",
+        "Same content as the other evidence.",
+    ),
+}
+
+
+class EvidenceActorRelationRole(models.Model):
+    name = models.CharField(max_length=50, unique=True, verbose_name=_("name"))
+    description = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("description"),
+        help_text=_("Curator override; leave blank to use the translated default."),
+    )
+
+    class Meta:
+        verbose_name = _("evidence–actor relation role")
+        verbose_name_plural = _("evidence–actor relation roles")
+
+    def __str__(self):
+        return str(self.label)
+
+    @property
+    def label(self):
+        return EVIDENCE_ACTOR_ROLE_LABELS.get(self.name, self.name)
+
+    @property
+    def translated_description(self):
+        return self.description or EVIDENCE_ACTOR_ROLE_DESCRIPTIONS.get(self.name, "")
+
+
+class EvidenceRelationRole(models.Model):
+    name = models.CharField(max_length=50, unique=True, verbose_name=_("name"))
+    description = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("description"),
+        help_text=_("Curator override; leave blank to use the translated default."),
+    )
+
+    class Meta:
+        verbose_name = _("evidence–evidence relation role")
+        verbose_name_plural = _("evidence–evidence relation roles")
+
+    def __str__(self):
+        return str(self.label)
+
+    @property
+    def label(self):
+        return EVIDENCE_RELATION_ROLE_LABELS.get(self.name, self.name)
+
+    @property
+    def translated_description(self):
+        return self.description or EVIDENCE_RELATION_ROLE_DESCRIPTIONS.get(
+            self.name, ""
+        )
+
+
+class EvidenceActorRelation(models.Model):
+    evidence = models.ForeignKey(
+        Evidence,
+        on_delete=models.CASCADE,
+        related_name="actor_relations",
+        verbose_name=_("evidence"),
+    )
+    actor = models.ForeignKey(
+        Actor,
+        on_delete=models.PROTECT,
+        related_name="evidence_relations",
+        verbose_name=_("actor"),
+    )
+    role = models.ForeignKey(
+        EvidenceActorRelationRole,
+        to_field="name",
+        on_delete=models.PROTECT,
+        verbose_name=_("role"),
+    )
+
+    class Meta:
+        verbose_name = _("evidence–actor relation")
+        verbose_name_plural = _("evidence–actor relations")
         constraints = [
-            models.CheckConstraint(
-                name="evidence_source_target_required",
-                condition=models.Q(social_media_post__isnull=False),
+            models.UniqueConstraint(
+                fields=["evidence", "actor", "role"],
+                name="unique_evidence_actor_role",
+            ),
+            models.UniqueConstraint(
+                fields=["evidence"],
+                condition=models.Q(role="posted_by"),
+                name="one_posted_by_per_evidence",
             ),
         ]
 
     def __str__(self):
-        return (
-            str(self.target)
-            if self.target is not None
-            else f"EvidenceSource #{self.pk}"
-        )
+        return f"{self.evidence} — {self.role}: {self.actor}"
 
-    @cached_property
-    def target(self):
-        if self.social_media_post_id is not None:
-            return self.social_media_post
-        return None
 
-    def save(self, *args, **kwargs):
-        if self.social_media_post_id is None:
-            raise ValueError("EvidenceSource requires a concrete source target.")
-        return super().save(*args, **kwargs)
+class EvidenceRelation(models.Model):
+    from_evidence = models.ForeignKey(
+        Evidence,
+        on_delete=models.CASCADE,
+        related_name="outgoing_relations",
+        verbose_name=_("from evidence"),
+    )
+    to_evidence = models.ForeignKey(
+        Evidence,
+        on_delete=models.CASCADE,
+        related_name="incoming_relations",
+        verbose_name=_("to evidence"),
+    )
+    role = models.ForeignKey(
+        EvidenceRelationRole,
+        to_field="name",
+        on_delete=models.PROTECT,
+        verbose_name=_("role"),
+    )
+
+    class Meta:
+        verbose_name = _("evidence–evidence relation")
+        verbose_name_plural = _("evidence–evidence relations")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["from_evidence", "to_evidence", "role"],
+                name="unique_evidence_evidence_role",
+            ),
+            models.CheckConstraint(
+                name="no_evidence_self_relation",
+                condition=~models.Q(from_evidence=models.F("to_evidence")),
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.from_evidence} — {self.role} → {self.to_evidence}"
 
 
 class Collection(models.Model):
@@ -796,17 +1017,6 @@ class Attachment(ImportableModel):
 
     def exclude_from_serialization(self):
         return super().exclude_from_serialization() + ["file"]
-
-
-class AttributionProblem(models.Model):
-    name = models.CharField(max_length=255, unique=True, verbose_name=_("name"))
-
-    class Meta:
-        verbose_name = _("attribution problem")
-        verbose_name_plural = _("attribution problems")
-
-    def __str__(self):
-        return self.name
 
 
 class EvidenceType(models.Model):
