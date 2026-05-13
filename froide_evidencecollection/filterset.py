@@ -100,7 +100,7 @@ class EvidenceFilterSet(BaseSearchFilterSet):
         fields = [
             "q",
             "originator",
-            "publishing_date",
+            "documentation_date",
             "evidence_type",
             "category",
             "platform",

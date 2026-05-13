@@ -23,14 +23,10 @@ from .models import Evidence
 class EvidenceExporter:
     EXPORT_FIELDS = [
         ("id", _("Id")),
-        ("date", _("Date")),
         ("citation", _("Citation")),
         ("description", _("Description")),
-        ("event_date", _("Event Date")),
+        ("documentation_date", _("Documentation Date")),
         ("evidence_type__name", _("Evidence Type")),
-        ("evidence_category__name", _("Evidence Category")),
-        ("reference_url", _("Source URL")),
-        ("reference_info", _("Source (Additional Information)")),
     ]
     FORMATS = ["csv", "xlsx", "pdf"]
 
