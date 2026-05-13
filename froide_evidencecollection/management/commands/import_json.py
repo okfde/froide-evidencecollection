@@ -2,7 +2,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import translation
 
-from froide_evidencecollection.json_importer import JSONImporter
+from froide_evidencecollection.tasks import import_evidence_json
 
 
 class Command(BaseCommand):
@@ -18,13 +18,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         translation.activate(settings.LANGUAGE_CODE)
-
-        importer = JSONImporter(
+        import_evidence_json(
             json_path=options["json_file"],
             dry_run=options["dry_run"],
         )
-        stats = importer.run()
-
-        self.stdout.write("Import stats:")
-        for key, value in stats.items():
-            self.stdout.write(f"  {key}: {value}")
