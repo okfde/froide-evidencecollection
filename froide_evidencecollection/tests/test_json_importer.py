@@ -8,7 +8,6 @@ from froide_evidencecollection.models import (
     Evidence,
     EvidenceActorRelation,
     EvidenceMention,
-    EvidenceRelation,
     SocialMediaAccount,
     SocialMediaPost,
 )
@@ -320,8 +319,7 @@ class TestJSONImporter:
 
         stub_post = SocialMediaPost.objects.get(platform_post_id="999")
         main_post = SocialMediaPost.objects.get(platform_post_id="200")
-        assert main_post.references_id == stub_post.id
-        assert main_post.reference_type == SocialMediaPost.ReferenceType.QUOTE
+        assert main_post.redistributes_id == stub_post.id
 
         stats = importer.log_stats()
         # Main account + stub account were both created.
@@ -392,7 +390,7 @@ class TestJSONImporter:
         assert relation.actor == person.actor
 
     @pytest.mark.django_db
-    def test_seeds_replies_to_relation_within_batch(self, person, tmp_path):
+    def test_links_reply_to_parent_post_within_batch(self, person, tmp_path):
         parent = _make_post(platform_post_id="100", url="https://t.me/example/100")
         reply = _make_post(
             platform_post_id="101",
@@ -406,22 +404,17 @@ class TestJSONImporter:
 
         JSONImporter(path).run()
 
-        parent_evidence = Evidence.objects.get(
-            social_media_post__platform_post_id="100"
-        )
-        reply_evidence = Evidence.objects.get(social_media_post__platform_post_id="101")
+        parent_post = SocialMediaPost.objects.get(platform_post_id="100")
+        reply_post = SocialMediaPost.objects.get(platform_post_id="101")
 
-        relation = EvidenceRelation.objects.get(role__name="replies_to")
-        assert relation.from_evidence == reply_evidence
-        assert relation.to_evidence == parent_evidence
+        assert reply_post.reply_to_id == parent_post.id
 
     @pytest.mark.django_db
-    def test_seeds_quotes_relation_when_quoted_post_is_also_imported(
+    def test_links_redistributes_when_quoted_post_is_also_imported(
         self, person, tmp_path
     ):
         # Main post quotes another post by the same account that is fully
-        # imported as a second item in the same dump. The end-of-run relation
-        # sweep should pick up the cross-reference.
+        # imported as a second item in the same dump.
         quoted_post_item = _make_post(
             platform_post_id="500",
             url="https://t.me/example/500",
@@ -455,14 +448,10 @@ class TestJSONImporter:
 
         JSONImporter(path).run()
 
-        main_evidence = Evidence.objects.get(social_media_post__platform_post_id="501")
-        quoted_evidence = Evidence.objects.get(
-            social_media_post__platform_post_id="500"
-        )
+        main_post = SocialMediaPost.objects.get(platform_post_id="501")
+        quoted_post = SocialMediaPost.objects.get(platform_post_id="500")
 
-        relation = EvidenceRelation.objects.get(role__name="quotes")
-        assert relation.from_evidence == main_evidence
-        assert relation.to_evidence == quoted_evidence
+        assert main_post.redistributes_id == quoted_post.id
 
     @pytest.mark.django_db
     def test_dry_run_makes_no_changes_to_posts_or_accounts(self, person, tmp_path):

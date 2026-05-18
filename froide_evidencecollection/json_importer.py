@@ -28,11 +28,6 @@ PLATFORM_MAP = {
     "youtube": SocialMediaAccount.Platform.YOUTUBE,
 }
 
-REFERENCE_TYPES = {
-    "quote": SocialMediaPost.ReferenceType.QUOTE,
-    "repost": SocialMediaPost.ReferenceType.REPOST,
-}
-
 
 def _parse_dt(value):
     if not value:
@@ -112,7 +107,6 @@ class JSONImporter:
                     external_id += 1
 
         self._resolve_replies()
-        self._seed_all_evidence_relations()
 
     def log_stats(self):
         """Return collected stats in the standard ``ImportExportRun.changes`` shape."""
@@ -168,7 +162,7 @@ class JSONImporter:
 
         self._post_index[(account.id, post.platform_post_id)] = post.id
 
-        # Quote/repost references (inline stub creation).
+        # Redistributed posts — repost/quote/forward (inline stub creation).
         for ref in item.get("references") or []:
             stub_post = self._upsert_stub_post(platform, ref)
             if not stub_post:
@@ -230,15 +224,11 @@ class JSONImporter:
 
     def _link_reference(self, post, stub_post, ref):
         self.stats.reset_instance(SocialMediaPost)
-        new_reference_type = REFERENCE_TYPES.get(ref["kind"], "")
-        if equals(post.references_id, stub_post.id) and equals(
-            post.reference_type, new_reference_type
-        ):
+        if equals(post.redistributes_id, stub_post.id):
             return
         old_data = to_dict(post)
-        post.references = stub_post
-        post.reference_type = new_reference_type
-        post.save(update_fields=["references", "reference_type"])
+        post.redistributes = stub_post
+        post.save(update_fields=["redistributes"])
         self.stats.track_updated(SocialMediaPost, old_data, post)
 
     @staticmethod
@@ -411,19 +401,3 @@ class JSONImporter:
             post.reply_to_id = target
             post.save(update_fields=["reply_to"])
             self.stats.track_updated(SocialMediaPost, old_data, post)
-
-    # ------------------------------------------------------------------
-    # End-of-run relation sweep
-    # ------------------------------------------------------------------
-    def _seed_all_evidence_relations(self):
-        """Re-seed every Evidence touched this run so that cross-references
-        between Evidence rows created in the same run pick each other up.
-
-        seed_relations_from_source is idempotent — get_or_create on every row —
-        so this is safe to call after the inline per-item seeding."""
-        if self.dry_run or not self._post_index:
-            return
-        post_ids = list(self._post_index.values())
-        qs = Evidence.objects.filter(social_media_post_id__in=post_ids).iterator()
-        for evidence in qs:
-            seed_relations_from_source(evidence)

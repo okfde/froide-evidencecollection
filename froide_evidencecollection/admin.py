@@ -18,8 +18,6 @@ from .models import (
     EvidenceActorRelation,
     EvidenceActorRelationRole,
     EvidenceMention,
-    EvidenceRelation,
-    EvidenceRelationRole,
     ImportExportRun,
     LegislativePeriod,
     Organization,
@@ -118,8 +116,7 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
         "like_count",
         "comment_count",
         "reply_to",
-        "references",
-        "reference_type",
+        "redistributes",
     ]
     list_filter = ["account__platform"]
     search_fields = ["platform_post_id", "url", "text", "title", "caption"]
@@ -141,8 +138,7 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
         "share_count",
         "reactions",
         "reply_to",
-        "references",
-        "reference_type",
+        "redistributes",
         "user_snapshot",
         "raw",
     ]
@@ -170,34 +166,10 @@ class EvidenceActorRelationRoleAdmin(admin.ModelAdmin):
     search_fields = ["name"]
 
 
-@admin.register(EvidenceRelationRole)
-class EvidenceRelationRoleAdmin(admin.ModelAdmin):
-    list_display = ["name", "description"]
-    search_fields = ["name"]
-
-
 class EvidenceActorRelationInline(admin.TabularInline):
     model = EvidenceActorRelation
     extra = 0
     fields = ["actor", "role"]
-
-
-class EvidenceOutgoingRelationInline(admin.TabularInline):
-    model = EvidenceRelation
-    fk_name = "from_evidence"
-    extra = 0
-    fields = ["to_evidence", "role"]
-    verbose_name = _("outgoing relation")
-    verbose_name_plural = _("outgoing relations")
-
-
-class EvidenceIncomingRelationInline(admin.TabularInline):
-    model = EvidenceRelation
-    fk_name = "to_evidence"
-    extra = 0
-    fields = ["from_evidence", "role"]
-    verbose_name = _("incoming relation")
-    verbose_name_plural = _("incoming relations")
 
 
 class AffiliationInline(admin.TabularInline):
@@ -468,8 +440,6 @@ class EvidenceAdmin(ReadOnlyAdmin):
         AttachmentInline,
         EvidenceMentionInline,
         EvidenceActorRelationInline,
-        EvidenceOutgoingRelationInline,
-        EvidenceIncomingRelationInline,
     ]
     list_display = [
         "external_id",

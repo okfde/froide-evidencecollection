@@ -537,13 +537,6 @@ class Evidence(ImportableModel):
         related_name="related_evidence",
         verbose_name=_("related actors"),
     )
-    related_evidence = models.ManyToManyField(
-        "self",
-        through="EvidenceRelation",
-        through_fields=("from_evidence", "to_evidence"),
-        symmetrical=False,
-        verbose_name=_("related evidence"),
-    )
     documentation_date = models.DateField(
         null=True, blank=True, verbose_name=_("documentation date")
     )
@@ -610,10 +603,6 @@ class Evidence(ImportableModel):
 
 
 class SocialMediaPost(models.Model):
-    class ReferenceType(models.TextChoices):
-        QUOTE = "quote", _("Quote")
-        REPOST = "repost", _("Repost")
-
     account = models.ForeignKey(
         SocialMediaAccount,
         on_delete=models.PROTECT,
@@ -656,20 +645,16 @@ class SocialMediaPost(models.Model):
         related_name="replies",
         verbose_name=_("reply to"),
     )
-    references = models.ForeignKey(
+    redistributes = models.ForeignKey(
         "self",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="referenced_by",
-        verbose_name=_("referenced post"),
-    )
-    reference_type = models.CharField(
-        max_length=16,
-        blank=True,
-        default="",
-        choices=ReferenceType.choices,
-        verbose_name=_("reference type"),
+        related_name="redistributed_by",
+        verbose_name=_("redistributed post"),
+        help_text=_(
+            "Post whose content this post redistributes " "(repost, quote, forward, …)."
+        ),
     )
     user_snapshot = models.JSONField(
         null=True, blank=True, verbose_name=_("user snapshot")
@@ -792,52 +777,6 @@ EVIDENCE_ACTOR_ROLE_DESCRIPTIONS = {
     ),
 }
 
-EVIDENCE_RELATION_ROLE_LABELS = {
-    "quotes": pgettext_lazy("evidence–evidence relation role", "quotes"),
-    "reposts": pgettext_lazy("evidence–evidence relation role", "reposts"),
-    "replies_to": pgettext_lazy("evidence–evidence relation role", "replies to"),
-    "refers_to": pgettext_lazy("evidence–evidence relation role", "refers to"),
-    "contradicts": pgettext_lazy("evidence–evidence relation role", "contradicts"),
-    "supports": pgettext_lazy("evidence–evidence relation role", "supports"),
-    "corrects": pgettext_lazy("evidence–evidence relation role", "corrects"),
-    "duplicates": pgettext_lazy("evidence–evidence relation role", "duplicates"),
-}
-
-EVIDENCE_RELATION_ROLE_DESCRIPTIONS = {
-    "quotes": pgettext_lazy(
-        "evidence–evidence relation role description",
-        "Embeds or cites the other evidence.",
-    ),
-    "reposts": pgettext_lazy(
-        "evidence–evidence relation role description",
-        "Shares the other evidence without commentary.",
-    ),
-    "replies_to": pgettext_lazy(
-        "evidence–evidence relation role description",
-        "Direct reply (threaded relationship).",
-    ),
-    "refers_to": pgettext_lazy(
-        "evidence–evidence relation role description",
-        "Generic reference.",
-    ),
-    "contradicts": pgettext_lazy(
-        "evidence–evidence relation role description",
-        "Disagrees with the other evidence.",
-    ),
-    "supports": pgettext_lazy(
-        "evidence–evidence relation role description",
-        "Agrees with or reinforces the other evidence.",
-    ),
-    "corrects": pgettext_lazy(
-        "evidence–evidence relation role description",
-        "Corrects information in the other evidence.",
-    ),
-    "duplicates": pgettext_lazy(
-        "evidence–evidence relation role description",
-        "Same content as the other evidence.",
-    ),
-}
-
 
 class EvidenceActorRelationRole(models.Model):
     name = models.CharField(max_length=50, unique=True, verbose_name=_("name"))
@@ -862,33 +801,6 @@ class EvidenceActorRelationRole(models.Model):
     @property
     def translated_description(self):
         return self.description or EVIDENCE_ACTOR_ROLE_DESCRIPTIONS.get(self.name, "")
-
-
-class EvidenceRelationRole(models.Model):
-    name = models.CharField(max_length=50, unique=True, verbose_name=_("name"))
-    description = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("description"),
-        help_text=_("Curator override; leave blank to use the translated default."),
-    )
-
-    class Meta:
-        verbose_name = _("evidence–evidence relation role")
-        verbose_name_plural = _("evidence–evidence relation roles")
-
-    def __str__(self):
-        return str(self.label)
-
-    @property
-    def label(self):
-        return EVIDENCE_RELATION_ROLE_LABELS.get(self.name, self.name)
-
-    @property
-    def translated_description(self):
-        return self.description or EVIDENCE_RELATION_ROLE_DESCRIPTIONS.get(
-            self.name, ""
-        )
 
 
 class EvidenceActorRelation(models.Model):
@@ -928,44 +840,6 @@ class EvidenceActorRelation(models.Model):
 
     def __str__(self):
         return f"{self.evidence} — {self.role}: {self.actor}"
-
-
-class EvidenceRelation(models.Model):
-    from_evidence = models.ForeignKey(
-        Evidence,
-        on_delete=models.CASCADE,
-        related_name="outgoing_relations",
-        verbose_name=_("from evidence"),
-    )
-    to_evidence = models.ForeignKey(
-        Evidence,
-        on_delete=models.CASCADE,
-        related_name="incoming_relations",
-        verbose_name=_("to evidence"),
-    )
-    role = models.ForeignKey(
-        EvidenceRelationRole,
-        to_field="name",
-        on_delete=models.PROTECT,
-        verbose_name=_("role"),
-    )
-
-    class Meta:
-        verbose_name = _("evidence–evidence relation")
-        verbose_name_plural = _("evidence–evidence relations")
-        constraints = [
-            models.UniqueConstraint(
-                fields=["from_evidence", "to_evidence", "role"],
-                name="unique_evidence_evidence_role",
-            ),
-            models.CheckConstraint(
-                name="no_evidence_self_relation",
-                condition=~models.Q(from_evidence=models.F("to_evidence")),
-            ),
-        ]
-
-    def __str__(self):
-        return f"{self.from_evidence} — {self.role} → {self.to_evidence}"
 
 
 class Collection(models.Model):
