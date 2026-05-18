@@ -87,8 +87,13 @@ class TestJSONImporter:
         assert account.platform == SocialMediaAccount.Platform.TELEGRAM
         assert account.username == "example_user"
         assert account.actor.person == person
+        # Full account profile is persisted on creation.
+        assert account.platform_user_id == "123"
         assert account.display_name == "Example"
+        assert account.description == "An example account"
+        assert account.url == "https://t.me/example_user"
         assert account.follower_count == 1000
+        assert account.is_verified is False
 
         sm_post = SocialMediaPost.objects.get()
         assert sm_post.account == account
@@ -291,7 +296,6 @@ class TestJSONImporter:
             platform_post_id="200",
             references=[
                 {
-                    "kind": "quote",
                     "platform_post_id": "999",
                     "url": "https://t.me/somebody/999",
                     "created_at": "2024-01-01T01:00:00+00:00",
@@ -300,6 +304,11 @@ class TestJSONImporter:
                         "username": "somebody",
                         "platform_user_id": "987",
                         "display_name": "Somebody",
+                        "description": "Some bio",
+                        "url": "https://x.com/somebody",
+                        "follower_count": 321,
+                        "is_verified": False,
+                        "is_blue_verified": True,
                     },
                 }
             ],
@@ -316,6 +325,14 @@ class TestJSONImporter:
         stub_account = SocialMediaAccount.objects.get(username="somebody")
         # Stub accounts are not linked to an Actor.
         assert stub_account.actor is None
+        # The full profile carried by the reference is copied onto the stub.
+        assert stub_account.platform_user_id == "987"
+        assert stub_account.display_name == "Somebody"
+        assert stub_account.description == "Some bio"
+        assert stub_account.url == "https://x.com/somebody"
+        assert stub_account.follower_count == 321
+        # is_verified is derived from is_verified OR is_blue_verified.
+        assert stub_account.is_verified is True
 
         stub_post = SocialMediaPost.objects.get(platform_post_id="999")
         main_post = SocialMediaPost.objects.get(platform_post_id="200")
@@ -328,6 +345,68 @@ class TestJSONImporter:
         # right after creation, which also produces one update.
         assert len(stats["SocialMediaPost"]["created"]) == 2
         assert len(stats["SocialMediaPost"]["updated"]) == 1
+
+    @pytest.mark.django_db
+    def test_stub_account_is_completed_when_seen_as_main_post(self, person, tmp_path):
+        # Run 1: account "987" is only referenced -> created as an orphan stub
+        # with no actor and no profile data.
+        referencing_post = _make_post(
+            url="https://t.me/example/200",
+            platform_post_id="200",
+            references=[
+                {
+                    "platform_post_id": "999",
+                    "url": "https://t.me/somebody/999",
+                    "created_at": "2024-01-01T01:00:00+00:00",
+                    "text": "Quoted text",
+                    "account": {"platform_user_id": "987"},
+                }
+            ],
+        )
+        path = _write_dump(
+            tmp_path,
+            {person.name_hash: {"social_media": {"telegram": [referencing_post]}}},
+        )
+        JSONImporter(path).run()
+
+        stub = SocialMediaAccount.objects.get(platform_user_id="987")
+        assert stub.actor is None
+        assert stub.url == ""
+        assert stub.display_name == ""
+
+        # Run 2: the same account shows up as a real post. collected_at is None
+        # (telegram carries no timestamp) which previously suppressed the
+        # profile refresh entirely.
+        main_post = _make_post(
+            url="https://t.me/somebody/500",
+            platform_post_id="500",
+            collected_at=None,
+            account=_make_account(
+                username="somebody",
+                platform_user_id="987",
+                display_name="Somebody Real",
+                url="https://t.me/somebody",
+                follower_count=42,
+            ),
+        )
+        path2 = _write_dump(
+            tmp_path,
+            {person.name_hash: {"social_media": {"telegram": [main_post]}}},
+            name="import2.json",
+        )
+        JSONImporter(path2).run()
+
+        # Same row is reused (keyed on platform_user_id), not duplicated.
+        assert SocialMediaAccount.objects.filter(platform_user_id="987").count() == 1
+        stub.refresh_from_db()
+        assert stub.actor == person.actor
+        # The full profile from the main post is backfilled onto the stub.
+        assert stub.username == "somebody"
+        assert stub.display_name == "Somebody Real"
+        assert stub.description == "An example account"
+        assert stub.url == "https://t.me/somebody"
+        assert stub.follower_count == 42
+        assert stub.is_verified is False
 
     @pytest.mark.django_db
     def test_mentions_are_added_and_removed_across_runs(self, person, tmp_path):
@@ -426,7 +505,6 @@ class TestJSONImporter:
             text="Quoting",
             references=[
                 {
-                    "kind": "quote",
                     "platform_post_id": "500",
                     "url": "https://t.me/example/500",
                     "created_at": "2024-01-01T09:00:00+00:00",

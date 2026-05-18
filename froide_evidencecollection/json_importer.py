@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 
 from django.db import transaction
+from django.db.models import Max
 
 from froide_evidencecollection.models import (
     Actor,
@@ -60,7 +61,7 @@ class JSONImporter:
     """
 
     ACCOUNT_PROFILE_FIELDS = (
-        "platform_user_id",
+        "username",
         "display_name",
         "description",
         "url",
@@ -84,7 +85,11 @@ class JSONImporter:
     def run(self):
         data = self.load()
         persons_by_hash = {p.name_hash: p for p in Person.objects.all() if p.name_hash}
-        external_id = 1
+        # `Evidence.external_id` is globally unique; continue past whatever is
+        # already stored so re-runs that create new Evidence don't collide
+        # with rows created by an earlier run.
+        max_external_id = Evidence.objects.aggregate(m=Max("external_id"))["m"] or 0
+        external_id = max_external_id + 1
 
         for person_id, entry in data.items():
             person = persons_by_hash.get(person_id)
@@ -111,6 +116,25 @@ class JSONImporter:
     def log_stats(self):
         """Return collected stats in the standard ``ImportExportRun.changes`` shape."""
         return self.stats.to_dict()
+
+    @classmethod
+    def _account_profile_values(cls, account_data):
+        """Profile fields present in ``account_data``, mapped to model fields.
+
+        Shared by the main-post upsert and the stub creation so a referenced
+        account is stored with everything the reference carries (telegram only
+        has the ID; twitter references carry the full profile).
+        """
+        values = {
+            field: account_data[field]
+            for field in cls.ACCOUNT_PROFILE_FIELDS
+            if account_data.get(field) is not None
+        }
+        is_verified = account_data.get("is_verified")
+        is_blue_verified = account_data.get("is_blue_verified")
+        if is_verified is not None or is_blue_verified is not None:
+            values["is_verified"] = bool(is_verified) or bool(is_blue_verified)
+        return values
 
     def _get_or_create_actor(self, person):
         try:
@@ -248,15 +272,14 @@ class JSONImporter:
         self.stats.reset_instance(SocialMediaPost)
         platform_value = PLATFORM_MAP[platform]
         acct_data = ref["account"]
-        username = acct_data["username"]
+        platform_user_id = str(acct_data["platform_user_id"])
 
         account, created_account = SocialMediaAccount.objects.get_or_create(
             platform=platform_value,
-            username=username,
+            platform_user_id=platform_user_id,
             defaults={
                 "actor": None,
-                "platform_user_id": acct_data.get("platform_user_id") or "",
-                "display_name": acct_data.get("display_name") or "",
+                **self._account_profile_values(acct_data),
             },
         )
         if created_account:
@@ -283,51 +306,54 @@ class JSONImporter:
     def _upsert_account(self, actor, platform, account_data, collected_at):
         self.stats.reset_instance(SocialMediaAccount)
         platform_value = PLATFORM_MAP[platform]
-        username = account_data["username"]
+        platform_user_id = str(account_data["platform_user_id"])
+        username = account_data.get("username") or ""
         account = SocialMediaAccount.objects.filter(
-            platform=platform_value, username=username
+            platform=platform_value, platform_user_id=platform_user_id
         ).first()
         created = account is None
 
         if created:
             account = SocialMediaAccount(
                 platform=platform_value,
+                platform_user_id=platform_user_id,
                 username=username,
                 actor=actor,
             )
             old_data = {}
         else:
             old_data = to_dict(account)
-            if account.actor_id != actor.id:
+
+        update = False
+
+        # An account first seen via a reference is created as an orphan stub
+        # (actor=None). Adopt it the first time it shows up as a real post.
+        if not created and actor is not None:
+            if account.actor_id is None:
+                account.actor = actor
+                update = True
+            elif account.actor_id != actor.id:
                 logger.warning(
                     "Account %s/%s already linked to actor #%s, not #%s",
                     platform,
-                    username,
+                    platform_user_id,
                     account.actor_id,
                     actor.id,
                 )
 
-        # Profile fields are refreshed only when this dump is newer.
-        should_refresh = collected_at is not None and (
-            account.collected_at is None or collected_at > account.collected_at
+        # Profile fields are written on first sight (including stub adoption,
+        # and platforms like telegram/youtube that carry no collected_at) and
+        # otherwise refreshed unless this dump is strictly older than what we
+        # already stored.
+        should_refresh = not (
+            collected_at is not None
+            and account.collected_at is not None
+            and collected_at < account.collected_at
         )
-
-        update = False
         if should_refresh:
-            for field in self.ACCOUNT_PROFILE_FIELDS:
-                value = account_data.get(field)
-                if value is None:
-                    continue
+            for field, value in self._account_profile_values(account_data).items():
                 if not equals(getattr(account, field), value):
                     setattr(account, field, value)
-                    update = True
-
-            is_verified = account_data.get("is_verified")
-            is_blue_verified = account_data.get("is_blue_verified")
-            if is_verified is not None or is_blue_verified is not None:
-                new_value = bool(is_verified) or bool(is_blue_verified)
-                if not equals(account.is_verified, new_value):
-                    account.is_verified = new_value
                     update = True
 
             if not equals(account.collected_at, collected_at):

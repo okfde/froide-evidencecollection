@@ -79,7 +79,7 @@ def transform_telegram_post(post: dict) -> dict:
     username = post.pop("username_x")
     post["account"] = {
         "username": username,
-        "platform_user_id": username,
+        "platform_user_id": post.pop("channel_id"),
         "display_name": post.pop("post_author"),
         "url": f"https://t.me/{username}",
     }
@@ -90,12 +90,10 @@ def transform_telegram_post(post: dict) -> dict:
     if isinstance(blob, dict):
         channel_id = blob["from_id"]["channel_id"]
         ref = {
-            "kind": "repost",
             "platform_post_id": blob["channel_post"],
             "url": f"https://t.me/c/{channel_id}/{blob["channel_post"]}",
             "created_at": blob["date"],
             "account": {
-                "username": channel_id,
                 "platform_user_id": channel_id,
             },
         }
@@ -142,7 +140,7 @@ def transform_facebook_post(post: dict) -> dict:
     # account
     author = post.pop("author")
     url = author["url"]
-    username = author["id"]
+    username = None
     if "people/" not in url:
         username = url.replace("https://www.facebook.com/", "")
 
@@ -159,13 +157,11 @@ def transform_facebook_post(post: dict) -> dict:
     if isinstance(blob, dict):
         ref_author = blob["author"]
         ref = {
-            "kind": "repost",
             "platform_post_id": blob["post_id"],
             "url": blob["url"],
             "created_at": _parse_epoch(blob["timestamp"]),
             "text": blob["message"],
             "account": {
-                "username": ref_author["id"],
                 "platform_user_id": ref_author["id"],
                 "display_name": ref_author["name"],
             },
@@ -208,7 +204,6 @@ def transform_youtube_post(post: dict) -> dict:
     # account
     channel_id = post.pop("channel_id")
     post["account"] = {
-        "username": channel_id,
         "platform_user_id": channel_id,
         "url": f"https://www.youtube.com/channel/{channel_id}",
     }
@@ -221,7 +216,7 @@ def _twitter_account(user: dict) -> dict:
         "username": user["username"],
         "platform_user_id": user["user_id"],
         "display_name": user["name"],
-        "url": f"https://x.com/@{user["username"].lower()}",
+        "url": f"https://x.com/{user["username"].lower()}",
         "description": user["description"],
         "is_verified": user["is_verified"],
         "is_blue_verified": user["is_blue_verified"],
@@ -250,15 +245,11 @@ def transform_twitter_post(post: dict) -> dict:
 
     ## references
     references = []
-    for kind, key in (
-        ("quote", "quoted_status"),
-        ("repost", "retweet_status"),
-    ):
+    for key in ["quoted_status", "retweet_status"]:
         blob = post.pop(key, None)
         if isinstance(blob, dict):
             user = blob["user"]
             ref = {
-                "kind": kind,
                 "platform_post_id": blob["tweet_id"],
                 "url": f"https://x.com/{user["username"]}/status/{blob["tweet_id"]}",
                 "created_at": _parse_epoch(blob["timestamp"]),

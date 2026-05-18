@@ -516,7 +516,7 @@ class SocialMediaAccount(models.Model):
         verbose_name_plural = _("social media accounts")
         constraints = [
             models.UniqueConstraint(
-                fields=["platform", "username"],
+                fields=["platform", "platform_user_id"],
                 name="unique_social_media_account",
             ),
         ]
