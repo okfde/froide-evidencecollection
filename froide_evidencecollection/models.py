@@ -243,6 +243,23 @@ class OrganizationStatus(models.Model):
         return self.name
 
 
+class ActorQuerySet(models.QuerySet):
+    def with_account_stats(self):
+        return self.annotate(
+            account_count=models.Count("social_media_accounts", distinct=True),
+            post_count=models.Count("social_media_accounts__posts", distinct=True),
+            redistributed_count=models.Count(
+                "social_media_accounts__posts__redistributed_by",
+                filter=~models.Q(
+                    social_media_accounts__posts__redistributed_by__account__actor=models.F(
+                        "pk"
+                    )
+                ),
+                distinct=True,
+            ),
+        )
+
+
 class Actor(ImportableModel):
     """
     Intermediate model that can be used as a foreign key in places where either
@@ -281,6 +298,8 @@ class Actor(ImportableModel):
         related_name="actor",
         verbose_name=_("organization"),
     )
+
+    objects = ActorQuerySet.as_manager()
 
     class Meta:
         verbose_name = _("actor")
@@ -426,6 +445,18 @@ class Affiliation(SyncableModel):
         return None
 
 
+class SocialMediaAccountQuerySet(models.QuerySet):
+    def with_post_stats(self):
+        return self.annotate(
+            post_count=models.Count("posts", distinct=True),
+            redistributed_count=models.Count(
+                "posts__redistributed_by",
+                filter=~models.Q(posts__redistributed_by__account=models.F("pk")),
+                distinct=True,
+            ),
+        )
+
+
 class SocialMediaAccount(models.Model):
     class Platform(models.TextChoices):
         FACEBOOK = "facebook", _("Facebook")
@@ -477,6 +508,8 @@ class SocialMediaAccount(models.Model):
     collected_at = models.DateTimeField(
         null=True, blank=True, verbose_name=_("collected_at")
     )
+
+    objects = SocialMediaAccountQuerySet.as_manager()
 
     class Meta:
         verbose_name = _("social media account")
@@ -673,6 +706,14 @@ class SocialMediaPost(models.Model):
 
     def __str__(self):
         return f"{self.account} #{self.platform_post_id}"
+
+    def get_admin_url(self):
+        if self.pk is None:
+            return None
+        return reverse(
+            "admin:froide_evidencecollection_socialmediapost_change",
+            args=[self.pk],
+        )
 
     @property
     def full_text(self) -> str:

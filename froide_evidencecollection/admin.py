@@ -3,6 +3,7 @@ import json
 from django import forms
 from django.conf import settings
 from django.contrib import admin
+from django.utils.html import format_html
 from django.db.models import F, Q
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
@@ -75,20 +76,45 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 class SocialMediaAccountInline(admin.TabularInline):
     model = SocialMediaAccount
     extra = 0
-    fields = ["platform", "username", "display_name", "is_verified", "follower_count"]
-    readonly_fields = fields
-
-
-@admin.register(SocialMediaAccount)
-class SocialMediaAccountAdmin(ReadOnlyAdmin):
-    list_display = [
-        "actor",
+    fields = [
         "platform",
+        "platform_user_id",
         "username",
         "display_name",
         "is_verified",
         "follower_count",
-        "collected_at",
+    ]
+    readonly_fields = fields
+
+
+class SocialMediaPostInline(admin.TabularInline):
+    model = SocialMediaPost
+    extra = 0
+    fields = ["post_link", "url", "posted_at", "redistributes"]
+    readonly_fields = fields
+
+    def post_link(self, obj):
+        url = obj.get_admin_url()
+        if url is None:
+            return obj.platform_post_id
+        return format_html('<a href="{}">{}</a>', url, obj.platform_post_id)
+
+    post_link.short_description = _("platform post ID")
+
+
+@admin.register(SocialMediaAccount)
+class SocialMediaAccountAdmin(ReadOnlyAdmin):
+    inlines = [SocialMediaPostInline]
+    list_display = [
+        "actor",
+        "platform",
+        "platform_user_id",
+        "username",
+        "display_name",
+        "is_verified",
+        "follower_count",
+        "post_count",
+        "redistributed_count",
     ]
     list_filter = ["platform", "is_verified"]
     search_fields = ["username", "display_name", "platform_user_id"]
@@ -104,6 +130,20 @@ class SocialMediaAccountAdmin(ReadOnlyAdmin):
         "follower_count",
         "collected_at",
     ]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).with_post_stats()
+
+    @admin.display(description=_("number of posts"), ordering="post_count")
+    def post_count(self, obj):
+        return obj.post_count
+
+    @admin.display(
+        description=_("redistributed by other accounts"),
+        ordering="redistributed_count",
+    )
+    def redistributed_count(self, obj):
+        return obj.redistributed_count
 
 
 @admin.register(SocialMediaPost)
@@ -196,8 +236,32 @@ class AffiliationInline(admin.TabularInline):
 @admin.register(Actor)
 class ActorAdmin(ReadOnlyAdmin):
     inlines = [SocialMediaAccountInline]
-    list_display = ["name", "external_id"]
+    list_display = [
+        "name",
+        "external_id",
+        "account_count",
+        "post_count",
+        "redistributed_count",
+    ]
     search_fields = ["name"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).with_account_stats()
+
+    @admin.display(description=_("number of accounts"), ordering="account_count")
+    def account_count(self, obj):
+        return obj.account_count
+
+    @admin.display(description=_("number of posts"), ordering="post_count")
+    def post_count(self, obj):
+        return obj.post_count
+
+    @admin.display(
+        description=_("redistributed by other actors"),
+        ordering="redistributed_count",
+    )
+    def redistributed_count(self, obj):
+        return obj.redistributed_count
 
 
 @admin.register(Person)
