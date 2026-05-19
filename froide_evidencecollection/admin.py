@@ -3,6 +3,7 @@ import json
 from django import forms
 from django.conf import settings
 from django.contrib import admin
+from django.db.models import F, Q
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
@@ -19,6 +20,22 @@ from .models import (
     Role,
 )
 from .utils import selectable_regions
+
+
+class SyncedListFilter(admin.SimpleListFilter):
+    title = _("is synced")
+    parameter_name = "is_synced"
+
+    def lookups(self, request, model_admin):
+        return [("1", _("Yes")), ("0", _("No"))]
+
+    def queryset(self, request, queryset):
+        synced = Q(synced_at__isnull=False) & Q(synced_at__gte=F("updated_at"))
+        if self.value() == "1":
+            return queryset.filter(synced)
+        if self.value() == "0":
+            return queryset.exclude(synced)
+        return queryset
 
 
 class SyncableMixin:
@@ -105,7 +122,7 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
         "is_synced_display",
     ]
     list_filter = [
-        "is_synced",
+        SyncedListFilter,
         "synced_at",
         "affiliations__organization__institutional_level",
         "affiliations__role",
@@ -170,7 +187,7 @@ class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
     ]
     filter_horizontal = ("regions",)
     list_filter = [
-        "is_synced",
+        SyncedListFilter,
         "synced_at",
         "institutional_level",
         "affiliations__person",
@@ -213,7 +230,7 @@ class RoleAdmin(SyncableMixin, ReadOnlyAdmin):
         "synced_at",
         "is_synced_display",
     ]
-    list_filter = ["is_synced", "synced_at"]
+    list_filter = [SyncedListFilter, "synced_at"]
     search_fields = ["name"]
 
 
@@ -253,7 +270,7 @@ class AffiliationAdmin(SyncableMixin, ReadOnlyAdmin):
         "is_synced_display",
     ]
     list_filter = [
-        "is_synced",
+        SyncedListFilter,
         "synced_at",
         "organization__institutional_level",
         "role",

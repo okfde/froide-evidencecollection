@@ -67,20 +67,14 @@ class SyncableModel(TrackableModel):
     sync_uuid = models.UUIDField(
         unique=True, editable=False, verbose_name=_("sync UUID")
     )
-    is_synced = models.GeneratedField(
-        expression=models.Case(
-            models.When(synced_at__isnull=True, then=models.Value(False)),
-            models.When(synced_at__gte=models.F("updated_at"), then=models.Value(True)),
-            default=models.Value(False),
-        ),
-        output_field=models.BooleanField(),
-        db_persist=True,
-        verbose_name=_("is synced"),
-    )
     last_synced_state = models.JSONField(default=dict, editable=False)
 
     class Meta:
         abstract = True
+
+    @property
+    def is_synced(self):
+        return self.synced_at is not None and self.synced_at >= self.updated_at
 
     def save(self, *args, sync=False, **kwargs):
         if not self.sync_uuid:
@@ -91,9 +85,6 @@ class SyncableModel(TrackableModel):
         if sync:
             self.mark_synced(self.updated_at)
 
-        # Refresh for correct value of `is_synced` field.
-        self.refresh_from_db()
-
     def mark_synced(self, synced_at=None):
         self.synced_at = synced_at or timezone.now()
         self.last_synced_state = self.get_current_state()
@@ -102,7 +93,6 @@ class SyncableModel(TrackableModel):
     def exclude_from_serialization(self):
         return super().exclude_from_serialization() + [
             "synced_at",
-            "is_synced",
             "last_synced_state",
         ]
 
