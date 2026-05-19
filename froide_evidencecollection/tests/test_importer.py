@@ -5,7 +5,6 @@ import pytest
 
 from froide_evidencecollection.importer import (
     AffiliationImporter,
-    EvidenceImporter,
     ImportError,
     NocoDBImporter,
     OrganizationImporter,
@@ -13,10 +12,7 @@ from froide_evidencecollection.importer import (
     RoleImporter,
 )
 from froide_evidencecollection.models import (
-    Actor,
     Affiliation,
-    Attachment,
-    Evidence,
     InstitutionalLevel,
     Organization,
     OrganizationStatus,
@@ -696,285 +692,16 @@ class TestAffiliationImporter:
         }
 
 
-class TestEvicenceImporter:
-    @pytest.mark.django_db
-    @pytest.mark.parametrize(
-        "with_values",
-        [
-            False,  # All optional values are None or empty.
-            True,  # All optional values are set.
-        ],
-    )
-    # Prevent deletion of existing Evidence instances (used for testing attribution_evidence).
-    @mock.patch("froide_evidencecollection.importer.TableImporter.delete_instances")
-    @mock.patch("froide_evidencecollection.importer.requests.get")
-    def test_import(
-        self,
-        mock_get,
-        mock_delete,
-        with_values,
-        fxt_mock_response,
-    ):
-        # Create required related objects upfront.
-        person = PersonFactory(external_id=1)
-        person.save(sync=True)
-        organization = OrganizationFactory(external_id=2)
-        organization.save(sync=True)
-        evidence = Evidence.objects.create(external_id=23)
-
-        # Prepare mock data based on parameterization.
-        external_id = 42
-        attribution_justification = "Begründung" if with_values else None
-        attribution_problems = ["Problem1", "Problem2"] if with_values else None
-        citation = "Zitat" if with_values else None
-        comment = "Kommentar" if with_values else None
-        collections = ["Sammlung1", "Sammlung2"] if with_values else None
-        description = "Beschreibung des Testbelegs" if with_values else None
-        documentation_date = "2023-01-15" if with_values else None
-        event_date = "2022-12-31" if with_values else None
-        evidence_type = "Artikel" if with_values else None
-        legal_assessment = 5 if with_values else None
-        reference_info = "Zusätzliche Informationen" if with_values else None
-        primary_source_url = "https://example.com/source" if with_values else None
-        primary_source_info = "Primärquelle Infos" if with_values else None
-        reference_url = "https://example.com/evidence" if with_values else None
-        publishing_date = "2023-01-01" if with_values else None
-        originators = (
-            [{"Personen und Organisationen_id": person.external_id}]
-            if with_values
-            else []
-        )
-        related_actors = (
-            [{"Personen und Organisationen_id": organization.external_id}]
-            if with_values
-            else []
-        )
-        attribution_evidence = (
-            [{"Quellen und Belege_id": evidence.external_id}] if with_values else []
-        )
-
-        field_data = {
-            "Id": external_id,
-            "Zitat/Beschreibung": citation,
-            "Zusammenfassung": description,
-            "Art des Belegs": evidence_type,
-            "Sammlung(en)": ",".join(collections) if collections else None,
-            "Zurechnungs - Begründung": attribution_justification,
-            "Zurechnungsprobleme": ",".join(attribution_problems)
-            if attribution_problems
-            else None,
-            "Kommentar/Notiz": comment,
-            "Datum der Originaläußerung": event_date,
-            "Datum der Dokumentation": documentation_date,
-            "Datum der Veröffentlichung": publishing_date,
-            "Primärquelle (URL)": primary_source_url,
-            "Primärquelle (zusätzliche Informationen)": primary_source_info,
-            "Juristische Bewertung": legal_assessment,
-            "Fundstelle (URL)": reference_url,
-            "Fundstelle (zusätzliche Informationen)": reference_info,
-            "_nc_m2m_Quellen und Bel_Personen und Ors": originators,
-            "_nc_m2m_Quellen und Bel_Personen und Or1s": related_actors,
-            "_nc_m2m_Quellen und Bel_Quellen und Bels": attribution_evidence,
-            "Screenshot(s)": None,
-        }
-
-        # Add attachment if with_values is True.
-        if with_values:
-            field_data["Screenshot(s)"] = [
-                {
-                    "id": "abcd1234",
-                    "title": "screenshot.png",
-                    "mimetype": "image/png",
-                    "size": 1024,
-                    "width": 800,
-                    "height": 600,
-                    "signedUrl": "https://example.com/image.png",
-                    "evidence_id": external_id,
-                }
-            ]
-        else:
-            field_data["Screenshot(s)"] = None
-
-        mock_data = {"list": [field_data]}
-
-        # Set up API responses.
-        api_response = fxt_mock_response(mock_data)
-
-        if with_values:
-            # File response for attachment download.
-            file_response = mock.Mock()
-            file_response.status_code = 200
-            file_response.content = b"fake image content"
-            file_response.raise_for_status = mock.Mock()
-            mock_get.side_effect = [api_response, file_response]
-        else:
-            mock_get.return_value = api_response
-
-        # Run importer.
-        importer = EvidenceImporter(Evidence)
-        importer.run()
-
-        # Check API calls.
-        expected_call_count = 2 if with_values else 1
-        assert mock_get.call_count == expected_call_count
-
-        # Check results.
-        instances = Evidence.objects.filter(external_id=external_id)
-        assert instances.count() == 1
-        instance = instances.first()
-
-        evidence_type_obj = None
-        if with_values:
-            evidence_type_obj = instance.evidence_type
-            assert evidence_type_obj.name == evidence_type
-
-        assert instance.external_id == external_id
-        assert instance.citation == (citation or "")
-        assert instance.description == (description or "")
-        assert instance.evidence_type == evidence_type_obj
-        assert instance.comment == (comment or "")
-        assert instance.attribution_justification == (attribution_justification or "")
-        assert instance.legal_assessment == legal_assessment
-        assert instance.primary_source_info == (primary_source_info or "")
-        assert instance.primary_source_url == (primary_source_url or "")
-        assert instance.reference_info == (reference_info or "")
-        assert instance.reference_url == (reference_url or "")
-
-        if event_date:
-            assert str(instance.event_date) == event_date
-        else:
-            assert instance.event_date is None
-
-        if documentation_date:
-            assert str(instance.documentation_date) == documentation_date
-        else:
-            assert instance.documentation_date is None
-
-        if publishing_date:
-            assert str(instance.publishing_date) == publishing_date
-        else:
-            assert instance.publishing_date is None
-
-        collection_names = instance.collections.values_list("name", flat=True)
-        assert list(collection_names.order_by("name")) == (collections or [])
-
-        attr_problems = instance.attribution_problems.values_list("name", flat=True)
-        assert list(attr_problems.order_by("name")) == (attribution_problems or [])
-
-        originators = []
-        if with_values:
-            actor_person = Actor.objects.get(person=person)
-            originators = [actor_person.id]
-            assert instance.originators.count() == 1
-            assert instance.originators.first() == actor_person
-        else:
-            assert instance.originators.count() == 0
-
-        related_actors = []
-        if with_values:
-            actor_org = Actor.objects.get(organization=organization)
-            related_actors = [actor_org.id]
-            assert instance.related_actors.count() == 1
-            assert instance.related_actors.first() == actor_org
-        else:
-            assert instance.related_actors.count() == 0
-
-        attribution_evidence = []
-        if with_values:
-            attribution_evidence = [evidence.id]
-            assert instance.attribution_evidence.count() == 1
-            assert instance.attribution_evidence.first() == evidence
-        else:
-            assert instance.attribution_evidence.count() == 0
-
-        # Check attachments.
-        attachments = Attachment.objects.filter(evidence=instance)
-        if with_values:
-            assert attachments.count() == 1
-            attachment = attachments.first()
-            assert attachment.external_id == "abcd1234"
-            assert attachment.title == "screenshot.png"
-            assert attachment.mimetype == "image/png"
-            assert attachment.size == 1024
-            assert attachment.width == 800
-            assert attachment.height == 600
-            assert attachment.file
-        else:
-            assert attachments.count() == 0
-
-        stats = importer.stats.to_dict()
-        assert "Evidence" in stats
-        assert stats["Evidence"] == {
-            "created": [
-                {
-                    "id": instance.id,
-                    "fields": {
-                        "attribution_evidence": attribution_evidence,
-                        "attribution_justification": (attribution_justification or ""),
-                        "attribution_problems": list(
-                            instance.attribution_problems.values_list("pk", flat=True)
-                        ),
-                        "citation": (citation or ""),
-                        "collections": list(
-                            instance.collections.values_list("pk", flat=True)
-                        ),
-                        "comment": (comment or ""),
-                        "description": (description or ""),
-                        "documentation_date": documentation_date,
-                        "event_date": event_date,
-                        "evidence_type": evidence_type_obj.id
-                        if evidence_type_obj
-                        else None,
-                        "external_id": external_id,
-                        "legal_assessment": legal_assessment,
-                        "originators": originators,
-                        "primary_source_info": (primary_source_info or ""),
-                        "primary_source_url": (primary_source_url or ""),
-                        "reference_info": (reference_info or ""),
-                        "publishing_date": publishing_date,
-                        "reference_url": (reference_url or ""),
-                        "related_actors": related_actors,
-                    },
-                }
-            ],
-            "updated": [],
-            "skipped": [],
-            "deleted": [],
-        }
-        if with_values:
-            assert "Attachment" in stats
-            assert stats["Attachment"] == {
-                "created": [
-                    {
-                        "fields": {
-                            "evidence": instance.id,
-                            "external_id": "abcd1234",
-                            "height": 600,
-                            "mimetype": "image/png",
-                            "size": 1024,
-                            "title": "screenshot.png",
-                            "width": 800,
-                        },
-                        "id": attachment.id,
-                    }
-                ],
-                "updated": [],
-                "skipped": [],
-                "deleted": [],
-            }
-
-
 class TestNocoDBImporter:
     @pytest.mark.django_db
-    @pytest.mark.parametrize("full_import, call_count", [(False, 4), (True, 5)])
     @mock.patch("froide_evidencecollection.importer.TableImporter.run")
-    def test_importer_runs_all_table_importers(self, mock_run, full_import, call_count):
+    def test_importer_runs_all_table_importers(self, mock_run):
         """
         Test that the NocoDBImporter runs all configured TableImporters.
         """
-        importer = NocoDBImporter(full_import=full_import)
+        importer = NocoDBImporter()
         importer.run()
 
-        assert mock_run.call_count == call_count
+        assert mock_run.call_count == 4
 
         assert importer.stats.to_dict() == {}

@@ -299,7 +299,7 @@ class AttachmentInline(admin.TabularInline):
 class EvidenceAdmin(ReadOnlyAdmin):
     inlines = [AttachmentInline]
     list_display = [
-        "external_id",
+        "id",
         "title",
         "evidence_type",
         "originator_list",

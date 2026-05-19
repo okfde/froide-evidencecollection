@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 @celery_app.task(name="froide_evidencecollection.import_evidence_nocodb")
-def import_evidence_nocodb(full=False):
-    importer = NocoDBImporter(full_import=full)
+def import_evidence_nocodb():
+    importer = NocoDBImporter()
     run = ImportExportRun.objects.create(
         operation=ImportExportRun.IMPORT,
         source=ImportExportRun.NOCODB,

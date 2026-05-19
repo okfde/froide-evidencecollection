@@ -9,7 +9,6 @@ import requests
 
 from froide_evidencecollection.models import (
     Affiliation,
-    ImportableModel,
     Organization,
     Person,
     Role,
@@ -32,9 +31,7 @@ class TableExporter:
         self.debug = settings.DEBUG
         self.model = model
         self.model_name = model.__name__
-        self.base_model_name = get_base_class_name(
-            model, exclude=[ImportableModel, SyncableModel]
-        )
+        self.base_model_name = get_base_class_name(model, exclude=[SyncableModel])
         self.field_map = CONFIG["field_map"][self.model_name]
         self.relation_config = CONFIG["relations"][self.model_name]
         self.table_name = CONFIG["tables"][self.base_model_name]

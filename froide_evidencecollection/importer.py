@@ -3,17 +3,12 @@ from collections import defaultdict
 
 from django.apps import apps
 from django.conf import settings
-from django.core.files.base import ContentFile
 from django.db import transaction
 
 import requests
 
 from froide_evidencecollection.models import (
-    Actor,
     Affiliation,
-    Attachment,
-    Evidence,
-    ImportableModel,
     Organization,
     Person,
     Role,
@@ -82,9 +77,7 @@ class TableImporter:
         self.debug = settings.DEBUG
         self.model = model
         self.model_name = model.__name__
-        self.base_model_name = get_base_class_name(
-            model, exclude=[ImportableModel, SyncableModel]
-        )
+        self.base_model_name = get_base_class_name(model, exclude=[SyncableModel])
         self.field_map = CONFIG["field_map"][self.model_name]
         self.relation_config = CONFIG["relations"][self.model_name]
         self.null_label = CONFIG["null_label"]
@@ -420,125 +413,8 @@ class AffiliationImporter(TableImporter):
         return row
 
 
-class EvidenceImporter(TableImporter):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.attachments = []
-
-    def collect_additional_data(self, row):
-        for attachment in row.get("Screenshot(s)") or []:
-            attachment["evidence_id"] = row["Id"]
-            self.attachments.append(attachment)
-
-    def prepare_row(self, row):
-        row["originators"] = [
-            int(data["Personen und Organisationen_id"]) for data in row["originators"]
-        ]
-
-        row["related_actors"] = [
-            int(data["Personen und Organisationen_id"])
-            for data in row["related_actors"]
-        ]
-
-        row["attribution_evidence"] = [
-            int(data["Quellen und Belege_id"]) for data in row["attribution_evidence"]
-        ]
-
-        return row
-
-    def get_related_instances(self, model, new_values, lookup_field, create=False):
-        """
-        If the evidence data to be imported contains references to `Actor` instances,
-        make sure to create those instances if they do not already exist.
-        """
-
-        if model == Actor:
-            existing_ids = Actor.objects.filter(external_id__in=new_values).values_list(
-                "external_id", flat=True
-            )
-            missing_ids = set(new_values) - set(existing_ids)
-
-            for person in Person.objects.filter(external_id__in=missing_ids):
-                obj = Actor.objects.create(
-                    person=person,
-                )
-                self.stats.track_created(Actor, obj)
-
-            for orga in Organization.objects.filter(external_id__in=missing_ids):
-                obj = Actor.objects.create(
-                    organization=orga,
-                )
-                self.stats.track_created(Actor, obj)
-
-        return super().get_related_instances(model, new_values, lookup_field, create)
-
-    def create_or_update_related_instances(self):
-        existing_objs = Attachment.objects.in_bulk(field_name="external_id")
-        evidence_objs = Evidence.objects.in_bulk(field_name="external_id")
-
-        for data in self.attachments:
-            ext_id = data.get("id")
-            signed_url = data.get("signedUrl")
-            evidence_id = data.get("evidence_id")
-
-            if not ext_id or not signed_url or not evidence_id:
-                self.handle_error(f"Missing data in attachment: {data}", Attachment)
-                continue
-
-            evidence = evidence_objs.get(evidence_id)
-            if not evidence:
-                msg = f"No evidence with ID {evidence_id} found for attachment {ext_id}"
-                self.handle_error(msg, Attachment)
-                continue
-
-            obj = existing_objs.get(ext_id)
-            old_obj_data = to_dict(obj)
-            created = False if obj else True
-
-            fields = {
-                "external_id": ext_id,
-                "evidence": evidence,
-                "title": data.get("title"),
-                "mimetype": data.get("mimetype"),
-                "size": data.get("size"),
-                "width": data.get("width"),
-                "height": data.get("height"),
-            }
-
-            obj = self.create_or_update_instance(Attachment, obj, fields)
-
-            # Only download file if attachment did not already have one.
-            if obj and not obj.file and not self.stats.instance_failed(Attachment):
-                logger.info(f"Downloading attachment file from {signed_url} ...")
-
-                response = requests.get(signed_url)
-                if response.status_code != 200:
-                    self.handle_error(f"Download failed for {signed_url}")
-                    continue
-
-                content = ContentFile(response.content)
-                filename = data["title"]
-
-                try:
-                    with transaction.atomic():
-                        obj.file.save(filename, content, save=True)
-                        if created:
-                            self.stats.track_created(Attachment, obj)
-                        else:
-                            self.stats.track_updated(Attachment, old_obj_data, obj)
-                except Exception as e:
-                    msg = f"Error saving file for attachment {ext_id}: {e}"
-                    self.handle_error(msg)
-                    continue
-
-        new_ids = [a["id"] for a in self.attachments]
-        self.delete_instances(Attachment, existing_objs.keys(), new_ids)
-
-        self.stats.log_summary(Attachment)
-
-
 class NocoDBImporter:
-    def __init__(self, full_import=False):
+    def __init__(self):
         self.stats = ImportStatsCollection()
         self.table_importers = [
             PersonImporter(Person),
@@ -546,9 +422,6 @@ class NocoDBImporter:
             RoleImporter(Role),
             AffiliationImporter(Affiliation),
         ]
-
-        if full_import:
-            self.table_importers.append(EvidenceImporter(Evidence))
 
     @transaction.atomic
     def run(self):

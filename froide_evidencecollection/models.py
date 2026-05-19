@@ -25,23 +25,6 @@ class TrackableModel(models.Model):
         return ["id", "created_at", "updated_at"]
 
 
-class ImportableModel(TrackableModel):
-    """
-    Base class for models that are imported from an external source (NocoDB) but should
-    not be synced back to it.
-
-    These models need an unnullable `external_id` field to keep track of the mapping
-    between the local model instance and the external source.
-    """
-
-    external_id = models.PositiveIntegerField(
-        unique=True, verbose_name=_("external ID")
-    )
-
-    class Meta:
-        abstract = True
-
-
 class SyncableModel(TrackableModel):
     """
     Base class for models that are synced with an external source (NocoDB) in both
@@ -227,7 +210,7 @@ class OrganizationStatus(models.Model):
         return self.name
 
 
-class Actor(ImportableModel):
+class Actor(TrackableModel):
     """
     Intermediate model that can be used as a foreign key in places where either
     a `Person` or `Organization` is needed.
@@ -236,19 +219,11 @@ class Actor(ImportableModel):
     that we don't need to access the `Actor` table each time we want to access a
     `Person` or `Organization`.
 
-    In addition, we can copy some fields from the target model to this model
-    (like `external_id` and `name`) to make lookups and display easier.
-
     See also this blog post for a comparison of different approaches for ForeignKeys
     to multiple models:
     https://lukeplant.me.uk/blog/posts/avoid-django-genericforeignkey/#alternatives
     """
 
-    name = models.CharField(
-        max_length=255,
-        blank=True,
-        verbose_name=_("name"),
-    )
     person = models.OneToOneField(
         Person,
         null=True,
@@ -294,10 +269,11 @@ class Actor(ImportableModel):
         if [self.person, self.organization].count(None) != 1:
             raise ValueError("Exactly one of 'person' or 'organization' must be set.")
 
-        self.external_id = self.target.external_id
-        self.name = str(self.target)
-
         return super(Actor, self).save(*args, **kwargs)
+
+    @property
+    def name(self):
+        return str(self.target)
 
     @cached_property
     def target(self):
@@ -410,7 +386,7 @@ class Affiliation(SyncableModel):
         return None
 
 
-class Evidence(ImportableModel):
+class Evidence(TrackableModel):
     citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
     description = models.TextField(
         blank=True, default="", verbose_name=_("description")
@@ -482,7 +458,7 @@ class Evidence(ImportableModel):
         verbose_name_plural = _("pieces of evidence")
 
     def __str__(self):
-        return f"{self.external_id} - {self.title}"
+        return f"{self.pk} - {self.title}"
 
     @cached_property
     def title(self):
@@ -512,11 +488,7 @@ class Collection(models.Model):
         return self.name
 
 
-class Attachment(ImportableModel):
-    # The external ID is a string in this case.
-    external_id = models.CharField(
-        unique=True, max_length=20, verbose_name=_("external ID")
-    )
+class Attachment(TrackableModel):
     evidence = models.ForeignKey(
         Evidence,
         on_delete=models.CASCADE,
