@@ -35,8 +35,8 @@ ENTITY_TYPE_POLITICIANS = "politicians"
 ENTITY_TYPE_CANDIDACIES_MANDATES = "candidacies-mandates"
 RESULTS_PER_PAGE = 500
 
-# Fix `previous_period` for "Hessen 2018 - 2024".
-PREVIOUS_PERIOD_MAP = {116: 55}
+# Fix `previous_period` for "Hessen 2018 - 2024" and "Baden-Württemberg 2021 - 2026".
+PREVIOUS_PERIOD_MAP = {116: 55, 126: 123}
 
 
 class AbgeordnetenwatchDataFetcher:
