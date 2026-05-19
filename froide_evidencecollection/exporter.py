@@ -2,6 +2,7 @@ import logging
 import uuid
 
 from django.conf import settings
+from django.db.models import F, Q
 from django.utils import timezone
 
 import requests
@@ -49,9 +50,10 @@ class TableExporter:
         if to_create.exists():
             self.create_records(to_create)
 
-        to_update = self.model.objects.filter(is_synced=False).exclude(
-            pk__in=created_ids
-        )
+        # Never synced, or modified since the last sync.
+        to_update = self.model.objects.filter(
+            Q(synced_at__isnull=True) | Q(synced_at__lt=F("updated_at"))
+        ).exclude(pk__in=created_ids)
         if to_update.exists():
             self.update_records(to_update)
 
