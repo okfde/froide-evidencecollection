@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('froide_evidencecollection', '0022_remove_legislativeperiod_reference_url_and_more'),
+        ('froide_evidencecollection', '0023_remove_affiliation_is_synced_and_more'),
     ]
 
     operations = [
