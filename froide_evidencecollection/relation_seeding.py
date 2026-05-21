@@ -28,13 +28,10 @@ def _actor_role(name: str) -> EvidenceActorRelationRole:
 
 
 def seed_relations_from_source(evidence: Evidence) -> None:
-    source = evidence.source
-    if source is None:
-        return
-    if isinstance(source, SocialMediaPost):
-        _seed_from_social_media_post(evidence, source)
-    elif isinstance(source, Document):
-        _seed_from_document(evidence, source)
+    if evidence.social_media_post_id:
+        _seed_from_social_media_post(evidence, evidence.social_media_post)
+    if evidence.document_id:
+        _seed_from_document(evidence, evidence.document)
 
 
 def _seed_from_social_media_post(evidence: Evidence, post: SocialMediaPost) -> None:

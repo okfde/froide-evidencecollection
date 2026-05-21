@@ -530,6 +530,25 @@ class SocialMediaAccount(models.Model):
         return ["id"]
 
 
+class EvidenceSource:
+    """
+    Uniform accessor surface for models attachable to an Evidence as a source.
+
+    Subclasses expose `url` (model field) and implement `display_text` and
+    `publication_date` so callers don't branch on source type.
+    """
+
+    url: str
+
+    @property
+    def display_text(self) -> str:
+        raise NotImplementedError
+
+    @property
+    def publication_date(self):
+        raise NotImplementedError
+
+
 class Evidence(ImportableModel):
     citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
     description = models.TextField(
@@ -555,12 +574,12 @@ class Evidence(ImportableModel):
         related_name="evidence",
         verbose_name=_("social media post"),
     )
-    document = models.OneToOneField(
+    document = models.ForeignKey(
         "Document",
         null=True,
         blank=True,
         on_delete=models.PROTECT,
-        related_name="evidence",
+        related_name="evidences",
         verbose_name=_("document"),
     )
     related_actors = models.ManyToManyField(
@@ -579,10 +598,10 @@ class Evidence(ImportableModel):
         verbose_name_plural = _("pieces of evidence")
         constraints = [
             models.CheckConstraint(
-                name="evidence_exactly_one_source",
+                name="evidence_has_source",
                 condition=(
-                    models.Q(social_media_post__isnull=False, document__isnull=True)
-                    | models.Q(social_media_post__isnull=True, document__isnull=False)
+                    models.Q(social_media_post__isnull=False)
+                    | models.Q(document__isnull=False)
                 ),
             ),
         ]
@@ -591,7 +610,12 @@ class Evidence(ImportableModel):
         return f"{self.external_id} - {self.title}"
 
     @property
-    def source(self):
+    def sources(self) -> list["EvidenceSource"]:
+        return [s for s in (self.social_media_post, self.document) if s is not None]
+
+    @property
+    def source(self) -> "EvidenceSource | None":
+        # Primary source; social media post wins when both are attached.
         return self.social_media_post or self.document
 
     @property
@@ -635,7 +659,7 @@ class Evidence(ImportableModel):
         return reverse("evidencecollection:evidence-detail", kwargs={"pk": self.pk})
 
 
-class SocialMediaPost(models.Model):
+class SocialMediaPost(EvidenceSource, models.Model):
     account = models.ForeignKey(
         SocialMediaAccount,
         on_delete=models.PROTECT,
@@ -726,13 +750,17 @@ class SocialMediaPost(models.Model):
     def display_text(self) -> str:
         return textwrap.shorten(self.full_text, width=50, placeholder="...")
 
+    @property
+    def publication_date(self):
+        return self.posted_at.date() if self.posted_at else None
+
     def exclude_from_serialization(self):
         # Large JSON payloads are persisted but excluded from diffs so
         # ImportExportRun.changes stays readable.
         return ["id", "raw", "user_snapshot"]
 
 
-class Document(models.Model):
+class Document(EvidenceSource, models.Model):
     title = models.CharField(max_length=255, verbose_name=_("title"))
     file = models.FileField(
         upload_to="documents", max_length=255, verbose_name=_("file")
@@ -775,6 +803,10 @@ class Document(models.Model):
     @property
     def display_text(self) -> str:
         return self.title
+
+    @property
+    def publication_date(self):
+        return self.published_at
 
 
 EVIDENCE_ACTOR_ROLE_LABELS = {

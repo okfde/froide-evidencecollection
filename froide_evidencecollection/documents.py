@@ -66,16 +66,15 @@ class EvidenceDocument(DSLDocument):
             .select_related(
                 "evidence_type",
                 "social_media_post__account",
+                "document",
             )
         )
 
     def _publishing_date(self, obj: Evidence):
-        post = obj.social_media_post
-        if post is not None and post.posted_at is not None:
-            return post.posted_at.date()
-        document = obj.document
-        if document is not None:
-            return document.published_at
+        for source in obj.sources:
+            date = source.publication_date
+            if date is not None:
+                return date
         return None
 
     def _get_active_affiliations(self, obj: Evidence):

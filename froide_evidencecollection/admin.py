@@ -3,8 +3,8 @@ import json
 from django import forms
 from django.conf import settings
 from django.contrib import admin
-from django.utils.html import format_html
 from django.db.models import F, Q
+from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
@@ -184,12 +184,18 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
     ]
 
 
+class EvidenceInline(admin.TabularInline):
+    model = Evidence
+    extra = 0
+
+
 @admin.register(Document)
 class DocumentAdmin(ReadOnlyAdmin):
+    inlines = [EvidenceInline]
     list_display = ["id", "title", "issuer", "published_at"]
     search_fields = ["title", "url"]
     readonly_fields = [
-        "evidence",
+        # "evidence",
         "title",
         "file",
         "url",
