@@ -1,0 +1,38 @@
+{% load i18n %}
+{% load evidence_tags %}
+{% if forloop.first %}
+    {% comment %}
+    Tile CSS is also included once at page level (see timeline.html etc.).
+    This per-loop include is a fallback for pages that render tiles
+    without first emitting the page-level stylesheet.
+    {% endcomment %}
+    {% include "froide_evidencecollection/_evidence_tile_styles.html" %}
+{% endif %}
+{% with primary=evidence.categories_distinct|first %}
+    <a class="evidence-tile"
+       href="{{ evidence.get_absolute_url }}"
+       style="--ec-tile-color: {{ primary|palette_color }};
+              --ec-tile-bg: {{ primary|palette_color }}1f"
+       aria-label="{% blocktrans with pk=evidence.pk %}Open evidence #{{ pk }}{% endblocktrans %}">
+        <span class="evidence-tile-pop" role="tooltip">
+            <div class="evidence-tile-pop-head">
+                {% if evidence.evidence_type %}
+                    {{ evidence.evidence_type }}
+                {% else %}
+                    {% trans "Evidence" %}
+                {% endif %}
+            </div>
+            <div class="evidence-tile-pop-meta">
+                {% if evidence.source.publication_date %}
+                    {{ evidence.source.publication_date|date:"Y-m-d" }}
+                {% else %}
+                    {% trans "undated" %}
+                {% endif %}
+                {% if evidence.social_media_post %}· 📱{% endif %}
+            </div>
+            {% if evidence.categories_distinct %}
+                <div class="evidence-tile-pop-cats">{{ evidence.categories_distinct|join:" · " }}</div>
+            {% endif %}
+        </span>
+    </a>
+{% endwith %}

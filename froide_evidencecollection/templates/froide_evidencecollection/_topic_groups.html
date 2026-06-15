@@ -1,0 +1,27 @@
+{% load i18n %}
+{# Topic bar: the broad entry points (a chip per topic = curated KeywordGroup). #}
+{# Each chip carries the topic's identity colour as a swatch, so the bar also   #}
+{# doubles as the colour key for the dots. Single-select: selecting a topic     #}
+{# narrows the cloud to the evidence that topic *dominates* (its `g.color`), so  #}
+{# every visible dot shares the chip's colour. Wrapped in `.topic-groups` so the #}
+{# JS swap can replace it wholesale.                                            #}
+{% if keyword_groups %}
+    <section class="topic-groups mb-2" aria-label="{% trans 'Browse by topic' %}">
+        <div class="topic-groups__head">
+            <span class="topic-groups__title">{% trans "Browse by topic" %}</span>
+        </div>
+        <ul class="topic-groups__cloud list-unstyled mb-0">
+            {% for g in keyword_groups %}
+                <li>
+                    <button type="button"
+                            class="topic-group-chip{% if g.selected %} is-active{% endif %}"
+                            data-group="{{ g.id }}"
+                            style="--topic-color: {{ g.color }}"
+                            aria-pressed="{% if g.selected %}true{% else %}false{% endif %}">
+                        <span class="topic-group-chip__swatch" aria-hidden="true"></span>{{ g.label }}<span class="topic-group-chip__count">{{ g.count }}</span>
+                    </button>
+                </li>
+            {% endfor %}
+        </ul>
+    </section>
+{% endif %}

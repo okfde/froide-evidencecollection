@@ -6,6 +6,7 @@ dependencies = [
     "django-cms",
     "django-elasticsearch-dsl",
     "django-filter",
+    "django-treebeard",
     "elasticsearch-dsl",
     "openpyxl",
     "requests",

@@ -3,7 +3,10 @@ import uuid
 
 from django.db import models
 
+import pytest
+
 from froide_evidencecollection.utils import (
+    compute_hash,
     equals,
     get_base_class_name,
     get_default_value,
@@ -60,3 +63,41 @@ def test_equals():
     assert not equals(uuid_value, None)
 
     assert equals(None, None)
+
+
+@pytest.mark.parametrize(
+    "text,text_hash",
+    [
+        ("", ""),
+        (
+            "Christine Anderson",
+            "8d049814f352759b1334aca12d2000c29691705ed84e345d8e04c87b6ac86b03",
+        ),
+        (
+            "Irmhild Boßdorf",
+            "366c3347f29f737d127f9f1c74ecfa5bc141cfa59df8bdaa89b24eb4f4cc78fd",
+        ),
+        (
+            "Götz Frömming",
+            "b86c56eb05803e2ff208af356570500bba8c046b2fe563a445f41b14ce9c93af",
+        ),
+        (
+            "Hans-Jürgen Goßner",
+            "841d9b92bda8dbdf64d8694f91d95103661bda51e7e7cf4bb6fad72e5631891e",
+        ),
+        (
+            "Marie-Thérèse Kaiser",
+            "5a9c48d541ac203c23c845e49ffd20d46e932e2cb10fe4d7f47494c3ac1f2418",
+        ),
+        (
+            "https://t.me/frohnmaier/1303",
+            "adeb45e8cf9b32e438bd50ef7b5bd9ea50e8d90ef898f18bce095f1cdba151d6",
+        ),
+        (
+            "https://www.facebook.com/rimuehl/posts/pfbid02FV9aF8YVJNunDJz7agTzxu7C8BMAYwkitL926CVj6sJ1x1Azc9CPjDCrgWndXkkhl",
+            "d39ec65c9dc87e97e20061e101fb29d4480b1c3f4c83890598967e34081c2ece",
+        ),
+    ],
+)
+def test_compute_hash(text, text_hash):
+    assert compute_hash(text) == text_hash

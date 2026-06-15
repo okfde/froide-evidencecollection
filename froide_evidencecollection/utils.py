@@ -1,5 +1,8 @@
+import base64
 import datetime
+import hashlib
 import logging
+import re
 import uuid
 from itertools import chain
 
@@ -11,6 +14,60 @@ from froide.georegion.models import GeoRegion
 logger = logging.getLogger(__name__)
 
 CONFIG = settings.FROIDE_EVIDENCECOLLECTION_NOCODB_IMPORT_CONFIG
+
+
+def compute_hash(text):
+    if not text:
+        return ""
+
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+# Length of the public evidence slug, in base32 characters. 10 chars = 50 bits.
+# This is a frozen, partner-derivable contract that can never be re-rolled on
+# collision, so the width is chosen for ample headroom: at 50 bits, birthday
+# collisions stay negligible to ~200k rows (~2e-5) and ~0.04% even at 1M — far
+# beyond the current low-thousands corpus.
+EVIDENCE_SLUG_LENGTH = 10
+
+
+def make_evidence_slug(platform: str, post_id: str) -> str:
+    """Derive an evidence's public slug from its social media source.
+
+    This is a frozen public contract: a partner derives the same value from the
+    same inputs to build links into our data, so the seed format, hash, encoding
+    and length must never change. Seed is ``smp:<platform>:<post_id>`` where
+    ``platform`` is the canonical ``SocialMediaAccount.Platform`` value (e.g.
+    ``twitter``, never ``x``). The digest is RFC 4648 base32, lowercased, with
+    padding stripped, truncated to ``EVIDENCE_SLUG_LENGTH``.
+    """
+    seed = f"smp:{platform}:{post_id}".encode("utf-8")
+    digest = hashlib.sha256(seed).digest()
+    return (
+        base64.b32encode(digest)
+        .decode("ascii")
+        .lower()
+        .rstrip("=")[:EVIDENCE_SLUG_LENGTH]
+    )
+
+
+def normalize_name(text):
+    """Normalize an actor name so the same entity matches across naming schemes.
+
+    Lowercases, drops parentheticals like ``(NRW)``/``(JA)`` and the party
+    token, and collapses any run of separators (spaces, hyphens, slashes) to a
+    single space. Used both when aligning organization names against the dump
+    and when resolving dump labels to existing actors during import, so the two
+    stay consistent.
+    """
+    if not text:
+        return ""
+
+    text = text.lower()
+    text = re.sub(r"\(.*?\)", " ", text)  # drop "(NRW)", "(JA)", ...
+    text = re.sub(r"\bafd\b", " ", text)  # drop the party token
+    text = re.sub(r"[^0-9a-zäöüß]+", " ", text)  # collapse separators
+    return text.strip()
 
 
 def get_base_class_name(model, exclude=None):
@@ -80,7 +137,9 @@ def to_dict(instance):
         if f.name not in instance.exclude_from_serialization():
             value = f.value_from_object(instance)
             if (
-                isinstance(f, (models.UUIDField, models.DateField))
+                isinstance(
+                    f, (models.UUIDField, models.DateField, models.DurationField)
+                )
                 and value is not None
             ):
                 value = str(value)

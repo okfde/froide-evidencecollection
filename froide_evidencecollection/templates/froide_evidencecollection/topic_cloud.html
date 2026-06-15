@@ -1,0 +1,2136 @@
+{% extends "froide_evidencecollection/base.html" %}
+{% load i18n %}
+{% block app_body %}
+    <script src="https://unpkg.com/htmx.org@2.0.4"
+            integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
+            crossorigin="anonymous"
+            defer></script>
+    <div class="container-fluid my-4 topic-cloud-page">
+        <header class="mb-3 d-flex flex-wrap align-items-baseline gap-3">
+            <h1 class="mb-0">{% trans "Topics" %}</h1>
+            <a href="{% url 'evidencecollection:dashboard' %}" class="small">{% trans "← Back to list view" %}</a>
+        </header>
+        {# ── Sticky toolbar: compact filter row + legend ──────────── #}
+        {# A single horizontal bar of small controls; wraps on narrow #}
+        {# viewports. Sticky so it travels with the canvas without    #}
+        {# eating the sidebar's worth of horizontal space.            #}
+        <div class="topic-cloud-toolbar mb-3"
+             aria-label="{% trans 'Filter evidence' %}">
+            <form id="topic-filter-form"
+                  method="get"
+                  action=""
+                  data-reset-url="{{ reset_url }}"
+                  class="topic-filter-row"
+                  hx-get="{{ request.path }}"
+                  hx-target="#topic-cloud-results"
+                  hx-swap="outerHTML"
+                  hx-trigger="submit, change[!event.target.closest('#tf-actor-popup')], input[event.target.id==='tf-q'] changed delay:350ms">
+                {# Carries the selected keyword facets; one hidden input per    #}
+                {# active keyword, managed by the facet cloud below (which      #}
+                {# lives outside the swapped results, like the legend). Several #}
+                {# keywords AND together; independent of the Topic select.      #}
+                <span id="tf-keywords">
+                    {% for kw in selected_keywords %}<input type="hidden" name="keyword" value="{{ kw }}">{% endfor %}
+                </span>
+                {# Selected topic (single-select), managed by the topic bar     #}
+                {# below: at most one hidden input, narrowing the cloud to the   #}
+                {# dots that topic dominates. Lives in the form so it rides      #}
+                {# every filter submit.                                          #}
+                <span id="tf-groups">
+                    {% for gid in selected_group_ids %}<input type="hidden" name="group" value="{{ gid }}">{% endfor %}
+                </span>
+                {# Selected main-topic chapter (single-select), managed by the   #}
+                {# main-topic tree below: at most one hidden input, narrowing the #}
+                {# cloud to evidence under that chapter's subtree. Independent of #}
+                {# the keyword-group `group` select — the two stack (AND).        #}
+                <span id="tf-chapters">
+                    {% if selected_chapter_id %}<input type="hidden" name="chapter" value="{{ selected_chapter_id }}">{% endif %}
+                </span>
+                <div class="topic-filter-field topic-filter-field--search">
+                    <label for="tf-q" class="topic-filter-label">{% trans "Search" %}</label>
+                    <input type="search"
+                           id="tf-q"
+                           name="q"
+                           class="form-control form-control-sm"
+                           placeholder="{% trans 'Text in evidence…' %}"
+                           value="{{ request.GET.q|default_if_none:'' }}">
+                </div>
+                <div class="topic-filter-field">
+                    <label for="tf-platform" class="topic-filter-label">{% trans "Platform" %}</label>
+                    <select id="tf-platform" name="platform" class="form-select form-select-sm">
+                        <option value="">{% trans "any" %}</option>
+                        {% for value, label in platforms %}
+                            <option value="{{ value }}"
+                                    {% if request.GET.platform == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="topic-filter-field topic-actor-field">
+                    <label for="tf-actor-button" class="topic-filter-label">{% trans "Actor" %}</label>
+                    {# Combobox: real dropdown — clicking the button     #}
+                    {# opens a popup containing a search input and the   #}
+                    {# filtered actor list. The hidden input carries the #}
+                    {# PK that the form actually submits.                #}
+                    <input type="hidden"
+                           name="actor"
+                           id="tf-actor"
+                           value="{{ request.GET.actor|default_if_none:'' }}">
+                    <button type="button"
+                            id="tf-actor-button"
+                            class="form-select form-select-sm text-start topic-actor-button"
+                            aria-haspopup="listbox"
+                            aria-expanded="false"
+                            aria-controls="tf-actor-popup">
+                        <span id="tf-actor-button-label">
+                            {% if selected_actor %}
+                                {{ selected_actor }}
+                            {% else %}
+                                {% trans "any" %}
+                            {% endif %}
+                        </span>
+                    </button>
+                    <div id="tf-actor-popup" class="topic-actor-popup" hidden>
+                        <input type="search"
+                               id="tf-actor-search"
+                               class="form-control form-control-sm"
+                               autocomplete="off"
+                               placeholder="{% trans 'Search actors…' %}">
+                        <ul id="tf-actor-options"
+                            role="listbox"
+                            aria-label="{% trans 'Actor' %}"
+                            class="list-unstyled mb-0 topic-actor-options">
+                            <li role="option"
+                                data-value=""
+                                {% if not request.GET.actor %}aria-selected="true"{% endif %}>
+                                {% trans "— any —" %}
+                            </li>
+                            {% for actor in actors %}
+                                <li role="option"
+                                    data-value="{{ actor.pk }}"
+                                    {% if request.GET.actor == actor.pk|stringformat:'s' %}aria-selected="true"{% endif %}>
+                                    {{ actor }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+                {# Originator-function filters: the function (role) the posting #}
+                {# person held when the evidence was posted, plus the           #}
+                {# institutional level and region of that same function. Plain  #}
+                {# selects in the form, so a change rides the htmx filter        #}
+                {# submit like Platform. Each lists only values that occur on    #}
+                {# some poster's positions, so every option can yield a result.  #}
+                <div class="topic-filter-field">
+                    <label for="tf-role" class="topic-filter-label">{% trans "Function" %}</label>
+                    <select id="tf-role" name="role" class="form-select form-select-sm">
+                        <option value="">{% trans "any" %}</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}"
+                                    {% if request.GET.role == role.id|stringformat:'s' %}selected{% endif %}>
+                                {{ role.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="topic-filter-field">
+                    <label for="tf-level" class="topic-filter-label">{% trans "Institutional level" %}</label>
+                    <select id="tf-level" name="level" class="form-select form-select-sm">
+                        <option value="">{% trans "any" %}</option>
+                        {% for level in levels %}
+                            <option value="{{ level.id }}"
+                                    {% if request.GET.level == level.id|stringformat:'s' %}selected{% endif %}>
+                                {{ level.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="topic-filter-field">
+                    <label for="tf-region" class="topic-filter-label">{% trans "Region" %}</label>
+                    <select id="tf-region" name="region" class="form-select form-select-sm">
+                        <option value="">{% trans "any" %}</option>
+                        {% for region in regions %}
+                            <option value="{{ region.id }}"
+                                    {% if request.GET.region == region.id|stringformat:'s' %}selected{% endif %}>
+                                {{ region.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {# Year range: a dual-handle slider whose handles snap to year #}
+                {# ticks. Dragging picks a multi-year span; clicking a tick    #}
+                {# selects that single year. The handles write Jan-1 / Dec-31  #}
+                {# into these hidden date inputs, so the server filter reuses   #}
+                {# posted_after / posted_before unchanged. Rendered only when   #}
+                {# the corpus spans more than one year (else a slider is moot). #}
+                <input type="hidden"
+                       name="posted_after"
+                       id="tf-after"
+                       value="{{ request.GET.posted_after|default_if_none:'' }}">
+                <input type="hidden"
+                       name="posted_before"
+                       id="tf-before"
+                       value="{{ request.GET.posted_before|default_if_none:'' }}">
+                {% if year_min and year_max and year_max > year_min %}
+                    <div class="topic-filter-field topic-year-field">
+                        <span class="topic-filter-label" id="tf-year-readout" aria-live="polite">{% trans "Years" %}</span>
+                        <div class="topic-year-slider"
+                             data-year-min="{{ year_min }}"
+                             data-year-max="{{ year_max }}"
+                             data-year-from="{{ selected_year_from }}"
+                             data-year-to="{{ selected_year_to }}">
+                            <div class="topic-year-slider__track" id="tf-year-track">
+                                <div class="topic-year-slider__rail"></div>
+                                <div class="topic-year-slider__range" id="tf-year-range"></div>
+                                <div class="topic-year-slider__ticks" id="tf-year-ticks"></div>
+                                <input type="range"
+                                       id="tf-year-low"
+                                       class="topic-year-slider__input"
+                                       min="{{ year_min }}"
+                                       max="{{ year_max }}"
+                                       step="1"
+                                       value="{{ selected_year_from }}"
+                                       aria-label="{% trans 'Earliest year' %}">
+                                <input type="range"
+                                       id="tf-year-high"
+                                       class="topic-year-slider__input"
+                                       min="{{ year_min }}"
+                                       max="{{ year_max }}"
+                                       step="1"
+                                       value="{{ selected_year_to }}"
+                                       aria-label="{% trans 'Latest year' %}">
+                            </div>
+                            <div class="topic-year-slider__ends" aria-hidden="true">
+                                <span>{{ year_min }}</span><span>{{ year_max }}</span>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+                <div class="topic-filter-actions">
+                    <a href="{{ reset_url }}"
+                       id="topic-filter-reset"
+                       class="btn btn-sm btn-outline-secondary"
+                       {% if not has_filters %}hidden{% endif %}>{% trans "Reset" %}</a>
+                </div>
+            </form>
+        </div>
+        {# ── Topic bar + keyword facet cloud ──────────────────────── #}
+        {# Topics: broad entry points, single-select; each chip carries its  #}
+        {# identity colour (so the bar doubles as the dot colour key) and    #}
+        {# selecting one narrows the cloud to the dots that topic dominates  #}
+        {# — all one colour. Keywords: each chip is one word, tagged with    #}
+        {# its parent topic's colour so it is never seen apart from its       #}
+        {# broader topic; several keywords AND together, narrowing to         #}
+        {# evidence containing them. Both live outside #topic-cloud-results   #}
+        {# are re-rendered on every filter change (JS swaps them from the      #}
+        {# partial response) so counts and the co-occurring set stay current.  #}
+        <div id="topic-groups-host">{% include "froide_evidencecollection/_topic_groups.html" %}</div>
+        <div id="topic-chapters-host">{% include "froide_evidencecollection/_topic_chapters.html" %}</div>
+        <div id="topic-facets-host">{% include "froide_evidencecollection/_topic_facets.html" %}</div>
+        {# Two columns: the scatter (+ count line / outline) on the left, the #}
+        {# "Actors in view" panel on the right. The panel lists the actors    #}
+        {# present in the filtered set; clicking one highlights that actor's   #}
+        {# dots in the cloud. It lives outside #topic-cloud-results and is     #}
+        {# swapped wholesale on every filter change, like the facet cloud.     #}
+        <main class="topic-cloud-main">
+            <div class="topic-cloud-main__cloud">{% include "froide_evidencecollection/_topic_cloud_results.html" %}</div>
+            <div id="topic-actors-host" class="topic-cloud-main__actors">
+                {% include "froide_evidencecollection/_topic_actors.html" %}
+            </div>
+        </main>
+    </div>
+    <style>
+    /* Two-column main: scatter on the left, "Actors in view" panel on the
+       right. The panel takes a fixed sliver; the cloud column flexes to fill
+       the rest (min-width:0 lets the SVG shrink instead of overflowing). */
+    .topic-cloud-main {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+    .topic-cloud-main__cloud {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    .topic-cloud-main__actors {
+        flex: 0 0 15rem;
+    }
+    @media (max-width: 767.98px) {
+        /* The scatter is hidden on phones (the outline is the list there), so
+           drop the panel below the results as a plain full-width list. */
+        .topic-cloud-main { flex-direction: column; }
+        .topic-cloud-main__actors { flex: 1 1 auto; width: 100%; }
+    }
+    .topic-cloud-svg {
+        margin: 0;
+        background: #fafafa;
+        overflow: hidden;
+    }
+    /* Dominant-group colour key above the cloud: a row of swatch + label
+       chips, one per coloured group. */
+    .topic-cloud-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .3rem .9rem;
+        align-items: center;
+        margin-bottom: .5rem;
+        font-size: .8rem;
+        color: #5a5048;
+    }
+    .topic-cloud-legend__item {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+    }
+    .topic-cloud-legend__swatch {
+        width: .75rem;
+        height: .75rem;
+        border-radius: 50%;
+        flex: 0 0 auto;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
+    }
+    .topic-cloud-svg svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        /* Leave room for the sticky toolbar (~3.5rem filters +
+           legend) plus the page header. */
+        max-height: calc(100vh - 14rem);
+    }
+    /* Sticky toolbar: a single horizontal strip that stays pinned
+       to the top while the canvas scrolls behind it. The toolbar
+       has its own background and shadow so it reads as a layer
+       above the cloud. Drops sticky on mobile because the bar
+       wraps tall enough to feel oppressive when pinned. */
+    .topic-cloud-toolbar {
+        background: var(--bs-body-bg, #fff);
+        border: 1px solid #e2e2e2;
+        border-radius: .375rem;
+        padding: .5rem .75rem;
+        z-index: 20;
+    }
+    @media (min-width: 768px) {
+        .topic-cloud-toolbar {
+            position: sticky;
+            top: .5rem;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, .06);
+        }
+    }
+    .topic-filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: .5rem .75rem;
+    }
+    .topic-filter-field {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        /* Fields share leftover space evenly but won't shrink past
+           ~9rem so labels + values stay readable. */
+        flex: 1 1 9rem;
+    }
+    .topic-filter-field--search { flex: 2 1 14rem; }
+    .topic-filter-label {
+        font-size: .7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: #555;
+        margin-bottom: .1rem;
+        line-height: 1.2;
+    }
+    .topic-filter-actions {
+        display: flex;
+        align-items: end;
+        gap: .25rem;
+        flex: 0 0 auto;
+        margin-left: auto;
+    }
+    /* ── Year range slider ─────────────────────────────────────────────
+       Two native range inputs overlaid on one track: the left thumb is
+       the earliest year, the right the latest. Both inputs are stretched
+       across the full track with transparent tracks so only their thumbs
+       show; pointer-events are disabled on the inputs and re-enabled on the
+       thumbs so either handle stays grabbable. A coloured bar between the
+       thumbs and a row of clickable year ticks sit underneath. */
+    .topic-year-field { flex: 1 1 13rem; }
+    .topic-year-slider {
+        display: flex;
+        flex-direction: column;
+        /* Match the ~31px height of the sibling form-control-sm fields so
+           the slider lines up on the toolbar's baseline-aligned row. */
+        padding-top: .15rem;
+    }
+    .topic-year-slider__track {
+        position: relative;
+        height: 1.4rem;
+    }
+    .topic-year-slider__rail,
+    .topic-year-slider__range {
+        position: absolute;
+        top: 9px;
+        height: 4px;
+        border-radius: 2px;
+    }
+    .topic-year-slider__rail {
+        left: 0;
+        right: 0;
+        background: #ddd2c4;
+    }
+    .topic-year-slider__range {
+        background: #6b4f2c;
+    }
+    .topic-year-slider__ticks {
+        position: absolute;
+        top: 6px;
+        left: 0;
+        right: 0;
+        height: 10px;
+    }
+    .topic-year-slider__tick {
+        position: absolute;
+        top: 0;
+        width: 9px;
+        height: 10px;
+        margin-left: -4.5px;   /* centre the hit area on the tick */
+        cursor: pointer;
+    }
+    /* The visible mark; the wider element above is just the click target. */
+    .topic-year-slider__tick::before {
+        content: "";
+        position: absolute;
+        left: 4px;
+        top: 1px;
+        width: 1px;
+        height: 8px;
+        background: #c3b6a4;
+    }
+    .topic-year-slider__tick:hover::before { background: #6b4f2c; }
+    /* Both range inputs occupy the same box; only the thumbs are visible
+       and interactive. */
+    .topic-year-slider__input {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 1.4rem;
+        margin: 0;
+        background: none;
+        -webkit-appearance: none;
+        appearance: none;
+        pointer-events: none;
+    }
+    .topic-year-slider__input::-webkit-slider-runnable-track {
+        background: none;
+        border: none;
+    }
+    .topic-year-slider__input::-moz-range-track {
+        background: none;
+        border: none;
+    }
+    .topic-year-slider__input::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        background: #6b4f2c;
+        border: 2px solid #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+        cursor: grab;
+        pointer-events: auto;
+    }
+    .topic-year-slider__input::-moz-range-thumb {
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        background: #6b4f2c;
+        border: 2px solid #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+        cursor: grab;
+        pointer-events: auto;
+    }
+    .topic-year-slider__input:focus-visible::-webkit-slider-thumb {
+        outline: 2px solid #8a6d3b;
+        outline-offset: 1px;
+    }
+    .topic-year-slider__input:focus-visible::-moz-range-thumb {
+        outline: 2px solid #8a6d3b;
+        outline-offset: 1px;
+    }
+    .topic-year-slider__ends {
+        display: flex;
+        justify-content: space-between;
+        font-size: .68rem;
+        color: #8a7d6c;
+        line-height: 1;
+        margin-top: .05rem;
+    }
+    .topic-cloud-svg circle[data-href] { cursor: pointer; }
+    .topic-cloud-svg circle[data-href]:hover { fill-opacity: 1; }
+    /* Transition lets circles fade in when filters add dots and fade
+       out before being removed when filters drop them. `opacity` rides the
+       same transition so the actor highlight dims/undims smoothly. */
+    .topic-cloud-svg circle {
+        transition: fill-opacity 200ms ease, opacity 200ms ease;
+    }
+    /* Glide dots to their settled (collision-relaxed) positions so the
+       layout eases into place on load and after filter changes. Motion-
+       sensitive users get the static result with no animated settle. */
+    @media (prefers-reduced-motion: no-preference) {
+        .topic-cloud-svg circle {
+            transition: fill-opacity 200ms ease, opacity 200ms ease,
+                        cx 400ms ease, cy 400ms ease;
+        }
+    }
+    /* Actor highlight: clicking a name in the side panel dims every dot
+       except that actor's, which stay full strength and gain a dark ring.
+       Uses `opacity` (whole-element) so it composes cleanly with the
+       fade-in/out logic that animates `fill-opacity`. */
+    .topic-cloud-svg svg.has-actor-highlight circle[data-href] { opacity: .1; }
+    .topic-cloud-svg svg.has-actor-highlight circle.is-actor-hit {
+        opacity: 1;
+        stroke: #2f2a23;
+        stroke-width: 1.2;
+    }
+    .topic-cloud-svg svg.is-pannable { cursor: grab; }
+    .topic-cloud-svg svg.is-panning { cursor: grabbing; }
+    .topic-cloud-svg svg.is-panning circle[data-href] { cursor: grabbing; }
+    .topic-cloud-zoom-reset {
+        position: absolute;
+        top: .5rem;
+        right: .5rem;
+        z-index: 5;
+        background: rgba(255, 255, 255, .92);
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        padding: .2rem .5rem;
+        font-size: .8rem;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+    }
+    .topic-cloud-zoom-reset:hover { background: #fff; }
+    .topic-cloud-zoom-reset[hidden] { display: none; }
+    .topic-cloud-tooltip {
+        position: absolute;
+        z-index: 10;
+        max-width: 340px;
+        pointer-events: none;
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+        padding: .5rem .65rem;
+        font-size: .85rem;
+        line-height: 1.35;
+        color: #222;
+    }
+    .topic-cloud-tooltip__source {
+        font-size: .75rem;
+        color: #555;
+        margin-bottom: .25rem;
+    }
+    .topic-cloud-tooltip__snippet { white-space: pre-wrap; }
+    .topic-cloud-tooltip__snippet:empty { display: none; }
+    /* Actor combobox — looks like a Bootstrap form-select but opens a
+       popup with a search field and a filtered list. */
+    .topic-actor-field { position: relative; }
+    .topic-actor-button {
+        cursor: pointer;
+        /* Truncate long actor names so the pill stays the same size
+           as the other compact filter fields. */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .topic-actor-popup {
+        position: absolute;
+        z-index: 30;
+        top: 100%;
+        left: 0;
+        margin-top: .15rem;
+        /* The pill is narrow; let the popup grow wider than its
+           anchor so full actor names stay readable. */
+        min-width: 16rem;
+        max-width: 22rem;
+        background: #fff;
+        border: 1px solid #ced4da;
+        border-radius: .25rem;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, .12);
+        padding: .5rem;
+        display: flex;
+        flex-direction: column;
+        gap: .35rem;
+        max-height: 320px;
+    }
+    .topic-actor-options {
+        overflow-y: auto;
+        max-height: 240px;
+    }
+    .topic-actor-options li {
+        padding: .25rem .5rem;
+        cursor: pointer;
+        border-radius: 3px;
+        font-size: .9rem;
+    }
+    .topic-actor-options li:hover {
+        background: #f1f4ff;
+    }
+    .topic-actor-options li[aria-selected="true"] {
+        background: #dde6ff;
+        font-weight: 600;
+    }
+    .topic-actor-options li[hidden] { display: none; }
+    /* Topic outline — visually-hidden by default (AT users only). On
+       small screens we hide the cloud and unhide this as the real
+       post list. */
+    .topic-cloud-outline {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+    @media (max-width: 767.98px) {
+        .topic-cloud-svg svg { max-height: 50vh; }
+        /* Drop the scatter — the keyword chips above act as the filter,
+           the outline below becomes the visible post list. The colour key
+           goes with it (nothing left to colour-code). */
+        .topic-cloud-svg { display: none; }
+        .topic-cloud-legend { display: none; }
+        .topic-cloud-outline {
+            position: static;
+            width: auto;
+            height: auto;
+            margin: 0;
+            overflow: visible;
+            clip: auto;
+            white-space: normal;
+        }
+        .topic-cloud-outline h2 {
+            font-size: 1.05rem;
+            margin: 1rem 0 .5rem;
+        }
+        .topic-cloud-outline ol {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .topic-cloud-outline ol > li {
+            padding: .5rem .25rem;
+            border-bottom: 1px solid #eee;
+            font-size: .9rem;
+        }
+        .topic-cloud-outline ol > li p { margin: 0 0 .25rem; }
+        .topic-cloud-outline ol > li p:last-child { margin: 0; }
+    }
+    /* ── Keyword facet cloud ──────────────────────────────────────── */
+    .topic-facets {
+        border: 1px solid #e7e2db;
+        border-radius: .5rem;
+        padding: .5rem .75rem;
+        background: #fcfbf9;
+    }
+    .topic-facets__head {
+        display: flex;
+        align-items: baseline;
+        gap: .75rem;
+        margin-bottom: .35rem;
+    }
+    .topic-facets__title {
+        font-size: .8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: #6b5d4f;
+    }
+    .topic-facets__cloud {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .35rem .4rem;
+        align-items: baseline;
+    }
+    .topic-facet-chip {
+        border: 1px solid #d9cfc2;
+        background: #fff;
+        color: #4a3f33;
+        border-radius: 999px;
+        padding: .1rem .6rem;
+        line-height: 1.5;
+        cursor: pointer;
+        transition: background .12s, border-color .12s;
+    }
+    .topic-facet-chip:hover { background: #f1ece5; }
+    .topic-facet-chip:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 1px; }
+    .topic-facet-chip.is-active {
+        background: #6b4f2c;
+        border-color: #6b4f2c;
+        color: #fff;
+    }
+    .topic-facet-chip__count {
+        font-size: .72em;
+        opacity: .6;
+        margin-left: .35em;
+    }
+    .topic-facet-chip.is-active .topic-facet-chip__count { opacity: .85; }
+    /* Active (selected) keywords sit in their own row above the cloud, each
+       removable via the trailing ×. */
+    .topic-facets__active {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .35rem .4rem;
+        align-items: baseline;
+    }
+    .topic-facet-chip__remove {
+        font-size: .9em;
+        margin-left: .4em;
+        opacity: .85;
+    }
+    /* Size weight: bigger = more evidence. */
+    .topic-facet-chip.facet-w1 { font-size: .78rem; }
+    .topic-facet-chip.facet-w2 { font-size: .9rem; }
+    .topic-facet-chip.facet-w3 { font-size: 1.02rem; }
+    .topic-facet-chip.facet-w4 { font-size: 1.16rem; }
+    .topic-facet-chip.facet-w5 { font-size: 1.32rem; font-weight: 600; }
+    /* A facet that belongs to a currently selected topic: marked with the
+       accent ring so "this topic's own words" stand out from related ones. */
+    .topic-facet-chip.is-in-group {
+        border-color: #2f6f6a;
+        box-shadow: inset 0 0 0 1px #2f6f6a;
+    }
+    /* Parent-topic dot on each keyword chip: the same hue as the topic's chip
+       and its dots, so a word is always tied back to its broader topic. */
+    .topic-facet-chip__topic {
+        display: inline-block;
+        width: .5em;
+        height: .5em;
+        border-radius: 50%;
+        margin-right: .4em;
+        vertical-align: baseline;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
+    }
+    .topic-facet-chip.is-active .topic-facet-chip__topic {
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, .5);
+    }
+    /* Topic bar: the broad entry points above the keyword facets. Each chip
+       carries its topic's identity colour (via the inline --topic-color), so
+       the bar doubles as the dot colour key. */
+    .topic-groups__head { margin-bottom: .35rem; }
+    .topic-groups__title {
+        font-size: .8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: #6b5d4f;
+    }
+    .topic-groups__cloud {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .35rem .4rem;
+        align-items: baseline;
+    }
+    .topic-group-chip {
+        display: inline-flex;
+        align-items: baseline;
+        border: 1px solid #d9cfc2;
+        background: #fff;
+        color: #4a3f33;
+        border-radius: 999px;
+        padding: .12rem .7rem;
+        font-size: .92rem;
+        line-height: 1.5;
+        cursor: pointer;
+        transition: background .12s, border-color .12s;
+    }
+    /* The topic's identity colour, shown as a leading swatch when the chip is
+       idle and as the whole fill when it's active. */
+    .topic-group-chip__swatch {
+        width: .6em;
+        height: .6em;
+        border-radius: 50%;
+        margin-right: .45em;
+        background: var(--topic-color, #7a6e60);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
+        align-self: center;
+    }
+    .topic-group-chip:hover { background: #faf7f3; border-color: var(--topic-color, #bcb3a6); }
+    .topic-group-chip:focus-visible { outline: 2px solid var(--topic-color, #8a6d3b); outline-offset: 1px; }
+    .topic-group-chip.is-active {
+        background: var(--topic-color, #6b4f2c);
+        border-color: var(--topic-color, #6b4f2c);
+        color: #fff;
+    }
+    /* On an active chip the swatch sits on its own colour, so fade it to a
+       subtle white ring instead of an invisible same-colour dot. */
+    .topic-group-chip.is-active .topic-group-chip__swatch {
+        background: rgba(255, 255, 255, .85);
+        box-shadow: none;
+    }
+    .topic-group-chip__count {
+        font-size: .72em;
+        opacity: .65;
+        margin-left: .4em;
+    }
+    .topic-group-chip.is-active .topic-group-chip__count { opacity: .85; }
+    /* ── Main-topic tree (report chapters) ──────────────────────────────
+       A hierarchical, single-select filter rendered as a plain indented
+       category tree (no surrounding frame, no chip pills). It is collapsed by
+       default: each parent node carries a disclosure chevron, and only the path
+       to a selected node starts expanded. Each row is prefixed by one guide cell
+       per ancestor level, each drawing a vertical connector rail that runs the
+       full row height so consecutive rows form a continuous line down the tree.
+       The selected node gets a left accent bar rather than a filled background,
+       so the tree stays light. The panel is framed like the other filters
+       (keyword facets, actors). */
+    .topic-chapters {
+        border: 1px solid #e7e2db;
+        border-radius: .5rem;
+        padding: .5rem .75rem;
+        background: #fcfbf9;
+    }
+    .topic-chapters__head { margin-bottom: .2rem; }
+    .topic-chapters__title {
+        font-size: .8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: #6b5d4f;
+    }
+    .topic-chapters__tree {
+        display: flex;
+        flex-direction: column;
+        gap: .02rem;
+    }
+    .topic-chapter-row { display: flex; align-items: stretch; }
+    .topic-chapter-row.is-hidden { display: none; }
+    /* One fixed-width cell per ancestor level, each carrying a centred vertical
+       rail so consecutive rows form a continuous line down each tree level. */
+    .topic-chapter-guide {
+        flex: 0 0 16px;
+        position: relative;
+    }
+    .topic-chapter-guide::before {
+        content: "";
+        position: absolute;
+        left: 7px;
+        top: 0;
+        bottom: 0;
+        border-left: 1px solid #d8cdbd;
+    }
+    /* Disclosure chevron: a right-pointing triangle that rotates to point down
+       when its node is expanded. Leaves render an empty same-width spacer so
+       every label aligns regardless of whether the node has children. */
+    .topic-chapter-toggle {
+        flex: 0 0 16px;
+        align-self: stretch;
+        position: relative;
+        border: 0;
+        background: none;
+        padding: 0;
+        cursor: pointer;
+    }
+    .topic-chapter-toggle--leaf { cursor: default; }
+    .topic-chapter-toggle:not(.topic-chapter-toggle--leaf)::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 0;
+        height: 0;
+        border-left: 5px solid #8a7d6c;
+        border-top: 4px solid transparent;
+        border-bottom: 4px solid transparent;
+        transition: transform .12s ease;
+    }
+    .topic-chapter-toggle.is-expanded::before { transform: rotate(90deg); }
+    .topic-chapter-toggle:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 1px; border-radius: .2rem; }
+    .topic-chapter-node {
+        position: relative;
+        display: flex;
+        align-items: baseline;
+        gap: .5em;
+        flex: 1 1 auto;
+        text-align: left;
+        border: 0;
+        border-left: 2px solid transparent;
+        background: none;
+        cursor: pointer;
+        padding: .12rem .4rem;
+        border-radius: .2rem;
+        color: #4a3f33;
+        font-size: .9rem;
+        line-height: 1.45;
+        transition: background .12s, color .12s;
+    }
+    .topic-chapter-node:hover { background: #f1ece5; }
+    .topic-chapter-node:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 1px; }
+    .topic-chapter-node.is-active {
+        color: #6b4f2c;
+        font-weight: 600;
+        background: #f3ece2;
+        border-left-color: #6b4f2c;
+    }
+    .topic-chapter-node__count {
+        font-size: .75em;
+        opacity: .5;
+        font-variant-numeric: tabular-nums;
+    }
+    .topic-chapter-node.is-active .topic-chapter-node__count { opacity: .7; }
+    /* ── "Actors in view" side panel ──────────────────────────────────── */
+    .topic-actors {
+        border: 1px solid #e7e2db;
+        border-radius: .5rem;
+        background: #fcfbf9;
+        padding: .5rem .65rem;
+        /* Track the cloud's height and scroll internally for long lists. */
+        max-height: calc(100vh - 14rem);
+        overflow-y: auto;
+    }
+    .topic-actors__head {
+        display: flex;
+        align-items: baseline;
+        gap: .4rem;
+        margin-bottom: .4rem;
+    }
+    .topic-actors__title {
+        font-size: .8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: #6b5d4f;
+    }
+    .topic-actors__count {
+        font-size: .72rem;
+        color: #8a7d6c;
+        background: #efe9e1;
+        border-radius: 999px;
+        padding: 0 .4rem;
+    }
+    .topic-actors__list {
+        display: flex;
+        flex-direction: column;
+        gap: .1rem;
+    }
+    .topic-actor-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: .5rem;
+        width: 100%;
+        text-align: left;
+        border: 0;
+        background: none;
+        cursor: pointer;
+        padding: .2rem .35rem;
+        border-radius: .3rem;
+        color: #4a3f33;
+        font-size: .85rem;
+        line-height: 1.3;
+    }
+    .topic-actor-row:hover { background: #f1ece5; }
+    .topic-actor-row:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 1px; }
+    .topic-actor-row.is-active {
+        background: #6b4f2c;
+        color: #fff;
+    }
+    .topic-actor-row__name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .topic-actor-row__count {
+        font-variant-numeric: tabular-nums;
+        opacity: .6;
+        font-size: .8em;
+    }
+    .topic-actor-row.is-active .topic-actor-row__count { opacity: .85; }
+    </style>
+    <script>
+    (function () {
+        var prefersReducedMotion = window.matchMedia
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        // ── Collision-relaxation layout ──────────────────────────────
+        // The server projects each post's UMAP coordinate to a cx/cy, so
+        // dots pile up wherever the data is dense. Instead of drifting,
+        // we run a small force layout: every dot is sprung toward its
+        // UMAP anchor (preserving cluster structure) while being pushed
+        // off any neighbour it overlaps, so the final, *static* layout
+        // spreads dense clusters out without dots covering each other.
+        //
+        // anchorRegistry maps each circle → its projected {ax, ay}. We
+        // always relax from the anchors (not the current, already-relaxed
+        // positions) so the result is deterministic and a dot lands in the
+        // same place regardless of which filter-driven neighbours are
+        // present — no cumulative drift across filter changes.
+        var anchorRegistry = new Map();
+        var COLLIDE_PAD = 1.0;    // min gap between dot edges (viewBox units)
+        var RELAX_ITERS = 70;     // relaxation passes
+        var ANCHOR_PULL = 0.09;   // spring strength back toward the UMAP anchor
+
+        function registerCircle(circle) {
+            if (anchorRegistry.has(circle)) return;
+            var ax = parseFloat(circle.getAttribute('cx'));
+            var ay = parseFloat(circle.getAttribute('cy'));
+            if (!isFinite(ax) || !isFinite(ay)) return;
+            anchorRegistry.set(circle, { ax: ax, ay: ay });
+        }
+
+        function unregisterCircle(circle) {
+            anchorRegistry.delete(circle);
+        }
+
+        // Push apart every pair of overlapping dots and spring each back
+        // toward its anchor, repeated until the layout settles. A uniform
+        // spatial grid keeps collision checks local (only the 3×3 cell
+        // neighbourhood) so this stays cheap even at a couple thousand dots.
+        function relaxLayout() {
+            if (!zoomState) return;
+            var svg = zoomState.svg;
+            var full = zoomState.full;
+            var nodes = [];
+            Array.prototype.forEach.call(
+                svg.querySelectorAll('circle[data-href]'),
+                function (c) {
+                    if (c.dataset.removing === '1') return;
+                    var a = anchorRegistry.get(c);
+                    if (!a) return;
+                    nodes.push({
+                        c: c,
+                        x: a.ax, y: a.ay,    // start each relax from the anchor
+                        ax: a.ax, ay: a.ay,
+                        r: parseFloat(c.getAttribute('r')) || 2,
+                    });
+                }
+            );
+            var n = nodes.length;
+            if (!n) return;
+
+            var maxR = 0;
+            for (var i = 0; i < n; i++) if (nodes[i].r > maxR) maxR = nodes[i].r;
+            var cell = (maxR + COLLIDE_PAD) * 2 || 8;
+            var cols = Math.max(1, Math.ceil(full.w / cell));
+            var rows = Math.max(1, Math.ceil(full.h / cell));
+
+            function colOf(x) {
+                return clamp(Math.floor((x - full.x) / cell), 0, cols - 1);
+            }
+            function rowOf(y) {
+                return clamp(Math.floor((y - full.y) / cell), 0, rows - 1);
+            }
+
+            for (var iter = 0; iter < RELAX_ITERS; iter++) {
+                // Bucket every node into the grid by its current position.
+                var grid = Object.create(null);
+                for (var i = 0; i < n; i++) {
+                    var k = rowOf(nodes[i].y) * cols + colOf(nodes[i].x);
+                    (grid[k] || (grid[k] = [])).push(i);
+                }
+                // Resolve collisions against the 3×3 neighbourhood, each
+                // overlapping pair pushed apart by half the overlap.
+                for (var i = 0; i < n; i++) {
+                    var a = nodes[i];
+                    var ci = colOf(a.x), cj = rowOf(a.y);
+                    for (var gx = ci - 1; gx <= ci + 1; gx++) {
+                        if (gx < 0 || gx >= cols) continue;
+                        for (var gy = cj - 1; gy <= cj + 1; gy++) {
+                            if (gy < 0 || gy >= rows) continue;
+                            var bucket = grid[gy * cols + gx];
+                            if (!bucket) continue;
+                            for (var bi = 0; bi < bucket.length; bi++) {
+                                var j = bucket[bi];
+                                if (j <= i) continue;   // visit each pair once
+                                var b = nodes[j];
+                                var dx = b.x - a.x, dy = b.y - a.y;
+                                var minD = a.r + b.r + COLLIDE_PAD;
+                                var d2 = dx * dx + dy * dy;
+                                if (d2 >= minD * minD) continue;
+                                var d = Math.sqrt(d2);
+                                if (d < 0.01) {   // coincident — nudge apart
+                                    dx = Math.random() - 0.5;
+                                    dy = Math.random() - 0.5;
+                                    d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+                                }
+                                var push = (minD - d) / 2;
+                                var ux = dx / d, uy = dy / d;
+                                a.x -= ux * push; a.y -= uy * push;
+                                b.x += ux * push; b.y += uy * push;
+                            }
+                        }
+                    }
+                }
+                // Spring back toward the UMAP anchor so clusters hold their
+                // shape instead of the whole cloud inflating outward.
+                for (var i = 0; i < n; i++) {
+                    var a = nodes[i];
+                    a.x += (a.ax - a.x) * ANCHOR_PULL;
+                    a.y += (a.ay - a.y) * ANCHOR_PULL;
+                }
+            }
+
+            // Clamp inside the canvas and write the settled positions back.
+            var pad = 2;
+            for (var i = 0; i < n; i++) {
+                var a = nodes[i];
+                a.c.setAttribute(
+                    'cx', clamp(a.x, full.x + pad, full.x + full.w - pad).toFixed(1)
+                );
+                a.c.setAttribute(
+                    'cy', clamp(a.y, full.y + pad, full.y + full.h - pad).toFixed(1)
+                );
+            }
+        }
+
+        // ── Zoom / pan ──────────────────────────────────────────────
+        // We mutate the SVG's viewBox to zoom/pan. Wheel zooms around
+        // the cursor; left-drag pans; a Reset button (visible only
+        // while zoomed) restores the full extent. Filter changes call
+        // fitToCircles so the result fills the frame automatically.
+        var zoomState = null;
+        // Actor highlight: the id of the actor whose dots are emphasised in the
+        // cloud (null = none). Set by the "Actors in view" panel; re-applied
+        // after every filter swap since merged-in dots arrive without the mark.
+        var activeActorId = null;
+        var ZOOM_MIN_FRAC = 1 / 30;   // closest zoom: ~30x in
+        var ZOOM_PAD = 24;            // viewBox units of padding on auto-fit
+        var ZOOM_ANIM_MS = 400;
+
+        function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+        function parseViewBox(svg) {
+            var attr = (svg.getAttribute('viewBox') || '').split(/\s+/).map(parseFloat);
+            if (attr.length !== 4 || attr.some(function (n) { return !isFinite(n); })) {
+                return null;
+            }
+            return { x: attr[0], y: attr[1], w: attr[2], h: attr[3] };
+        }
+
+        function applyView() {
+            if (!zoomState) return;
+            var v = zoomState.view;
+            zoomState.svg.setAttribute(
+                'viewBox', v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h
+            );
+            var zoomed = v.w < zoomState.full.w - 0.5
+                || v.h < zoomState.full.h - 0.5
+                || Math.abs(v.x - zoomState.full.x) > 0.5
+                || Math.abs(v.y - zoomState.full.y) > 0.5;
+            if (zoomState.resetBtn) zoomState.resetBtn.hidden = !zoomed;
+        }
+
+        function clampView() {
+            var v = zoomState.view;
+            var f = zoomState.full;
+            if (v.w >= f.w) v.x = f.x + (f.w - v.w) / 2;
+            else v.x = clamp(v.x, f.x, f.x + f.w - v.w);
+            if (v.h >= f.h) v.y = f.y + (f.h - v.h) / 2;
+            else v.y = clamp(v.y, f.y, f.y + f.h - v.h);
+        }
+
+        function cancelViewAnim() {
+            if (zoomState && zoomState.animFrame) {
+                cancelAnimationFrame(zoomState.animFrame);
+                zoomState.animFrame = null;
+            }
+        }
+
+        function animateView(target, duration) {
+            if (!zoomState) return;
+            cancelViewAnim();
+            if (prefersReducedMotion) {
+                zoomState.view = { x: target.x, y: target.y, w: target.w, h: target.h };
+                applyView();
+                return;
+            }
+            var start = {
+                x: zoomState.view.x, y: zoomState.view.y,
+                w: zoomState.view.w, h: zoomState.view.h,
+            };
+            var t0 = performance.now();
+            var ms = duration || ZOOM_ANIM_MS;
+            function step(now) {
+                var t = Math.min(1, (now - t0) / ms);
+                var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+                zoomState.view.x = start.x + (target.x - start.x) * e;
+                zoomState.view.y = start.y + (target.y - start.y) * e;
+                zoomState.view.w = start.w + (target.w - start.w) * e;
+                zoomState.view.h = start.h + (target.h - start.h) * e;
+                applyView();
+                if (t < 1) zoomState.animFrame = requestAnimationFrame(step);
+                else zoomState.animFrame = null;
+            }
+            zoomState.animFrame = requestAnimationFrame(step);
+        }
+
+        function fitToCircles(animate) {
+            if (!zoomState) return;
+            var svg = zoomState.svg;
+            var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            var count = 0;
+            Array.prototype.forEach.call(
+                svg.querySelectorAll('circle[data-href]'),
+                function (c) {
+                    if (c.dataset.removing === '1') return;
+                    var cx = parseFloat(c.getAttribute('cx'));
+                    var cy = parseFloat(c.getAttribute('cy'));
+                    var r = parseFloat(c.getAttribute('r')) || 0;
+                    if (!isFinite(cx) || !isFinite(cy)) return;
+                    if (cx - r < minX) minX = cx - r;
+                    if (cy - r < minY) minY = cy - r;
+                    if (cx + r > maxX) maxX = cx + r;
+                    if (cy + r > maxY) maxY = cy + r;
+                    count++;
+                }
+            );
+            var f = zoomState.full;
+            var target;
+            if (count === 0) {
+                target = { x: f.x, y: f.y, w: f.w, h: f.h };
+            } else {
+                minX -= ZOOM_PAD; minY -= ZOOM_PAD;
+                maxX += ZOOM_PAD; maxY += ZOOM_PAD;
+                var w = maxX - minX;
+                var h = maxY - minY;
+                // Match the full viewBox aspect so the SVG isn't letterboxed.
+                var aspect = f.w / f.h;
+                if (w / h > aspect) {
+                    var newH = w / aspect;
+                    minY -= (newH - h) / 2;
+                    h = newH;
+                } else {
+                    var newW = h * aspect;
+                    minX -= (newW - w) / 2;
+                    w = newW;
+                }
+                if (w >= f.w) {
+                    target = { x: f.x, y: f.y, w: f.w, h: f.h };
+                } else {
+                    target = {
+                        x: clamp(minX, f.x, f.x + f.w - w),
+                        y: clamp(minY, f.y, f.y + f.h - h),
+                        w: w,
+                        h: h,
+                    };
+                }
+            }
+            if (animate) animateView(target);
+            else {
+                cancelViewAnim();
+                zoomState.view = target;
+                applyView();
+            }
+        }
+
+        function setupZoom(figure, svg) {
+            var full = parseViewBox(svg) || { x: 0, y: 0, w: 800, h: 480 };
+            zoomState = {
+                figure: figure,
+                svg: svg,
+                full: full,
+                view: { x: full.x, y: full.y, w: full.w, h: full.h },
+                animFrame: null,
+                resetBtn: null,
+                dragSuppressClick: false,
+            };
+            svg.classList.add('is-pannable');
+
+            var resetBtn = document.createElement('button');
+            resetBtn.type = 'button';
+            resetBtn.className = 'topic-cloud-zoom-reset';
+            resetBtn.hidden = true;
+            resetBtn.textContent = '{% trans "Reset zoom"|escapejs %}';
+            resetBtn.addEventListener('click', function () {
+                animateView(zoomState.full);
+            });
+            figure.appendChild(resetBtn);
+            zoomState.resetBtn = resetBtn;
+
+            svg.addEventListener('wheel', function (ev) {
+                ev.preventDefault();
+                cancelViewAnim();
+                var v = zoomState.view;
+                var f = zoomState.full;
+                var factor = Math.exp(ev.deltaY * 0.0015);
+                var minW = f.w * ZOOM_MIN_FRAC;
+                var newW = clamp(v.w * factor, minW, f.w);
+                var ratio = newW / v.w;
+                if (ratio === 1) return;
+                var rect = svg.getBoundingClientRect();
+                var px = v.x + (ev.clientX - rect.left) / rect.width * v.w;
+                var py = v.y + (ev.clientY - rect.top) / rect.height * v.h;
+                v.x = px - (px - v.x) * ratio;
+                v.y = py - (py - v.y) * ratio;
+                v.w *= ratio;
+                v.h *= ratio;
+                clampView();
+                applyView();
+            }, { passive: false });
+
+            var drag = null;
+            function onMove(ev) {
+                if (!drag) return;
+                var dx = ev.clientX - drag.x0;
+                var dy = ev.clientY - drag.y0;
+                if (!drag.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+                    drag.moved = true;
+                    svg.classList.add('is-panning');
+                }
+                var rect = svg.getBoundingClientRect();
+                var v = zoomState.view;
+                v.x = drag.vx0 - dx / rect.width * v.w;
+                v.y = drag.vy0 - dy / rect.height * v.h;
+                clampView();
+                applyView();
+            }
+            function onUp() {
+                if (drag && drag.moved) zoomState.dragSuppressClick = true;
+                drag = null;
+                svg.classList.remove('is-panning');
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            }
+            svg.addEventListener('mousedown', function (ev) {
+                if (ev.button !== 0) return;
+                cancelViewAnim();
+                drag = {
+                    x0: ev.clientX, y0: ev.clientY,
+                    vx0: zoomState.view.x, vy0: zoomState.view.y,
+                    moved: false,
+                };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+            });
+        }
+
+        // Re-runnable: the filter form swaps #topic-cloud-results via fetch
+        // and then calls this again to bind the freshly inserted figure.
+        function bindCloud() {
+            var figure = document.querySelector('.topic-cloud-svg');
+            if (!figure) return;
+            var svg = figure.querySelector('svg');
+            var tooltip = figure.querySelector('.topic-cloud-tooltip');
+            if (!svg) return;
+
+            setupZoom(figure, svg);
+            // Anchor every dot at its projected position, then relax so
+            // overlapping dots spread apart into a static, non-overlapping
+            // layout (relaxLayout needs zoomState, hence after setupZoom).
+            Array.prototype.forEach.call(
+                svg.querySelectorAll('circle[data-href]'),
+                registerCircle
+            );
+            relaxLayout();
+            // Reflect server-rendered filters in the initial framing.
+            fitToCircles(false);
+
+            svg.addEventListener('click', function (ev) {
+                if (zoomState && zoomState.dragSuppressClick) {
+                    zoomState.dragSuppressClick = false;
+                    return;
+                }
+                var target = ev.target.closest('circle[data-href]');
+                if (!target) return;
+                window.open(target.getAttribute('data-href'), '_blank', 'noopener');
+            });
+
+            if (!tooltip) return;
+
+            var sourceEl = tooltip.querySelector('.topic-cloud-tooltip__source');
+            var snippetEl = tooltip.querySelector('.topic-cloud-tooltip__snippet');
+
+            function fillTooltip(circle) {
+                var platform = circle.getAttribute('data-platform') || '';
+                var username = circle.getAttribute('data-username') || '';
+                var postedOn = circle.getAttribute('data-posted-on') || '';
+                var snippet = circle.getAttribute('data-snippet') || '';
+
+                var source = platform;
+                if (username) source += (source ? ' ' : '') + '@' + username;
+                if (postedOn) source += (source ? ' · ' : '') + postedOn;
+                sourceEl.textContent = source;
+                snippetEl.textContent = snippet;
+            }
+
+            function positionTooltip(ev) {
+                var rect = figure.getBoundingClientRect();
+                var x = ev.clientX - rect.left;
+                var y = ev.clientY - rect.top;
+                var margin = 12;
+                tooltip.hidden = false;
+                var tw = tooltip.offsetWidth;
+                var th = tooltip.offsetHeight;
+                var maxLeft = rect.width - tw - 2;
+                var left = Math.min(Math.max(0, x + margin), Math.max(0, maxLeft));
+                var top = y + margin;
+                if (top + th > rect.height && y - margin - th >= 0) {
+                    top = y - margin - th;
+                }
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = top + 'px';
+            }
+
+            svg.addEventListener('mouseover', function (ev) {
+                var target = ev.target.closest('circle[data-href]');
+                if (!target) return;
+                fillTooltip(target);
+                positionTooltip(ev);
+            });
+            svg.addEventListener('mousemove', function (ev) {
+                if (tooltip.hidden) return;
+                var target = ev.target.closest('circle[data-href]');
+                if (!target) {
+                    tooltip.hidden = true;
+                    return;
+                }
+                positionTooltip(ev);
+            });
+            svg.addEventListener('mouseleave', function () {
+                tooltip.hidden = true;
+            });
+        }
+
+        bindCloud();
+
+        // ── Actor combobox: button opens a popup with a search input ──
+        // and a filterable list. The hidden input carries the submitted
+        // PK; selecting an option dispatches a `change` event on it so
+        // the live-filter pipeline below picks it up.
+        var actorCombobox = (function () {
+            var button = document.getElementById('tf-actor-button');
+            var popup = document.getElementById('tf-actor-popup');
+            var search = document.getElementById('tf-actor-search');
+            var list = document.getElementById('tf-actor-options');
+            var hidden = document.getElementById('tf-actor');
+            var label = document.getElementById('tf-actor-button-label');
+            if (!button || !popup || !list || !hidden || !label) return null;
+
+            var anyText = list.querySelector('li[data-value=""]');
+            var anyLabel = anyText ? anyText.textContent.trim() : '';
+
+            function applyFilter(q) {
+                q = (q || '').trim().toLowerCase();
+                Array.prototype.forEach.call(list.children, function (li) {
+                    if (li.getAttribute('data-value') === '') {
+                        li.hidden = false;
+                        return;
+                    }
+                    li.hidden = q
+                        && li.textContent.trim().toLowerCase().indexOf(q) === -1;
+                });
+            }
+            function open() {
+                popup.hidden = false;
+                button.setAttribute('aria-expanded', 'true');
+                if (search) {
+                    search.value = '';
+                    applyFilter('');
+                    search.focus();
+                }
+                // Scroll the selected option into view so the user can
+                // see where they are inside a long list.
+                var sel = list.querySelector('li[aria-selected="true"]');
+                if (sel && sel.scrollIntoView) {
+                    sel.scrollIntoView({block: 'nearest'});
+                }
+            }
+            function close() {
+                popup.hidden = true;
+                button.setAttribute('aria-expanded', 'false');
+            }
+            function select(li) {
+                var value = li.getAttribute('data-value') || '';
+                Array.prototype.forEach.call(list.children, function (other) {
+                    other.removeAttribute('aria-selected');
+                });
+                li.setAttribute('aria-selected', 'true');
+                hidden.value = value;
+                label.textContent = value ? li.textContent.trim() : anyLabel;
+                close();
+                button.focus();
+                hidden.dispatchEvent(new Event('change', {bubbles: true}));
+            }
+
+            button.addEventListener('click', function (ev) {
+                ev.stopPropagation();
+                if (popup.hidden) open();
+                else close();
+            });
+            if (search) {
+                search.addEventListener('input', function () {
+                    applyFilter(search.value);
+                });
+                search.addEventListener('keydown', function (ev) {
+                    if (ev.key === 'Escape') {
+                        ev.preventDefault();
+                        close();
+                        button.focus();
+                    } else if (ev.key === 'Enter') {
+                        ev.preventDefault();
+                        var visible = list.querySelector('li:not([hidden])');
+                        if (visible) select(visible);
+                    }
+                });
+            }
+            list.addEventListener('click', function (ev) {
+                var li = ev.target.closest('li[data-value]');
+                if (!li) return;
+                select(li);
+            });
+            // Close on outside click + Escape outside the popup.
+            document.addEventListener('click', function (ev) {
+                if (popup.hidden) return;
+                if (popup.contains(ev.target) || button.contains(ev.target)) return;
+                close();
+            });
+            document.addEventListener('keydown', function (ev) {
+                if (ev.key === 'Escape' && !popup.hidden) {
+                    close();
+                    button.focus();
+                }
+            });
+
+            return {
+                reset: function () {
+                    Array.prototype.forEach.call(list.children, function (other) {
+                        other.removeAttribute('aria-selected');
+                    });
+                    if (anyText) anyText.setAttribute('aria-selected', 'true');
+                    hidden.value = '';
+                    label.textContent = anyLabel;
+                },
+            };
+        })();
+
+        // ── Year range slider ─────────────────────────────────────────
+        // Two overlaid range inputs select a [low, high] span of whole
+        // years; clicking a tick collapses both onto that single year. The
+        // handles write Jan-1 / Dec-31 into the hidden #tf-after / #tf-before
+        // date inputs (cleared when the span covers the full extent, so "all
+        // years" is an empty, unfiltered selection), then dispatch a `change`
+        // so the live-filter pipeline below submits — the same path the other
+        // controls use.
+        var yearSlider = (function () {
+            var root = document.querySelector('.topic-year-slider');
+            if (!root) return null;
+            var low = document.getElementById('tf-year-low');
+            var high = document.getElementById('tf-year-high');
+            var rangeBar = document.getElementById('tf-year-range');
+            var ticksBox = document.getElementById('tf-year-ticks');
+            var readout = document.getElementById('tf-year-readout');
+            var afterInput = document.getElementById('tf-after');
+            var beforeInput = document.getElementById('tf-before');
+            if (!low || !high || !rangeBar || !readout) return null;
+
+            var yearMin = parseInt(root.dataset.yearMin, 10);
+            var yearMax = parseInt(root.dataset.yearMax, 10);
+            var span = yearMax - yearMin;
+            var baseLabel = readout.textContent;   // the static "Years" label
+
+            function pct(year) {
+                return span ? ((year - yearMin) / span) * 100 : 0;
+            }
+
+            // Paint the coloured range bar + readout from the handle values.
+            function paint() {
+                var lo = parseInt(low.value, 10);
+                var hi = parseInt(high.value, 10);
+                rangeBar.style.left = pct(lo) + '%';
+                rangeBar.style.width = (pct(hi) - pct(lo)) + '%';
+                readout.textContent =
+                    baseLabel + ': ' + (lo === hi ? String(lo) : lo + '–' + hi);
+            }
+
+            // Mirror the handles into the hidden date inputs. A full-extent
+            // span clears them, so the request carries no date filter at all.
+            function writeInputs() {
+                var lo = parseInt(low.value, 10);
+                var hi = parseInt(high.value, 10);
+                var full = (lo === yearMin && hi === yearMax);
+                if (afterInput) afterInput.value = full ? '' : lo + '-01-01';
+                if (beforeInput) beforeInput.value = full ? '' : hi + '-12-31';
+            }
+
+            // Keep low <= high as a handle is dragged past its partner, and
+            // keep whichever thumb can still travel inward on top so a pair
+            // sitting on the same year stays grabbable.
+            function clampOrder(moved) {
+                var lo = parseInt(low.value, 10);
+                var hi = parseInt(high.value, 10);
+                if (lo > hi) {
+                    if (moved === low) high.value = lo;
+                    else low.value = hi;
+                }
+                var highAtEnd = parseInt(high.value, 10) === yearMax;
+                low.style.zIndex = highAtEnd ? 4 : 3;
+                high.style.zIndex = highAtEnd ? 3 : 4;
+            }
+
+            function set(lo, hi) {
+                low.value = lo;
+                high.value = hi;
+                clampOrder(null);
+                paint();
+                writeInputs();
+            }
+
+            function submit() {
+                // Bubbling change → the form's htmx `change` trigger.
+                low.dispatchEvent(new Event('change', {bubbles: true}));
+            }
+
+            // Clickable year ticks: clicking one selects that single year.
+            if (ticksBox) {
+                for (var y = yearMin; y <= yearMax; y++) {
+                    var tick = document.createElement('span');
+                    tick.className = 'topic-year-slider__tick';
+                    tick.style.left = pct(y) + '%';
+                    tick.dataset.year = y;
+                    tick.title = y;
+                    ticksBox.appendChild(tick);
+                }
+                ticksBox.addEventListener('click', function (ev) {
+                    var t = ev.target.closest('.topic-year-slider__tick');
+                    if (!t) return;
+                    var yr = parseInt(t.dataset.year, 10);
+                    set(yr, yr);
+                    submit();
+                });
+            }
+
+            [low, high].forEach(function (input) {
+                // Live feedback while dragging; the native change on release
+                // bubbles to htmx, so no explicit submit here.
+                input.addEventListener('input', function () {
+                    clampOrder(input);
+                    paint();
+                    writeInputs();
+                });
+                input.addEventListener('change', function () {
+                    clampOrder(input);
+                    paint();
+                    writeInputs();
+                });
+            });
+
+            // Initial paint from the server-rendered handle positions.
+            set(
+                parseInt(root.dataset.yearFrom, 10) || yearMin,
+                parseInt(root.dataset.yearTo, 10) || yearMax
+            );
+
+            return {
+                reset: function () {
+                    // Snap to full extent; the reset handler re-submits once.
+                    set(yearMin, yearMax);
+                },
+            };
+        })();
+
+        // ── Live filter: htmx fetches; we intercept the swap ──────────
+        var form = document.getElementById('topic-filter-form');
+        var resetBtn = document.getElementById('topic-filter-reset');
+        var container = document.getElementById('topic-cloud-results');
+        if (!form || !container) return;
+
+        function updateResetVisibility() {
+            if (!resetBtn) return;
+            var hasValue = false;
+            new FormData(form).forEach(function (v) {
+                if ((typeof v === 'string' ? v.trim() : v)) hasValue = true;
+            });
+            resetBtn.hidden = !hasValue;
+        }
+
+        // Sub-regions of #topic-cloud-results that get swapped wholesale
+        // (in document order). The figure / SVG is handled specially —
+        // we keep the SVG element and diff its circles so dots can fade
+        // in/out instead of the whole block snapping.
+        var TOP_LEVEL_SELECTORS = [
+            'p.text-muted',
+            'div.topic-cloud-outline',
+            'div.alert',
+        ];
+
+        // The keyword facet cloud lives outside #topic-cloud-results too, and
+        // narrows on every filter change, so swap it wholesale from the
+        // partial response just like the group bar.
+        function updateFacetsHost(fresh) {
+            var host = document.getElementById('topic-facets-host');
+            if (!host) return;
+            var existing = host.querySelector('.topic-facets');
+            var incoming = fresh ? fresh.querySelector('.topic-facets') : null;
+            if (existing && incoming) existing.replaceWith(incoming);
+            else if (existing && !incoming) existing.remove();
+            else if (!existing && incoming) host.appendChild(incoming);
+        }
+
+        // The keyword group bar narrows on every filter change too (counts and
+        // the active chip), so swap it wholesale from the partial response just
+        // like the facets and legend.
+        function updateGroupsHost(fresh) {
+            var host = document.getElementById('topic-groups-host');
+            if (!host) return;
+            var existing = host.querySelector('.topic-groups');
+            var incoming = fresh ? fresh.querySelector('.topic-groups') : null;
+            if (existing && incoming) existing.replaceWith(incoming);
+            else if (existing && !incoming) existing.remove();
+            else if (!existing && incoming) host.appendChild(incoming);
+        }
+
+        // The main-topic tree narrows on every filter change too (the counts and
+        // the active node), so swap it wholesale from the partial response just
+        // like the group bar.
+        function updateChaptersHost(fresh) {
+            var host = document.getElementById('topic-chapters-host');
+            if (!host) return;
+            var existing = host.querySelector('.topic-chapters');
+            var incoming = fresh ? fresh.querySelector('.topic-chapters') : null;
+            if (existing && incoming) existing.replaceWith(incoming);
+            else if (existing && !incoming) existing.remove();
+            else if (!existing && incoming) host.appendChild(incoming);
+        }
+
+        // The "Actors in view" panel is recomputed over the filtered set on
+        // every change, so swap it wholesale from the partial response like the
+        // facet/group bars.
+        function updateActorsHost(fresh) {
+            var host = document.getElementById('topic-actors-host');
+            if (!host) return;
+            var existing = host.querySelector('.topic-actors');
+            var incoming = fresh ? fresh.querySelector('.topic-actors') : null;
+            if (existing && incoming) existing.replaceWith(incoming);
+            else if (existing && !incoming) existing.remove();
+            else if (!existing && incoming) host.appendChild(incoming);
+        }
+
+        // Mark the active actor's dots in the cloud and toggle the dimming
+        // class on the SVG. Re-run after merges since freshly inserted dots
+        // arrive without the class.
+        function applyActorHighlight() {
+            if (!zoomState) return;
+            var svg = zoomState.svg;
+            var circles = svg.querySelectorAll('circle[data-href]');
+            if (!activeActorId) {
+                svg.classList.remove('has-actor-highlight');
+                Array.prototype.forEach.call(circles, function (c) {
+                    c.classList.remove('is-actor-hit');
+                });
+                return;
+            }
+            svg.classList.add('has-actor-highlight');
+            Array.prototype.forEach.call(circles, function (c) {
+                var hit = c.getAttribute('data-actor') === activeActorId;
+                c.classList.toggle('is-actor-hit', hit);
+            });
+        }
+
+        // Reflect activeActorId in the panel's pressed/active row styling.
+        function updateActorRowStates() {
+            var host = document.getElementById('topic-actors-host');
+            if (!host) return;
+            Array.prototype.forEach.call(
+                host.querySelectorAll('.topic-actor-row'),
+                function (row) {
+                    var on = row.getAttribute('data-actor-id') === activeActorId;
+                    row.classList.toggle('is-active', on);
+                    row.setAttribute('aria-pressed', on ? 'true' : 'false');
+                }
+            );
+        }
+
+        // After a swap the panel is rebuilt: if the highlighted actor dropped
+        // out of the filtered set, clear the highlight; otherwise re-assert it
+        // on the new rows + merged dots.
+        function syncActorHighlight() {
+            var host = document.getElementById('topic-actors-host');
+            if (activeActorId && host
+                && !host.querySelector(
+                    '.topic-actor-row[data-actor-id="' + activeActorId + '"]'
+                )) {
+                activeActorId = null;
+            }
+            updateActorRowStates();
+            applyActorHighlight();
+        }
+
+        function mergeCircles(oldSvg, newSvg) {
+            // Index existing circles by their post URL — stable per post,
+            // unaffected by filter changes (only presence changes).
+            var oldByHref = Object.create(null);
+            Array.prototype.forEach.call(
+                oldSvg.querySelectorAll('circle[data-href]'),
+                function (c) { oldByHref[c.getAttribute('data-href')] = c; }
+            );
+            var newByHref = Object.create(null);
+            Array.prototype.forEach.call(
+                newSvg.querySelectorAll('circle[data-href]'),
+                function (c) { newByHref[c.getAttribute('data-href')] = c; }
+            );
+
+            // Drop circles no longer in the filtered set: fade to 0 via
+            // the CSS transition, then remove from the DOM.
+            Object.keys(oldByHref).forEach(function (href) {
+                if (newByHref[href]) return;
+                var c = oldByHref[href];
+                if (c.dataset.removing === '1') return;
+                c.dataset.removing = '1';
+                c.setAttribute('fill-opacity', '0');
+                c._removalTimer = setTimeout(function () {
+                    unregisterCircle(c);
+                    if (c.parentNode) c.parentNode.removeChild(c);
+                }, 220);
+            });
+
+            // Insert newly-matching circles at opacity 0, then bump to
+            // the target opacity in the next frame so the transition
+            // fires (a same-frame set+set collapses to the final value).
+            Object.keys(newByHref).forEach(function (href) {
+                var existing = oldByHref[href];
+                if (existing) {
+                    // A previously-fading-out circle came back before its
+                    // removal timer fired — cancel the removal and fade
+                    // it back up to its target opacity.
+                    if (existing.dataset.removing === '1') {
+                        if (existing._removalTimer) {
+                            clearTimeout(existing._removalTimer);
+                            existing._removalTimer = null;
+                        }
+                        existing.dataset.removing = '';
+                        var revived = newByHref[href].getAttribute('fill-opacity') || '1';
+                        existing.setAttribute('fill-opacity', revived);
+                    }
+                    return;
+                }
+                var c = newByHref[href];
+                var target = c.getAttribute('fill-opacity') || '1';
+                c.setAttribute('fill-opacity', '0');
+                oldSvg.appendChild(c);
+                registerCircle(c);
+                // Force a reflow so the 0 → target change is observed.
+                void c.getBoundingClientRect();
+                c.setAttribute('fill-opacity', target);
+            });
+        }
+
+        function applyUpdate(fresh) {
+            var oldFigure = container.querySelector('.topic-cloud-svg');
+            var newFigure = fresh.querySelector('.topic-cloud-svg');
+
+            // Swap each non-figure top-level section in place; missing
+            // sections (e.g. legend disappears when filters yield zero
+            // results) are removed, new ones are appended.
+            TOP_LEVEL_SELECTORS.forEach(function (sel) {
+                var oldEl = container.querySelector(':scope > ' + sel);
+                var newEl = fresh.querySelector(':scope > ' + sel);
+                if (oldEl && newEl) {
+                    oldEl.replaceWith(newEl);
+                } else if (oldEl && !newEl) {
+                    oldEl.remove();
+                } else if (!oldEl && newEl) {
+                    container.appendChild(newEl);
+                }
+            });
+
+            if (oldFigure && newFigure) {
+                // Same shape on both sides — diff the circles.
+                mergeCircles(
+                    oldFigure.querySelector('svg'),
+                    newFigure.querySelector('svg')
+                );
+                // Re-settle the surviving + newly-added dots so the layout
+                // stays non-overlapping, then frame whichever subset survived.
+                relaxLayout();
+                fitToCircles(true);
+            } else if (oldFigure && !newFigure) {
+                // Empty result — fade the figure out and drop it.
+                zoomState = null;
+                oldFigure.style.transition = 'opacity 200ms ease';
+                oldFigure.style.opacity = '0';
+                setTimeout(function () { oldFigure.remove(); }, 220);
+            } else if (!oldFigure && newFigure) {
+                // Filters relaxed back to a non-empty result — insert
+                // the figure above the outline and fade it in. New
+                // figure means new event listeners too.
+                newFigure.style.opacity = '0';
+                var outline = container.querySelector(':scope > div.topic-cloud-outline')
+                    || container.querySelector(':scope > div.alert');
+                if (outline) container.insertBefore(newFigure, outline);
+                else container.appendChild(newFigure);
+                bindCloud();
+                requestAnimationFrame(function () {
+                    newFigure.style.transition = 'opacity 200ms ease';
+                    newFigure.style.opacity = '1';
+                });
+            }
+        }
+
+        // htmx drives the request (trigger debounce, cancel, dispatch). We
+        // intercept the swap so the SVG figure isn't replaced wholesale —
+        // mergeCircles diffs the circles in place so dots fade in/out and
+        // the zoom state + relaxed layout survive filter changes.
+        document.body.addEventListener('htmx:beforeSwap', function (evt) {
+            if (evt.detail.target !== container) return;
+            if (!evt.detail.xhr || evt.detail.xhr.status !== 200) return;
+            var tmp = document.createElement('div');
+            tmp.innerHTML = evt.detail.serverResponse;
+            var fresh = tmp.querySelector('#topic-cloud-results');
+            if (!fresh) return;
+            applyUpdate(fresh);
+            // The group bar, facet cloud and actor panel live outside
+            // #topic-cloud-results, so swap them explicitly from the partial
+            // response, then re-assert the actor highlight over the new dots.
+            updateGroupsHost(tmp);
+            updateChaptersHost(tmp);
+            updateFacetsHost(tmp);
+            updateActorsHost(tmp);
+            syncActorHighlight();
+            evt.detail.shouldSwap = false;
+        });
+
+        // We cancelled htmx's swap, so URL sync is on us. Mirror the user
+        // path (no extra params — request.htmx handles partial detection).
+        document.body.addEventListener('htmx:afterRequest', function (evt) {
+            if (evt.detail.target !== container) return;
+            container.removeAttribute('aria-busy');
+            if (!evt.detail.successful) return;
+            var path = evt.detail.pathInfo && evt.detail.pathInfo.finalRequestPath;
+            if (path) window.history.replaceState(null, '', path);
+        });
+
+        document.body.addEventListener('htmx:beforeRequest', function (evt) {
+            if (evt.detail.target !== container) return;
+            container.setAttribute('aria-busy', 'true');
+        });
+
+        // Keyword facets → the hidden #tf-keywords inputs (one per active
+        // keyword). The cloud is re-rendered server-side on every change (so
+        // the list narrows), hence we don't toggle chip state client-side:
+        // clicking a chip just edits the hidden inputs and re-submits, and the
+        // swapped-in cloud reflects the new selection. Delegated on the stable
+        // host because updateFacetsHost replaces the cloud wholesale.
+        var keywordsBox = document.getElementById('tf-keywords');
+        var facetsHost = document.getElementById('topic-facets-host');
+        function selectedKeywords() {
+            if (!keywordsBox) return [];
+            return Array.prototype.map.call(
+                keywordsBox.querySelectorAll('input[name="keyword"]'),
+                function (i) { return i.value; }
+            );
+        }
+        function setKeywords(values) {
+            if (!keywordsBox) return;
+            keywordsBox.innerHTML = '';
+            values.forEach(function (v) {
+                var inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'keyword';
+                inp.value = v;
+                keywordsBox.appendChild(inp);
+            });
+            form.requestSubmit();
+        }
+        if (facetsHost && keywordsBox) {
+            facetsHost.addEventListener('click', function (ev) {
+                if (ev.target.closest('#topic-facets-clear')) {
+                    setKeywords([]);
+                    return;
+                }
+                var chip = ev.target.closest('.topic-facet-chip');
+                if (!chip) return;
+                var kw = chip.getAttribute('data-keyword') || '';
+                if (!kw) return;
+                var current = selectedKeywords();
+                var idx = current.indexOf(kw);
+                // Active chip (already selected) → remove; otherwise add.
+                if (idx === -1) current.push(kw);
+                else current.splice(idx, 1);
+                setKeywords(current);
+            });
+        }
+
+        // Topic bar → the hidden #tf-groups input (the single selected topic).
+        // Single-select: clicking a chip selects only that topic, narrowing the
+        // cloud to the dots it *dominates* (so every visible dot takes the topic's
+        // colour); clicking the active chip again clears it. The topic selection
+        // is independent of the keyword facets — they stack. The facet row then
+        // highlights the selected topic's members. Delegated on the stable host
+        // because updateGroupsHost replaces the bar wholesale.
+        var groupsBox = document.getElementById('tf-groups');
+        var groupsHost = document.getElementById('topic-groups-host');
+        function selectedGroups() {
+            if (!groupsBox) return [];
+            return Array.prototype.map.call(
+                groupsBox.querySelectorAll('input[name="group"]'),
+                function (i) { return i.value; }
+            );
+        }
+        function setGroups(values) {
+            if (!groupsBox) return;
+            groupsBox.innerHTML = '';
+            values.forEach(function (v) {
+                var inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'group';
+                inp.value = v;
+                groupsBox.appendChild(inp);
+            });
+            form.requestSubmit();
+        }
+        if (groupsHost && groupsBox) {
+            groupsHost.addEventListener('click', function (ev) {
+                var chip = ev.target.closest('.topic-group-chip');
+                if (!chip) return;
+                var gid = chip.getAttribute('data-group') || '';
+                if (!gid) return;
+                // Single-select: re-clicking the active topic clears it, any
+                // other click replaces the selection with just that topic.
+                var current = selectedGroups();
+                var active = current.length === 1 && current[0] === gid;
+                setGroups(active ? [] : [gid]);
+            });
+        }
+
+        // Main-topic tree → the hidden #tf-chapters input (the single selected
+        // chapter). Single-select drill-down: clicking a node narrows the cloud
+        // to evidence under that chapter's subtree; clicking the active node
+        // again clears it. Independent of the keyword facets and the topic bar —
+        // all three stack. Delegated on the stable host because
+        // updateChaptersHost replaces the tree wholesale.
+        var chaptersBox = document.getElementById('tf-chapters');
+        var chaptersHost = document.getElementById('topic-chapters-host');
+        function selectedChapters() {
+            if (!chaptersBox) return [];
+            return Array.prototype.map.call(
+                chaptersBox.querySelectorAll('input[name="chapter"]'),
+                function (i) { return i.value; }
+            );
+        }
+        function setChapters(values) {
+            if (!chaptersBox) return;
+            chaptersBox.innerHTML = '';
+            values.forEach(function (v) {
+                var inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'chapter';
+                inp.value = v;
+                chaptersBox.appendChild(inp);
+            });
+            form.requestSubmit();
+        }
+
+        // ── Collapsible tree (client-side) ──────────────────────────────
+        // The tree is a flat list of rows linked by data-node-id / data-parent-id
+        // and starts collapsed (the server unhides only the path to a selected
+        // node). The chevron toggles a node's direct children in/out; collapsing
+        // also hides every descendant so a reopened branch starts tidy. This is
+        // purely DOM state — no request — so it stays snappy and independent of
+        // the filter selection.
+        function chapterRowEls() {
+            return chaptersHost
+                ? chaptersHost.querySelectorAll('.topic-chapter-row')
+                : [];
+        }
+        function directChildRows(id) {
+            var out = [];
+            Array.prototype.forEach.call(chapterRowEls(), function (row) {
+                if (row.getAttribute('data-parent-id') === id) out.push(row);
+            });
+            return out;
+        }
+        function setToggleExpanded(toggle, expanded) {
+            toggle.classList.toggle('is-expanded', expanded);
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        }
+        function collapseDescendants(row) {
+            directChildRows(row.getAttribute('data-node-id')).forEach(function (child) {
+                child.classList.add('is-hidden');
+                var t = child.querySelector('.topic-chapter-toggle');
+                if (t && t.classList.contains('is-expanded')) {
+                    setToggleExpanded(t, false);
+                }
+                collapseDescendants(child);
+            });
+        }
+        function toggleChapterNode(toggle) {
+            var row = toggle.closest('.topic-chapter-row');
+            if (!row) return;
+            if (toggle.classList.contains('is-expanded')) {
+                setToggleExpanded(toggle, false);
+                collapseDescendants(row);
+            } else {
+                setToggleExpanded(toggle, true);
+                directChildRows(row.getAttribute('data-node-id')).forEach(
+                    function (child) { child.classList.remove('is-hidden'); }
+                );
+            }
+        }
+
+        if (chaptersHost && chaptersBox) {
+            chaptersHost.addEventListener('click', function (ev) {
+                // Chevron → expand/collapse (no filter change). The leaf spacer
+                // shares the class but carries the --leaf modifier, so skip it.
+                var toggle = ev.target.closest('.topic-chapter-toggle');
+                if (toggle && !toggle.classList.contains('topic-chapter-toggle--leaf')) {
+                    toggleChapterNode(toggle);
+                    return;
+                }
+                var node = ev.target.closest('.topic-chapter-node');
+                if (!node) return;
+                var cid = node.getAttribute('data-chapter') || '';
+                if (!cid) return;
+                // Single-select: re-clicking the active node clears it, any
+                // other click replaces the selection with just that chapter.
+                var current = selectedChapters();
+                var active = current.length === 1 && current[0] === cid;
+                setChapters(active ? [] : [cid]);
+            });
+        }
+
+        // "Actors in view" panel → in-cloud highlight (no filtering). Clicking a
+        // row marks that actor's dots and dims the rest; clicking the active row
+        // again clears it. Delegated on the stable host because updateActorsHost
+        // replaces the panel wholesale on each filter change.
+        var actorsHost = document.getElementById('topic-actors-host');
+        if (actorsHost) {
+            actorsHost.addEventListener('click', function (ev) {
+                var row = ev.target.closest('.topic-actor-row');
+                if (!row) return;
+                var id = row.getAttribute('data-actor-id') || '';
+                activeActorId = (activeActorId === id) ? null : id;
+                updateActorRowStates();
+                applyActorHighlight();
+            });
+        }
+
+        // Toggle reset visibility live as the user edits fields.
+        form.addEventListener('change', updateResetVisibility);
+        form.addEventListener('input', updateResetVisibility);
+
+        // Reset link: clear the form client-side, then re-submit so htmx
+        // sends a request with an empty filter set.
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function (ev) {
+                ev.preventDefault();
+                form.reset();
+                form.querySelectorAll('select').forEach(function (s) { s.value = ''; });
+                form.querySelectorAll('input').forEach(function (i) {
+                    if (i.type === 'search' || i.type === 'date' || i.type === 'text') i.value = '';
+                });
+                // Clear the keyword facets + topics inline (no dispatch — we
+                // re-submit once below). form.reset() leaves hidden inputs as-is.
+                if (keywordsBox) keywordsBox.innerHTML = '';
+                if (groupsBox) groupsBox.innerHTML = '';
+                if (chaptersBox) chaptersBox.innerHTML = '';
+                if (actorCombobox) actorCombobox.reset();
+                if (yearSlider) yearSlider.reset();
+                updateResetVisibility();
+                form.requestSubmit();
+            });
+        }
+    })();
+    </script>
+{% endblock app_body %}

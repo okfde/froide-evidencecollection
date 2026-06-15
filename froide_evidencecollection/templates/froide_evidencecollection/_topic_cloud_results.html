@@ -1,0 +1,78 @@
+{% load i18n %}
+{# Wrapped in #topic-cloud-results so the AJAX swap can replace just the   #}
+{# results without rebuilding the filter form (which holds caret state).   #}
+<div id="topic-cloud-results">
+    <p class="text-muted">
+        {% blocktrans count counter=evidence_count %}{{ counter }} piece of evidence.{% plural %}{{ counter }} pieces of evidence.{% endblocktrans %}
+        {% if truncated %}
+            <span class="ms-1">·
+                {% blocktrans with limit=max_evidence %}Result capped at {{ limit }} pieces of evidence — narrow the filters to see the rest.{% endblocktrans %}
+            </span>
+        {% endif %}
+    </p>
+    {% if outline_items %}
+        {# ── Visible cloud ──────────────────────────────────────── #}
+        {# Each dot is tinted by its dominant topic; the colour key is the    #}
+        {# topic bar above (its chips carry the same swatches), so there is    #}
+        {# no separate legend here.                                           #}
+        {# aria-hidden so AT users get the semantic outline below     #}
+        {# instead of a stream of "graphics-symbol" announcements.    #}
+        <figure class="topic-cloud-svg mb-3 position-relative" aria-hidden="true">
+            <svg viewBox="0 0 {{ svg_width }} {{ svg_height }}"
+                 preserveAspectRatio="xMidYMid meet"
+                 focusable="false">
+                <rect x="0" y="0" width="{{ svg_width }}" height="{{ svg_height }}" fill="#fafafa" />
+                {{ cloud_circles_svg }}
+            </svg>
+            <div class="topic-cloud-tooltip" hidden role="presentation">
+                <div class="topic-cloud-tooltip__source"></div>
+                <div class="topic-cloud-tooltip__snippet"></div>
+            </div>
+        </figure>
+        {# ── Evidence outline ───────────────────────────────────── #}
+        {# Hidden on larger screens (the cloud tells the story; AT     #}
+        {# users get this via .topic-cloud-outline's visually-hidden   #}
+        {# defaults). On phones the SVG is hidden and this becomes the #}
+        {# primary visible evidence list. A flat, newest-first list.   #}
+        <div class="topic-cloud-outline">
+            <h2>{% trans "Matching evidence" %}</h2>
+            <ol>
+                {% for item in outline_items %}
+                    <li>
+                        <p>
+                            {{ item.post.account.get_platform_display }}
+                            {% if item.post.account.username %}@{{ item.post.account.username }}{% endif %}
+                            {% if item.posted_on %}
+                                <time datetime="{{ item.posted_on|date:'Y-m-d' }}">{{ item.posted_on|date:"Y-m-d" }}</time>
+                            {% endif %}
+                        </p>
+                        {% if item.post.title %}<p>{{ item.post.title }}</p>{% endif %}
+                        <p>{{ item.snippet }}</p>
+                        <p>
+                            <a href="{{ item.url }}" target="_blank" rel="noopener">
+                                {% trans "View evidence" %}
+                                <span>{% trans "(opens in new tab)" %}</span>
+                            </a>
+                        </p>
+                    </li>
+                {% endfor %}
+            </ol>
+            {% if outline_hidden_count %}
+                <p>
+                    {% blocktrans count counter=outline_hidden_count %}{{ counter }} further piece of evidence is not listed here — narrow the filters to reach it.{% plural %}{{ counter }} further pieces of evidence are not listed here — narrow the filters to reach them.{% endblocktrans %}
+                </p>
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            {% if has_filters %}
+                {% trans "No evidence matches these filters." %}
+            {% else %}
+                {% blocktrans trimmed %}
+                    No topic data yet. Run <code>./manage.py fit_post_topics</code> to fit
+                    BERTopic over your evidence.
+                {% endblocktrans %}
+            {% endif %}
+        </div>
+    {% endif %}
+</div>

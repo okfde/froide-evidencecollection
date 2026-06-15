@@ -1,0 +1,19 @@
+# Manual person-name overrides for the JSON-dump import.
+#
+# Only labels the auto-matcher CANNOT resolve belong here:
+#   - dump-only persons whose label has more than two tokens, so the
+#     first/last split is ambiguous (e.g. two first names AND/OR a compound
+#     surname),
+#   - labels the matcher flags as a collision (one label matches several DB
+#     persons): set sync_uuid to the intended person's (shown in the report).
+# Mechanical cases (a single extra first name on either side) are handled in
+# code and must NOT be listed here.
+#
+# label      = exact dump label
+# first_name = canonical first name (the dump's scheme; may contain a space)
+# last_name  = canonical last name
+# sync_uuid  = (optional) sync_uuid of the DB person to disambiguate a
+#              collision; names alone are not unique
+# note       = why (for human reviewers)
+label,first_name,last_name,sync_uuid,note
+Martin Schmidt,Martin,Schmidt,a42e0126-1a25-46c2-b98d-3cb78918b90e,

@@ -1,55 +1,259 @@
 {% extends "froide_evidencecollection/base.html" %}
 {% load i18n %}
-{% load markup %}
+{% load evidence_tags %}
 {% block app_body %}
-    <div class="container mb-3">
-        <div class="box-card border border-2 border-yellow-200 md:shadow-yellow bg-body mb-5">
-            <div>
-                <div class="flex-grow-1 tight-margin p-3 p-md-4 p-lg-5">
-                    <h1>
-                        {% blocktrans with pk=object.pk title=object.title %}Evidence #{{ pk }}: {{ title }}{% endblocktrans %}
-                        <a href="{% url "evidencecollection:evidence-detail-export" pk=object.pk %}"><i class="fa fa-file-pdf-o"></i><span class="visually-hidden">{% trans "Export as PDF" %}</span></a>
-                    </h1>
-                    <div class="row">
-                        <div class="col col-12 col-md-4">
-                            <dl>
-                                <dt>{% trans "Date" %}</dt>
-                                <dd>
-                                    {{ object.event_date }}
-                                </dd>
-                                <dt>{% trans "Source" %}</dt>
-                                <dd>
-                                    {% if object.reference_url %}<a href="{{ object.reference_url }}" target="_blank">{{ object.domain }}</a>{% endif %}
-                                    {% if object.reference_info %}{{ object.reference_info }}{% endif %}
-                                </dd>
-                                <dt>{% trans "Evidence Type" %}</dt>
-                                <dd>
-                                    {{ object.evidence_type }}
-                                </dd>
-                                <dt>{% trans "Evidence Categories" %}</dt>
-                                <dd>
-                                    {{ object.categories.all|join:"<br>" }}
-                                </dd>
-                                <dt>{% trans "Originators" %}</dt>
-                                <dd>
-                                    {{ object.originators.all|join:"<br>" }}
-                                </dd>
-                            </dl>
-                        </div>
-                        <div class="col col-12 col-md-8">
-                            {{ object.citation|markdown }}
-                            <br>
-                            {{ object.description|markdown }}
-                            {% for attachment in object.attachments.all %}
-                                <div class="mt-3">
-                                    <a href="{{ attachment.file.url }}" target="_blank">{{ attachment.title }}</a>
-                                    {% if attachment.description %}<p>{{ attachment.description }}</p>{% endif %}
-                                </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
+    <style>
+    details.attachment-gate > summary { list-style: none; cursor: pointer; }
+    details.attachment-gate > summary::-webkit-details-marker { display: none; }
+    .detail-stripe { display: flex; height: 8px; }
+    </style>
+    <div class="container my-4">
+        {# ── Identity header ─────────────────────────────────────────── #}
+        <article class="card border border-2 border-yellow-200 shadow-sm mb-4 overflow-hidden">
+            <div class="detail-stripe" aria-hidden="true">
+                {% if object.categories_distinct %}
+                    {% for cat in object.categories_distinct|slice:":5" %}
+                        <span style="flex: 1; background-color: {{ cat|palette_color }};"></span>
+                    {% endfor %}
+                {% else %}
+                    <span style="flex: 1; background-color: #d0d0d0;"></span>
+                {% endif %}
             </div>
-        </div>
+            <div class="card-body p-3 p-md-4">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                    <div>
+                        {% if object.evidence_type %}
+                            <span class="text-uppercase text-muted small fw-semibold d-block">{{ object.evidence_type }}</span>
+                        {% endif %}
+                        <h1 class="h2 mb-0">{% blocktrans with pk=object.pk %}Evidence #{{ pk }}{% endblocktrans %}</h1>
+                    </div>
+                    <a href="{% url 'evidencecollection:evidence-detail-export' slug=object.slug %}"
+                       class="btn btn-sm btn-outline-secondary">
+                        <i class="fa fa-file-pdf-o"></i> {% trans "Export as PDF" %}
+                    </a>
+                </div>
+                <dl class="row mb-2 small">
+                    {% if object.source.publication_date %}
+                        <dt class="col-sm-3 col-md-2">{% trans "Published" %}</dt>
+                        <dd class="col-sm-9 col-md-10 mb-1">
+                            {{ object.source.publication_date }}
+                        </dd>
+                    {% endif %}
+                    {% if object.documentation_date %}
+                        <dt class="col-sm-3 col-md-2">{% trans "Documented" %}</dt>
+                        <dd class="col-sm-9 col-md-10 mb-1">
+                            {{ object.documentation_date }}
+                        </dd>
+                    {% endif %}
+                    {% if object.url %}
+                        <dt class="col-sm-3 col-md-2">{% trans "Reference" %}</dt>
+                        <dd class="col-sm-9 col-md-10 mb-1">
+                            <a href="{{ object.url }}" target="_blank" rel="noopener">{{ object.domain }}</a>
+                        </dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </article>
+        {# ── Originator block (prominent) ────────────────────────────── #}
+        <section class="bg-body p-3 p-md-4 border border-2 border-yellow-200 mb-4">
+            <h2 class="text-uppercase small text-muted fw-semibold mb-3">{% trans "Originated by" %}</h2>
+            {% if object.originator_actors %}
+                <div class="row g-3">
+                    {% for actor in object.originator_actors %}
+                        <div class="col-md-6">
+                            <div class="bg-yellow-200 bg-opacity-25 border-start border-3 border-yellow-200 p-3 h-100">
+                                <a href="{% url 'evidencecollection:actor-detail' actor.pk %}"
+                                   class="h5 mb-1 d-block text-decoration-none">{{ actor.name }}</a>
+                                <p class="mb-0 text-muted small">
+                                    {% if actor.person %}
+                                        {% if actor.person.status %}{{ actor.person.status }} ·{% endif %}
+                                        {% trans "Person" %}
+                                    {% elif actor.organization %}
+                                        {% if actor.organization.institutional_level %}{{ actor.organization.institutional_level }} ·{% endif %}
+                                        {% trans "Organization" %}
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-muted fst-italic mb-0">{% trans "Unknown originator" %}</p>
+            {% endif %}
+        </section>
+        {# ── Related actors + Source (side by side) ─────────────────── #}
+        {% if object.related_actors.all or object.social_media_post %}
+            <div class="row mb-4">
+                {% if object.related_actors.all %}
+                    <div class="col-md-6 mb-3 mb-md-0">
+                        <section class="bg-body p-3 border border-2 border-yellow-200 h-100">
+                            <h2 class="text-uppercase small text-muted fw-semibold mb-2">{% trans "Related actors" %}</h2>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for actor in object.related_actors.all %}
+                                    <a href="{% url 'evidencecollection:actor-detail' actor.pk %}"
+                                       class="badge rounded-pill border bg-light text-dark fw-normal text-decoration-none">{{ actor.name }}</a>
+                                {% endfor %}
+                            </div>
+                        </section>
+                    </div>
+                {% endif %}
+                {% with post=object.social_media_post %}
+                    {% if post %}
+                        <div class="{% if object.related_actors.all %}col-md-6{% else %}col-12{% endif %}">
+                            <section class="bg-body p-3 border border-2 border-yellow-200 h-100">
+                                <h2 class="text-uppercase small text-muted fw-semibold mb-2">{% trans "Source" %}</h2>
+                                {% if post.account %}
+                                    <p class="mb-1">
+                                        <strong>{{ post.account.get_platform_display }}</strong>
+                                        @{{ post.account.username }}
+                                    </p>
+                                {% endif %}
+                                {% if post %}
+                                    {% if post.posted_at %}
+                                        <p class="mb-1 small text-muted">{% trans "Posted" %} {{ post.posted_at }}</p>
+                                    {% endif %}
+                                    <ul class="list-inline small text-muted mb-1">
+                                        {% if post.view_count %}
+                                            <li class="list-inline-item me-2" title="{% trans 'Views' %}">
+                                                <span aria-hidden="true">👁</span> {{ post.view_count|compact_number }}
+                                            </li>
+                                        {% endif %}
+                                        {% if post.like_count %}
+                                            <li class="list-inline-item me-2" title="{% trans 'Likes' %}">
+                                                <span aria-hidden="true">❤</span> {{ post.like_count|compact_number }}
+                                            </li>
+                                        {% endif %}
+                                        {% if post.comment_count %}
+                                            <li class="list-inline-item me-2" title="{% trans 'Comments' %}">
+                                                <span aria-hidden="true">💬</span> {{ post.comment_count|compact_number }}
+                                            </li>
+                                        {% endif %}
+                                        {% if post.share_count %}
+                                            <li class="list-inline-item" title="{% trans 'Shares' %}">
+                                                <span aria-hidden="true">↗</span> {{ post.share_count|compact_number }}
+                                            </li>
+                                        {% endif %}
+                                    </ul>
+                                    {% if post.url %}
+                                        <a href="{{ post.url }}" target="_blank" rel="noopener" class="small">{% trans "Open original post" %} ↗</a>
+                                    {% endif %}
+                                {% endif %}
+                            </section>
+                        </div>
+                    {% endif %}
+                {% endwith %}
+            </div>
+        {% endif %}
+        {# ── Categories with footnote references ─────────────────────── #}
+        {% if object.categories_with_footnotes %}
+            <section class="bg-body p-3 p-md-4 border border-2 border-yellow-200 mb-4">
+                <h2 class="text-uppercase small text-muted fw-semibold mb-3">{% trans "Categories" %}</h2>
+                <ul class="list-unstyled mb-0">
+                    {% for cat, footnotes in object.categories_with_footnotes %}
+                        <li class="mb-2 d-flex flex-wrap align-items-baseline gap-2">
+                            <span class="badge rounded-pill border fw-normal"
+                                  style="background-color: {{ cat|palette_color }}26;
+                                         color: #222;
+                                         border-color: {{ cat|palette_color }}">{{ cat }}</span>
+                            {% if footnotes %}<span class="text-muted small">{{ footnotes|join:", " }}</span>{% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        {% endif %}
+        {# ── Keywords ────────────────────────────────────────────────── #}
+        {% if object.keywords.all %}
+            <section class="bg-body p-3 p-md-4 border border-2 border-yellow-200 mb-4">
+                <h2 class="text-uppercase small text-muted fw-semibold mb-3">{% trans "Keywords" %}</h2>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for keyword in object.keywords.all %}
+                        <a href="{% url 'evidencecollection:evidence-topic-cloud' %}?keyword={{ keyword.lemma|urlencode }}"
+                           class="badge rounded-pill border bg-light text-dark fw-normal text-decoration-none">{{ keyword.display_label }}</a>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
+        {# ── Collected text (citation + description + source text) ──── #}
+        {% if object.citation or object.description or object.text_segments %}
+            <section class="bg-body p-3 p-md-4 border border-2 border-yellow-200 mb-4">
+                {% if object.citation %}
+                    <h3 class="h5">{% trans "Citation" %}</h3>
+                    <div class="mb-3">{% highlight_keywords object.citation object.keywords.all %}</div>
+                {% endif %}
+                {% if object.description %}
+                    <h3 class="h5">{% trans "Description" %}</h3>
+                    <div class="mb-3">{% highlight_keywords object.description object.keywords.all %}</div>
+                {% endif %}
+                {% for seg in object.text_segments %}
+                    <h3 class="h5">
+                        {% if seg.is_redistributed %}↻{% endif %}
+                        {{ seg.label }}
+                        {% if seg.attribution %}<span class="text-muted small fw-normal">· {{ seg.attribution }}</span>{% endif %}
+                    </h3>
+                    <div class="mb-3 {% if seg.is_redistributed %}ps-3 border-start border-2{% endif %}">
+                        {% highlight_keywords seg.text object.keywords.all %}
+                    </div>
+                {% endfor %}
+            </section>
+        {% endif %}
+        {# ── Attachments (per-item gated) ────────────────────────────── #}
+        {% if object.attachments.all %}
+            <section class="bg-body p-3 p-md-4 border border-2 border-yellow-200 mb-4">
+                <h2 class="h4 mb-3">
+                    {% blocktrans count counter=object.attachments.all|length %}{{ counter }} attachment{% plural %}{{ counter }} attachments{% endblocktrans %}
+                </h2>
+                <p class="text-muted small mb-3">{% trans "Each item is hidden by default. Click to reveal." %}</p>
+                <div class="row g-3">
+                    {% for att in object.attachments.all %}
+                        <div class="col-md-6">
+                            <details class="attachment-gate border rounded">
+                                <summary class="d-flex align-items-baseline gap-2 p-2 bg-light">
+                                    <span aria-hidden="true" style="font-size: 1.2em;">
+                                        {% if att.kind == 'image' %}
+                                            🖼
+                                        {% elif att.kind == 'video' %}
+                                            🎬
+                                        {% elif att.kind == 'audio' %}
+                                            🔊
+                                        {% elif att.kind == 'pdf' %}
+                                            📄
+                                        {% else %}
+                                            📎
+                                        {% endif %}
+                                    </span>
+                                    <span class="fw-semibold text-truncate">{{ att.title|default:att.file.name }}</span>
+                                    <span class="text-muted small ms-auto">
+                                        {% if att.size %}{{ att.size|filesizeformat }}{% endif %}
+                                    </span>
+                                </summary>
+                                <div class="p-2">
+                                    {% if att.kind == 'image' %}
+                                        <img src="{{ att.file.url }}" alt="{{ att.title }}" class="img-fluid">
+                                    {% elif att.kind == 'video' %}
+                                        <video controls preload="none" class="w-100">
+                                            <source src="{{ att.file.url }}" type="{{ att.mimetype }}">
+                                        </video>
+                                    {% elif att.kind == 'audio' %}
+                                        <audio controls preload="none" class="w-100">
+                                            <source src="{{ att.file.url }}" type="{{ att.mimetype }}">
+                                        </audio>
+                                    {% elif att.kind == 'pdf' %}
+                                        <a href="{{ att.file.url }}"
+                                           target="_blank"
+                                           rel="noopener"
+                                           class="btn btn-sm btn-outline-primary">{% trans "Open PDF" %} ↗</a>
+                                    {% else %}
+                                        <a href="{{ att.file.url }}"
+                                           target="_blank"
+                                           rel="noopener"
+                                           class="btn btn-sm btn-outline-primary">{% trans "Download" %} ↗</a>
+                                    {% endif %}
+                                </div>
+                            </details>
+                        </div>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
     </div>
 {% endblock app_body %}

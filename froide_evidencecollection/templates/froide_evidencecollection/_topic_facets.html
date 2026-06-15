@@ -1,0 +1,51 @@
+{% load i18n %}
+{# Keyword facet cloud, recomputed over the filtered evidence set each       #}
+{# request. `selected_facets` are the active keywords (removable chips);      #}
+{# `facets` are the keywords that still co-occur with the current selection.  #}
+{# Wrapped in `.topic-facets` so the JS swap can replace it wholesale.        #}
+{% if facets or selected_facets %}
+    <section class="topic-facets mb-3"
+             aria-label="{% trans 'Discover by keyword' %}">
+        <div class="topic-facets__head">
+            <span class="topic-facets__title">{% trans "Browse by keyword" %}</span>
+            <button type="button"
+                    id="topic-facets-clear"
+                    class="btn btn-sm btn-link p-0 topic-facets__clear"
+                    {% if not selected_facets %}hidden{% endif %}>{% trans "clear keywords" %}</button>
+        </div>
+        {% if selected_facets %}
+            <ul class="topic-facets__active list-unstyled mb-2"
+                aria-label="{% trans 'Selected keywords' %}">
+                {% for f in selected_facets %}
+                    <li>
+                        <button type="button"
+                                class="topic-facet-chip is-active"
+                                data-keyword="{{ f.lemma }}"
+                                aria-pressed="true"
+                                title="{% trans 'Remove keyword' %}">
+                            {{ f.keyword }}<span class="topic-facet-chip__remove" aria-hidden="true">×</span>
+                        </button>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        <ul class="topic-facets__cloud list-unstyled mb-0">
+            {% for f in facets %}
+                <li>
+                    <button type="button"
+                            class="topic-facet-chip facet-w{{ f.weight }}{% if f.in_group %} is-in-group{% endif %}"
+                            data-keyword="{{ f.lemma }}"
+                            aria-pressed="false">
+                        {% if f.group_color %}
+                            <span class="topic-facet-chip__topic"
+                                  style="background:{{ f.group_color }}"
+                                  title="{{ f.group_label }}"
+                                  aria-hidden="true"></span>
+                        {% endif %}
+                        {{ f.keyword }}<span class="topic-facet-chip__count">{{ f.count }}</span>
+                    </button>
+                </li>
+            {% endfor %}
+        </ul>
+    </section>
+{% endif %}

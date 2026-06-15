@@ -1,0 +1,125 @@
+{% load i18n %}
+{% comment %}
+Filter form for the dashboard.
+Required context (in addition to request):
+  organizations, roles, institutional_levels, categories,
+  evidence_types, platforms — choice sources.
+  has_filters — bool, controls the Reset button.
+  reset_url   — URL string for the Reset link.
+{% endcomment %}
+<section class="bg-body p-3 p-md-4 border border-2 border-yellow-200 mb-4"
+         data-filter-form-wrap>
+    <h2 class="h4">{% trans "Filter evidence" %}</h2>
+    <p class="text-muted small">{% trans "Leave a field blank to ignore it. All set fields are combined with AND." %}</p>
+    <form method="get" action="" class="row g-3" data-filter-form>
+        <div class="col-12">
+            <label for="f-q" class="form-label">{% trans "Text in citation or description" %}</label>
+            <input type="text"
+                   id="f-q"
+                   name="q"
+                   class="form-control"
+                   value="{{ request.GET.q|default_if_none:'' }}">
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <label for="f-originator" class="form-label">{% trans "Originator name" %}</label>
+            <input type="text"
+                   id="f-originator"
+                   name="originator"
+                   class="form-control"
+                   value="{{ request.GET.originator|default_if_none:'' }}">
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <label for="f-organization" class="form-label">{% trans "Originator organization" %}</label>
+            <select id="f-organization" name="organization" class="form-select">
+                <option value="">{% trans "— any —" %}</option>
+                {% for org in organizations %}
+                    <option value="{{ org.pk }}"
+                            {% if request.GET.organization == org.pk|stringformat:'s' %}selected{% endif %}>
+                        {{ org }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <label for="f-role" class="form-label">{% trans "Originator role" %}</label>
+            <select id="f-role" name="role" class="form-select">
+                <option value="">{% trans "— any —" %}</option>
+                {% for role in roles %}
+                    <option value="{{ role.pk }}"
+                            {% if request.GET.role == role.pk|stringformat:'s' %}selected{% endif %}>
+                        {{ role }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <label for="f-level" class="form-label">{% trans "Institutional level" %}</label>
+            <select id="f-level" name="institutional_level" class="form-select">
+                <option value="">{% trans "— any —" %}</option>
+                {% for level in institutional_levels %}
+                    <option value="{{ level.pk }}"
+                            {% if request.GET.institutional_level == level.pk|stringformat:'s' %}selected{% endif %}>
+                        {{ level }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <label for="f-category" class="form-label">{% trans "Category" %}</label>
+            <select id="f-category" name="category" class="form-select">
+                <option value="">{% trans "— any —" %}</option>
+                {% for cat in categories %}
+                    <option value="{{ cat.pk }}"
+                            {% if request.GET.category == cat.pk|stringformat:'s' %}selected{% endif %}>
+                        {{ cat }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <label for="f-type" class="form-label">{% trans "Evidence type" %}</label>
+            <select id="f-type" name="evidence_type" class="form-select">
+                <option value="">{% trans "— any —" %}</option>
+                {% for et in evidence_types %}
+                    <option value="{{ et.pk }}"
+                            {% if request.GET.evidence_type == et.pk|stringformat:'s' %}selected{% endif %}>
+                        {{ et }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <label for="f-platform" class="form-label">{% trans "Source platform" %}</label>
+            <select id="f-platform" name="platform" class="form-select">
+                <option value="">{% trans "— any —" %}</option>
+                {% for value, label in platforms %}
+                    <option value="{{ value }}"
+                            {% if request.GET.platform == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <label for="f-date-after" class="form-label">{% trans "Publishing date from" %}</label>
+            <input type="date"
+                   id="f-date-after"
+                   name="publishing_date_after"
+                   class="form-control"
+                   value="{{ request.GET.publishing_date_after|default_if_none:'' }}">
+        </div>
+        <div class="col-md-6 col-lg-4">
+            <label for="f-date-before" class="form-label">{% trans "Publishing date to" %}</label>
+            <input type="date"
+                   id="f-date-before"
+                   name="publishing_date_before"
+                   class="form-control"
+                   value="{{ request.GET.publishing_date_before|default_if_none:'' }}">
+        </div>
+        <div class="col-12 d-flex justify-content-end gap-2">
+            <a href="{{ reset_url }}"
+               class="btn btn-outline-secondary"
+               data-filter-reset
+               {% if not has_filters %}hidden{% endif %}>{% trans "Reset" %}</a>
+            <button type="submit" class="btn btn-primary">{% trans "Run search" %}</button>
+        </div>
+    </form>
+</section>
