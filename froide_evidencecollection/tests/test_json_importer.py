@@ -8,7 +8,6 @@ from froide_evidencecollection.models import (
     Actor,
     Chapter,
     Evidence,
-    EvidenceActorRelation,
     EvidenceMention,
     PostImage,
     PostScreenshot,
@@ -805,7 +804,7 @@ class TestJSONImporter:
         assert leaf_b.subsumed_evidences().count() == 1
 
     @pytest.mark.django_db
-    def test_seeds_posted_by_relation_to_account_actor(self, person, tmp_path):
+    def test_seeds_originator_from_account_actor(self, person, tmp_path):
         path = _write_dump(
             tmp_path,
             {
@@ -818,11 +817,7 @@ class TestJSONImporter:
         JSONImporter(path).run()
 
         evidence = Evidence.objects.get()
-        relations = EvidenceActorRelation.objects.filter(evidence=evidence)
-        assert relations.count() == 1
-        relation = relations.get()
-        assert relation.role.name == "posted_by"
-        assert relation.actor == person.actor
+        assert list(evidence.originators.all()) == [person.actor]
 
     @pytest.mark.django_db
     def test_links_reply_to_parent_post_within_batch(self, person, tmp_path):

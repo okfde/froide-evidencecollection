@@ -62,9 +62,8 @@ class EvidenceDocument(DSLDocument):
             super()
             .get_queryset()
             .prefetch_related(
-                "actor_relations__actor__person__affiliations__organization__institutional_level",
-                "actor_relations__actor__person__affiliations__role",
-                "actor_relations__role",
+                "originators__person__affiliations__organization__institutional_level",
+                "originators__person__affiliations__role",
                 "mentions__category",
                 # `search_text` walks each post's media and the redistribution
                 # chain it recurses into; prefetch both so indexing doesn't

@@ -18,8 +18,6 @@ from .models import (
     Chapter,
     Election,
     Evidence,
-    EvidenceActorRelation,
-    EvidenceActorRelationRole,
     EvidenceMention,
     ImportExportRun,
     Keyword,
@@ -288,18 +286,6 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
         "user_snapshot",
         "raw",
     ]
-
-
-@admin.register(EvidenceActorRelationRole)
-class EvidenceActorRelationRoleAdmin(admin.ModelAdmin):
-    list_display = ["name", "description"]
-    search_fields = ["name"]
-
-
-class EvidenceActorRelationInline(admin.TabularInline):
-    model = EvidenceActorRelation
-    extra = 0
-    fields = ["actor", "role"]
 
 
 class AffiliationInline(admin.TabularInline):
@@ -696,7 +682,6 @@ class EvidenceAdmin(ReadOnlyAdmin):
     inlines = [
         AttachmentInline,
         EvidenceMentionInline,
-        EvidenceActorRelationInline,
     ]
     list_display = [
         "external_id",
@@ -711,7 +696,7 @@ class EvidenceAdmin(ReadOnlyAdmin):
     search_fields = ["citation", "description"]
 
     def originator_list(self, obj):
-        return ", ".join([originator.name for originator in obj.originators])
+        return ", ".join([originator.name for originator in obj.originators.all()])
 
     originator_list.short_description = _("originators")
 

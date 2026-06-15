@@ -32,7 +32,6 @@ from .models import (
     Category,
     Chapter,
     Evidence,
-    EvidenceActorRelation,
     EvidenceMention,
     EvidenceType,
     InstitutionalLevel,
@@ -250,16 +249,10 @@ class EvidenceDetailView(EvidenceMixin, DetailView):
             "evidence_type",
             "social_media_post__account",
         ).prefetch_related(
+            "originators__person__status",
+            "originators__organization__institutional_level",
             "related_actors__person__status",
             "related_actors__organization__institutional_level",
-            Prefetch(
-                "actor_relations",
-                queryset=EvidenceActorRelation.objects.select_related(
-                    "actor__person__status",
-                    "actor__organization__institutional_level",
-                    "role",
-                ),
-            ),
             # Only enabled keywords — a curator-disabled keyword is suppressed
             # everywhere, including this listing (mirrors the topic cloud).
             Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
@@ -285,14 +278,8 @@ EVIDENCE_CARD_SELECT_RELATED = (
     "social_media_post__account",
 )
 EVIDENCE_CARD_PREFETCH_RELATED = (
-    Prefetch(
-        "actor_relations",
-        queryset=EvidenceActorRelation.objects.select_related(
-            "actor__person__status",
-            "actor__organization__institutional_level",
-            "role",
-        ),
-    ),
+    "originators__person__status",
+    "originators__organization__institutional_level",
     "mentions__category",
     "attachments",
     "social_media_post__images",
@@ -322,21 +309,17 @@ class ActorDetailView(DetailView):
         context = super().get_context_data(**kwargs)
         actor = self.object
 
-        # "Originated by this actor" = role posted_by on the EvidenceActorRelation
-        # through table. "Related" = any other role (mentions/depicts/…).
+        # "Originated by this actor" vs. "Related" — the two plain M2M fields
+        # on Evidence (`originators` / `related_actors`).
         originated = (
-            Evidence.objects.filter(
-                actor_relations__actor=actor,
-                actor_relations__role="posted_by",
-            )
+            Evidence.objects.filter(originators=actor)
             .select_related(*EVIDENCE_CARD_SELECT_RELATED)
             .prefetch_related(*EVIDENCE_CARD_PREFETCH_RELATED)
             .order_by("-pk")
             .distinct()
         )
         related = (
-            Evidence.objects.filter(actor_relations__actor=actor)
-            .exclude(actor_relations__role="posted_by")
+            Evidence.objects.filter(related_actors=actor)
             .select_related(*EVIDENCE_CARD_SELECT_RELATED)
             .prefetch_related(*EVIDENCE_CARD_PREFETCH_RELATED)
             .order_by("-pk")
@@ -566,11 +549,7 @@ class DashboardView(EvidenceListView):
         # unconditionally costs little and keeps the template branchless.
         context["top_originators"] = (
             Actor.objects.annotate(
-                evidence_count=Count(
-                    "evidence_relations",
-                    filter=Q(evidence_relations__role="posted_by"),
-                    distinct=True,
-                )
+                evidence_count=Count("originated_evidence", distinct=True)
             )
             .filter(evidence_count__gt=0)
             .order_by("-evidence_count", "name")[:10]

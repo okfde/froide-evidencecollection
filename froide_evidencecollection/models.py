@@ -778,10 +778,13 @@ class Evidence(TrackableModel):
         related_name="evidence",
         verbose_name=_("social media post"),
     )
+    originators = models.ManyToManyField(
+        Actor,
+        related_name="originated_evidence",
+        verbose_name=_("originators"),
+    )
     related_actors = models.ManyToManyField(
         Actor,
-        through="EvidenceActorRelation",
-        through_fields=("evidence", "actor"),
         related_name="related_evidence",
         verbose_name=_("related actors"),
     )
@@ -925,26 +928,12 @@ class Evidence(TrackableModel):
     def categories(self):
         return Category.objects.filter(mentions__evidence=self).distinct()
 
-    def actors_with_role(self, role_name: str):
-        return Actor.objects.filter(
-            evidence_relations__evidence=self,
-            evidence_relations__role=role_name,
-        ).distinct()
-
-    @property
-    def originators(self):
-        return self.actors_with_role("posted_by")
-
-    @property
-    def mentions_actors(self):
-        return self.actors_with_role("mentions")
-
     @cached_property
     def originator_actors(self):
-        # Reads from the `actor_relations` prefetch (one query for the whole
-        # page) rather than firing a fresh SELECT per card. Falls back to a
-        # query if the caller did not prefetch.
-        return [r.actor for r in self.actor_relations.all() if r.role_id == "posted_by"]
+        # Reads from the `originators` prefetch (one query for the whole page)
+        # rather than firing a fresh SELECT per card. Falls back to a query if
+        # the caller did not prefetch.
+        return list(self.originators.all())
 
     @cached_property
     def categories_distinct(self):
@@ -1568,112 +1557,6 @@ class PostScreenshot(BasePostMedia):
                 name="unique_screenshot_per_post_source",
             ),
         ]
-
-
-EVIDENCE_ACTOR_ROLE_LABELS = {
-    "posted_by": pgettext_lazy("evidence–actor relation role", "posted by"),
-    "mentions": pgettext_lazy("evidence–actor relation role", "mentions"),
-    "depicts": pgettext_lazy("evidence–actor relation role", "depicts"),
-    "target_of": pgettext_lazy("evidence–actor relation role", "is target of"),
-    "endorses": pgettext_lazy("evidence–actor relation role", "endorses"),
-    "opposes": pgettext_lazy("evidence–actor relation role", "opposes"),
-    "attributed_to": pgettext_lazy("evidence–actor relation role", "attributed to"),
-}
-
-EVIDENCE_ACTOR_ROLE_DESCRIPTIONS = {
-    "posted_by": pgettext_lazy(
-        "evidence–actor relation role description",
-        "Actor who originated or published this piece of evidence.",
-    ),
-    "mentions": pgettext_lazy(
-        "evidence–actor relation role description",
-        "Actor referenced by name or handle within the evidence.",
-    ),
-    "depicts": pgettext_lazy(
-        "evidence–actor relation role description",
-        "Actor visually depicted in the evidence (image or video).",
-    ),
-    "target_of": pgettext_lazy(
-        "evidence–actor relation role description",
-        "Actor that is the subject or target of the evidence.",
-    ),
-    "endorses": pgettext_lazy(
-        "evidence–actor relation role description",
-        "Actor expressing support.",
-    ),
-    "opposes": pgettext_lazy(
-        "evidence–actor relation role description",
-        "Actor expressing opposition.",
-    ),
-    "attributed_to": pgettext_lazy(
-        "evidence–actor relation role description",
-        "Soft attribution that has not been fully confirmed.",
-    ),
-}
-
-
-class EvidenceActorRelationRole(models.Model):
-    name = models.CharField(max_length=50, unique=True, verbose_name=_("name"))
-    description = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("description"),
-        help_text=_("Curator override; leave blank to use the translated default."),
-    )
-
-    class Meta:
-        verbose_name = _("evidence–actor relation role")
-        verbose_name_plural = _("evidence–actor relation roles")
-
-    def __str__(self):
-        return str(self.label)
-
-    @property
-    def label(self):
-        return EVIDENCE_ACTOR_ROLE_LABELS.get(self.name, self.name)
-
-    @property
-    def translated_description(self):
-        return self.description or EVIDENCE_ACTOR_ROLE_DESCRIPTIONS.get(self.name, "")
-
-
-class EvidenceActorRelation(models.Model):
-    evidence = models.ForeignKey(
-        Evidence,
-        on_delete=models.CASCADE,
-        related_name="actor_relations",
-        verbose_name=_("evidence"),
-    )
-    actor = models.ForeignKey(
-        Actor,
-        on_delete=models.PROTECT,
-        related_name="evidence_relations",
-        verbose_name=_("actor"),
-    )
-    role = models.ForeignKey(
-        EvidenceActorRelationRole,
-        to_field="name",
-        on_delete=models.PROTECT,
-        verbose_name=_("role"),
-    )
-
-    class Meta:
-        verbose_name = _("evidence–actor relation")
-        verbose_name_plural = _("evidence–actor relations")
-        constraints = [
-            models.UniqueConstraint(
-                fields=["evidence", "actor", "role"],
-                name="unique_evidence_actor_role",
-            ),
-            models.UniqueConstraint(
-                fields=["evidence"],
-                condition=models.Q(role="posted_by"),
-                name="one_posted_by_per_evidence",
-            ),
-        ]
-
-    def __str__(self):
-        return f"{self.evidence} — {self.role}: {self.actor}"
 
 
 class Collection(models.Model):
