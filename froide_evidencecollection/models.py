@@ -745,6 +745,15 @@ class EvidenceSource:
     def text_segments(self) -> list[TextSegment]:
         raise NotImplementedError
 
+    def compute_slug(self) -> str:
+        """Derive the stable public slug for an Evidence backed by this source.
+
+        Each source type owns its slug derivation because the seed is a frozen
+        public contract (see `make_evidence_slug`); the value is computed once on
+        the Evidence and never changes afterwards.
+        """
+        raise NotImplementedError
+
 
 class Evidence(TrackableModel):
     external_id = models.PositiveIntegerField(
@@ -836,13 +845,12 @@ class Evidence(TrackableModel):
         verbose_name_plural = _("pieces of evidence")
 
     def compute_slug(self) -> str:
-        post = self.social_media_post
-        return make_evidence_slug(post.account.platform, post.platform_post_id)
+        return self.source.compute_slug()
 
     def save(self, *args, **kwargs):
         # Derive the public slug once, on first save. Never recompute it: the
         # value is a frozen contract partners derive to link into our data.
-        if not self.slug and self.social_media_post_id:
+        if not self.slug and self.source is not None:
             self.slug = self.compute_slug()
         super().save(*args, **kwargs)
 
@@ -851,6 +859,11 @@ class Evidence(TrackableModel):
 
     @property
     def source(self) -> "EvidenceSource | None":
+        # Returns None when no source is attached yet (e.g. a fresh, unsaved
+        # instance), so callers can branch on `source is not None` without
+        # tripping RelatedObjectDoesNotExist on the required FK.
+        if self.social_media_post_id is None:
+            return None
         return self.social_media_post
 
     @property
@@ -1322,6 +1335,9 @@ class SocialMediaPost(EvidenceSource, models.Model):
     @property
     def publication_date(self):
         return self.posted_at.date() if self.posted_at else None
+
+    def compute_slug(self) -> str:
+        return make_evidence_slug(self.account.platform, self.platform_post_id)
 
     def exclude_from_serialization(self):
         # Large JSON payloads are persisted but excluded from diffs so

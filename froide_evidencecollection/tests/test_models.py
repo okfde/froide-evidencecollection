@@ -135,6 +135,31 @@ class TestPostMediaTextSegments:
 
 
 @pytest.mark.django_db
+class TestEvidenceSlug:
+    def test_social_media_post_slug_is_frozen_contract(self):
+        # Pins the public slug for a known (platform, post_id) seed. Partners
+        # derive the same value to link into our data, so this must never change:
+        # if it does, the seed format, hash, encoding or length has drifted.
+        post = _make_post(platform_post_id="12345")
+        assert post.compute_slug() == "u2iqeggxhv"
+
+    def test_evidence_delegates_slug_to_source(self):
+        post = _make_post(platform_post_id="12345")
+        evidence = Evidence(social_media_post=post)
+        assert evidence.compute_slug() == post.compute_slug()
+
+    def test_save_sets_slug_from_source_once(self):
+        post = _make_post(platform_post_id="12345")
+        evidence = Evidence.objects.create(social_media_post=post, external_id=1)
+        assert evidence.slug == "u2iqeggxhv"
+
+        # Never recomputed: the slug is frozen after first save even if the
+        # source's slug inputs were to change.
+        evidence.save()
+        assert evidence.slug == "u2iqeggxhv"
+
+
+@pytest.mark.django_db
 class TestParliamentFindMatchingFraction:
     def test_matches_by_organization_name(self):
         org = OrganizationFactory(organization_name="Landtagsfraktion Sachsen")
