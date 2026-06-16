@@ -15,6 +15,7 @@ from django.utils.translation import pgettext_lazy
 from treebeard.mp_tree import MP_Node
 
 from froide.georegion.models import GeoRegion
+from froide_evidencecollection.storage import OverwriteStorage, post_media_path
 from froide_evidencecollection.utils import (
     EVIDENCE_SLUG_LENGTH,
     compute_hash,
@@ -1363,9 +1364,14 @@ class BasePostMedia(TrackableModel):
     `related_name` (`images` / `videos`).
     """
 
-    file = models.FileField(
-        upload_to="post_media", max_length=255, blank=True, verbose_name=_("file")
-    )
+    # Each concrete subclass owns its media file under its own name (the shared
+    # `file` field is gone) and points these at it: `media_field_name` is the
+    # FileField/ImageField attribute, `media_subdir` the storage top-level dir
+    # (see `post_media_path`). Kept abstract here so `__str__`/serialization stay
+    # shared without the base declaring a column.
+    media_field_name = None
+    media_subdir = "post_media"
+
     source_path = models.CharField(
         max_length=512, blank=True, default="", verbose_name=_("source path")
     )
@@ -1379,11 +1385,20 @@ class BasePostMedia(TrackableModel):
     class Meta:
         abstract = True
 
+    @property
+    def media_file(self):
+        # The concrete subclass's media FieldFile, addressed generically.
+        return getattr(self, self.media_field_name) if self.media_field_name else None
+
     def __str__(self):
-        return f"{self.post} - {self.file.name or self.source_path}"
+        media = self.media_file
+        return f"{self.post} - {(media.name if media else '') or self.source_path}"
 
     def exclude_from_serialization(self):
-        return super().exclude_from_serialization() + ["file"]
+        excluded = super().exclude_from_serialization()
+        if self.media_field_name:
+            excluded = excluded + [self.media_field_name]
+        return excluded
 
 
 class PostImage(BasePostMedia):
@@ -1397,11 +1412,22 @@ class PostImage(BasePostMedia):
     overwriting `content_text` freely; it never touches the override.
     """
 
+    media_field_name = "image"
+    media_subdir = "images"
+
     post = models.ForeignKey(
         SocialMediaPost,
         on_delete=models.CASCADE,
         related_name="images",
         verbose_name=_("post"),
+    )
+    image = models.ImageField(
+        null=True,
+        blank=True,
+        max_length=255,
+        upload_to=post_media_path,
+        storage=OverwriteStorage(),
+        verbose_name=_("image"),
     )
     content_text = models.TextField(
         blank=True,
@@ -1454,6 +1480,9 @@ class PostVideo(BasePostMedia):
     full transcript is kept verbatim as a backup in `transcript_file` (e.g. an
     SRT sidecar) and is never searched.
     """
+
+    media_field_name = "file"
+    media_subdir = "videos"
 
     post = models.ForeignKey(
         SocialMediaPost,
@@ -1556,11 +1585,22 @@ class PostScreenshot(BasePostMedia):
     optional `description` for admin context, inherited from `BasePostMedia`).
     """
 
+    media_field_name = "image"
+    media_subdir = "screenshots"
+
     post = models.ForeignKey(
         SocialMediaPost,
         on_delete=models.CASCADE,
         related_name="screenshots",
         verbose_name=_("post"),
+    )
+    image = models.ImageField(
+        null=True,
+        blank=True,
+        max_length=255,
+        upload_to=post_media_path,
+        storage=OverwriteStorage(),
+        verbose_name=_("image"),
     )
 
     class Meta:

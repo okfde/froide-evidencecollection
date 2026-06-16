@@ -673,20 +673,21 @@ class JSONImporter:
         # re-import; a screenshot passes none. An image's on-screen
         # `content_text` is curator-filled (never imported), so it is untouched.
         extra_fields = extra_fields or {}
+        field_name = model.media_field_name
         self.stats.reset_instance(model)
         obj = model.objects.filter(post=post, source_path=source_path).first()
         if obj is None:
             obj = model(post=post, source_path=source_path, **extra_fields)
-            self._attach_media_file(obj, source_path)
+            self._attach_media_file(obj, source_path, field_name)
             obj.save()
             self.stats.track_created(model, obj)
             return obj
 
         old_data = to_dict(obj)
         changed = False
-        if source_path and not obj.file:
-            self._attach_media_file(obj, source_path)
-            changed = changed or bool(obj.file)
+        if source_path and not getattr(obj, field_name):
+            self._attach_media_file(obj, source_path, field_name)
+            changed = changed or bool(getattr(obj, field_name))
         for field, value in extra_fields.items():
             if not equals(getattr(obj, field), value):
                 setattr(obj, field, value)
@@ -701,7 +702,6 @@ class JSONImporter:
         video = PostVideo.objects.filter(post=post, source_path=source_path).first()
         if video is None:
             video = PostVideo(post=post, source_path=source_path)
-            self._attach_media_file(video, source_path)
             self._attach_media_file(video, transcript_path, "transcript_file")
             video.save()
             self.stats.track_created(PostVideo, video)
@@ -790,8 +790,9 @@ class JSONImporter:
     def _attach_media_file(self, media, source_path, field_name="file"):
         # Import bundles ship media as paths relative to the JSON file
         # (e.g. "./video/foo.mp4"); resolve against its directory and copy the
-        # bytes into the named FileField (`file` for the media itself,
-        # `transcript_file` for a video's SRT sidecar). A missing file is
+        # bytes into the named FieldFile (the media field — `image` for an
+        # image/screenshot, `file` for a video — or `transcript_file` for a
+        # video's SRT sidecar). A missing file is
         # tolerated — the row (and a video's excerpts) still feed text_segments —
         # but logged so the miss is visible.
         if not source_path:

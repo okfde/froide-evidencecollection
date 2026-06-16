@@ -159,7 +159,7 @@ class PostImageInline(admin.TabularInline):
     extra = 0
     fields = [
         "preview",
-        "file",
+        "image",
         "source_path",
         "description",
         "is_related_to_text",
@@ -175,10 +175,10 @@ class PostImageInline(admin.TabularInline):
     @admin.display(description=_("preview"))
     def preview(self, obj):
         # Render the image inline so editors can view it on the post page.
-        if not obj.file:
+        if not obj.image:
             return _("(no file)")
         style = "max-height: 240px; max-width: 320px;"
-        return format_html('<img src="{}" style="{}" />', obj.file.url, style)
+        return format_html('<img src="{}" style="{}" />', obj.image.url, style)
 
 
 class PostVideoInline(admin.TabularInline):
@@ -186,7 +186,6 @@ class PostVideoInline(admin.TabularInline):
     extra = 0
     fields = [
         "preview",
-        "file",
         "transcript_file",
         "source_path",
         "description",
@@ -236,7 +235,7 @@ class VideoExcerptAdmin(ReadOnlyAdmin):
 class PostScreenshotInline(admin.TabularInline):
     model = PostScreenshot
     extra = 0
-    fields = ["preview", "file", "source_path", "description"]
+    fields = ["preview", "image", "source_path", "description"]
     # A screenshot is a fully import-owned archival file (provenance); nothing
     # here is curator-editable.
     readonly_fields = fields
@@ -244,10 +243,10 @@ class PostScreenshotInline(admin.TabularInline):
     @admin.display(description=_("preview"))
     def preview(self, obj):
         # Render the screenshot inline so editors can view it on the post page.
-        if not obj.file:
+        if not obj.image:
             return _("(no file)")
         style = "max-height: 240px; max-width: 320px;"
-        return format_html('<img src="{}" style="{}" />', obj.file.url, style)
+        return format_html('<img src="{}" style="{}" />', obj.image.url, style)
 
 
 @admin.register(SocialMediaPost)
