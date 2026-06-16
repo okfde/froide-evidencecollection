@@ -185,7 +185,6 @@ class PostVideoInline(admin.TabularInline):
     model = PostVideo
     extra = 0
     fields = [
-        "preview",
         "transcript_file",
         "source_path",
         "description",
@@ -194,20 +193,8 @@ class PostVideoInline(admin.TabularInline):
     # Fully import-owned. Excerpt text (and its curator override) lives on the
     # related VideoExcerpt rows — edited via their own admin, since Django can't
     # nest an inline within an inline; here they're shown read-only for context.
+    # No media preview: a video carries no binary file (not imported).
     readonly_fields = fields
-
-    @admin.display(description=_("preview"))
-    def preview(self, obj):
-        # Render the video inline so editors can view it on the post page.
-        # A transcript-only video carries no file.
-        if not obj.file:
-            return _("(no file)")
-        style = "max-height: 240px; max-width: 320px;"
-        return format_html(
-            '<video src="{}" controls preload="metadata" style="{}"></video>',
-            obj.file.url,
-            style,
-        )
 
     @admin.display(description=_("excerpts"))
     def excerpts_summary(self, obj):

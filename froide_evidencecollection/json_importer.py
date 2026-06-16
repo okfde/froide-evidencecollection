@@ -223,6 +223,8 @@ class JSONImporter:
         self.json_path = json_path
         self.dry_run = dry_run
         self.stats = ImportStatsCollection()
+        # (storage, name) pairs written this run, deleted if the run fails.
+        self._written_media_files = []
         # (account_id, platform_post_id) -> SocialMediaPost.id
         self._post_index = {}
         # SocialMediaPost.id -> (reply_to_platform_post_id, account_id)
@@ -246,6 +248,19 @@ class JSONImporter:
 
     @transaction.atomic
     def run(self):
+        # Media files are written to storage as rows are created, but storage
+        # writes aren't transactional: if the atomic block below rolls back, the
+        # rows vanish while the files linger as orphans. Track what we write and
+        # delete it on failure. (A successful re-import would overwrite the same
+        # deterministic paths anyway, so deleting on failure is always safe.)
+        self._written_media_files = []
+        try:
+            self._run()
+        except Exception:
+            self._discard_written_media_files()
+            raise
+
+    def _run(self):
         data = self.load()
         actor_index, ambiguous = self._build_actor_index()
         # Reused by `_resolve_organization` to link functions to existing orgs.
@@ -274,6 +289,16 @@ class JSONImporter:
                     external_id += 1
 
         self._resolve_replies()
+
+    def _discard_written_media_files(self):
+        # Best-effort removal of files written during a run that then failed; a
+        # delete error is logged but never masks the original import exception.
+        for storage, name in self._written_media_files:
+            try:
+                storage.delete(name)
+            except OSError:
+                logger.warning("Could not delete orphaned media file %r", name)
+        self._written_media_files = []
 
     def log_stats(self):
         """Return collected stats in the standard ``ImportExportRun.changes`` shape."""
@@ -647,18 +672,19 @@ class JSONImporter:
                 },
             )
 
-        # `video_timestamp` (the excerpts) and the `srt_file` transcript sidecar
-        # only accompany a video file, so the video — and its excerpts — exist
-        # only when there's a file.
-        # video_path = item.get("video_file")
-        # if video_path:
-        #    report_data = item.get("report_data") or {}
-        # self._upsert_video(
-        #    post,
-        #    video_path,
-        #    report_data.get("video_timestamp") or [],
-        #    item.get("srt_file") or "",
-        # )
+        # A video's binary file is no longer imported; the row exists for its
+        # searched text (`video_timestamp` excerpts) and the `srt_file` transcript
+        # sidecar. `video_file` still marks that there's a video and supplies the
+        # `source_path` natural key.
+        video_path = item.get("video_file")
+        if video_path:
+            report_data = item.get("report_data") or {}
+            self._upsert_video(
+                post,
+                video_path,
+                report_data.get("video_timestamp") or [],
+                item.get("srt_file") or "",
+            )
 
         screenshot_path = item.get("screenshot_file")
         if screenshot_path:
@@ -708,14 +734,12 @@ class JSONImporter:
             self._sync_video_excerpts(video, timestamps)
             return video
 
-        # Backfill the media file and/or transcript on a row that predates file
-        # storage (or whose file could not be resolved on an earlier run); the
-        # excerpts are synced separately so a curator override survives re-import.
+        # Backfill the transcript sidecar on a row that predates file storage (or
+        # whose transcript could not be resolved on an earlier run); a video
+        # carries no binary media file. The excerpts are synced separately so a
+        # curator override survives re-import.
         old_data = to_dict(video)
         update = False
-        if source_path and not video.file:
-            self._attach_media_file(video, source_path)
-            update = update or bool(video.file)
         if transcript_path and not video.transcript_file:
             self._attach_media_file(video, transcript_path, "transcript_file")
             update = update or bool(video.transcript_file)
@@ -809,6 +833,9 @@ class JSONImporter:
         field = getattr(media, field_name)
         with open(abs_path, "rb") as fh:
             field.save(os.path.basename(abs_path), File(fh), save=False)
+        # Remember the written file so a later import failure can clean it up
+        # (storage writes aren't covered by the surrounding transaction).
+        self._written_media_files.append((field.storage, field.name))
 
     def _upsert_evidence(self, post, external_id, evidence_fields):
         self.stats.reset_instance(Evidence)

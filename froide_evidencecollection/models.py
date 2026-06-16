@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.functional import cached_property
@@ -1366,11 +1368,12 @@ class BasePostMedia(TrackableModel):
 
     # Each concrete subclass owns its media file under its own name (the shared
     # `file` field is gone) and points these at it: `media_field_name` is the
-    # FileField/ImageField attribute, `media_subdir` the storage top-level dir
-    # (see `post_media_path`). Kept abstract here so `__str__`/serialization stay
+    # FileField/ImageField attribute (None for a video, which no longer carries a
+    # media file), `media_subdir` its child dir under `post_media/` (see
+    # `post_media_path`). Kept abstract here so `__str__`/serialization stay
     # shared without the base declaring a column.
     media_field_name = None
-    media_subdir = "post_media"
+    media_subdir = None
 
     source_path = models.CharField(
         max_length=512, blank=True, default="", verbose_name=_("source path")
@@ -1481,8 +1484,9 @@ class PostVideo(BasePostMedia):
     SRT sidecar) and is never searched.
     """
 
-    media_field_name = "file"
-    media_subdir = "videos"
+    # A video carries no binary media file (not imported); only its transcript
+    # sidecar and the searched excerpts. So `media_field_name` stays None.
+    media_field_name = None
 
     post = models.ForeignKey(
         SocialMediaPost,
@@ -1491,10 +1495,10 @@ class PostVideo(BasePostMedia):
         verbose_name=_("post"),
     )
     # Full transcript kept verbatim as a backup (e.g. an SRT sidecar of the
-    # video). Distinct from `file`, which is the media itself. Never parsed and
-    # never searched — the excerpts carry the searched text.
+    # video). Never parsed and never searched — the excerpts carry the searched
+    # text.
     transcript_file = models.FileField(
-        upload_to="post_media",
+        upload_to="post_media/transcripts",
         max_length=255,
         blank=True,
         verbose_name=_("transcript file"),
@@ -1613,6 +1617,21 @@ class PostScreenshot(BasePostMedia):
                 name="unique_screenshot_per_post_source",
             ),
         ]
+
+
+@receiver(post_delete, sender=PostImage)
+@receiver(post_delete, sender=PostVideo)
+@receiver(post_delete, sender=PostScreenshot)
+def _delete_post_media_files(sender, instance, **kwargs):
+    # The overwrite storage doesn't deduplicate (unlike HashedFilenameStorage),
+    # so every row owns its files outright — delete them from storage when the
+    # row goes, including cascades from a deleted post/account. `save=False`
+    # because the row is already gone. Both the media file and a video's
+    # transcript sidecar are covered.
+    for field_name in (instance.media_field_name, "transcript_file"):
+        field = getattr(instance, field_name, None) if field_name else None
+        if field:
+            field.delete(save=False)
 
 
 class Collection(models.Model):

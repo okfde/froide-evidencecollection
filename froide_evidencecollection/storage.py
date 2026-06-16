@@ -26,19 +26,24 @@ class OverwriteStorage(FileSystemStorage):
         return name
 
 
+# Single top-level app directory; each media kind gets a child dir under it (see
+# each model's `media_subdir`). Keeps all post media under one tree.
+POST_MEDIA_DIR = "post_media"
+
+
 def post_media_path(instance, filename):
     """Deterministic storage path for a ``SocialMediaPost`` media file.
 
-    The top-level directory comes from the model's ``media_subdir`` so each
-    media kind (images, screenshots, videos) lives in its own tree. The rest is
-    derived from the post and the import ``source_path`` (the per-row natural
-    key) so re-importing the same source overwrites in place. The full relative
-    source path — not just the basename — is folded into the name so two sources
-    that share a basename within one post don't collide. Falls back to the
-    uploaded filename for a manually added file with no ``source_path``.
+    Files live under ``post_media/<media_subdir>/`` (one app dir, one child per
+    media kind). The filename is derived from the import ``source_path`` (the
+    per-row natural key) so re-importing the same source overwrites in place;
+    source filenames are unique within a media subdir, so no per-post prefix is
+    needed. The full relative source path — not just the basename — is folded in
+    to keep the name stable and readable. Falls back to the uploaded filename for
+    a manually added file with no ``source_path``.
     """
     source = instance.source_path or filename
     ext = os.path.splitext(source)[1].lower()
     stem = source[: len(source) - len(ext)] if ext else source
     slug = slugify(stem.strip("./").replace("/", "-")) or "file"
-    return f"{instance.media_subdir}/{instance.post_id}/{slug}{ext}"
+    return f"{POST_MEDIA_DIR}/{instance.media_subdir}/{slug}{ext}"

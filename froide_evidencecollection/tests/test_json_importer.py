@@ -128,11 +128,9 @@ class TestJSONImporter:
     def test_import_creates_post_media(self, person, tmp_path, settings):
         settings.MEDIA_ROOT = str(tmp_path / "media")
         (tmp_path / "img").mkdir()
-        (tmp_path / "video").mkdir()
         (tmp_path / "shot").mkdir()
         (tmp_path / "srt").mkdir()
         (tmp_path / "img" / "y.png").write_bytes(b"fake-image")
-        (tmp_path / "video" / "x.mp4").write_bytes(b"fake-video")
         (tmp_path / "shot" / "s.png").write_bytes(b"fake-screenshot")
         (tmp_path / "srt" / "x.srt").write_bytes(b"fake-srt")
 
@@ -183,10 +181,10 @@ class TestJSONImporter:
         assert image.is_related_to_text is True
         assert video.source_path == "./video/x.mp4"
         assert screenshot.source_path == "./shot/s.png"
-        # File bytes are copied into the FileField.
-        assert video.file.read() == b"fake-video"
-        assert image.file.read() == b"fake-image"
-        assert screenshot.file.read() == b"fake-screenshot"
+        # Image/screenshot bytes are copied into their ImageField; a video carries
+        # no binary file, only its transcript sidecar and excerpts.
+        assert image.image.read() == b"fake-image"
+        assert screenshot.image.read() == b"fake-screenshot"
         # The SRT sidecar lands in the video's transcript_file.
         assert video.transcript_file.read() == b"fake-srt"
 
@@ -204,13 +202,14 @@ class TestJSONImporter:
         assert "PostScreenshot" not in stats
 
     @pytest.mark.django_db
-    def test_reimport_backfills_missing_media_file(self, person, tmp_path, settings):
+    def test_reimport_backfills_missing_transcript(self, person, tmp_path, settings):
         settings.MEDIA_ROOT = str(tmp_path / "media")
-        (tmp_path / "video").mkdir()
-        media_file = tmp_path / "video" / "x.mp4"
+        (tmp_path / "srt").mkdir()
+        transcript = tmp_path / "srt" / "x.srt"
 
         post = _make_post(
             video_file="./video/x.mp4",
+            srt_file="./srt/x.srt",
             report_data={"footnote_url": ["https://t.me/example/1"]},
         )
         path = _write_dump(
@@ -223,19 +222,19 @@ class TestJSONImporter:
             },
         )
 
-        # First run: the file isn't on disk yet, so the row is created without
-        # one (the historical situation that left 0 files attached).
+        # First run: the transcript isn't on disk yet, so the row is created
+        # without one (the historical situation that left 0 files attached).
         JSONImporter(path).run()
         m = PostVideo.objects.get()
-        assert not m.file
+        assert not m.transcript_file
         assert m.source_path == "./video/x.mp4"
 
-        # The file becomes available; a re-import backfills it onto the
+        # The transcript becomes available; a re-import backfills it onto the
         # existing row rather than skipping it via the update branch.
-        media_file.write_bytes(b"fake-video")
+        transcript.write_bytes(b"fake-srt")
         JSONImporter(path).run()
         assert PostVideo.objects.count() == 1
-        assert PostVideo.objects.get().file.read() == b"fake-video"
+        assert PostVideo.objects.get().transcript_file.read() == b"fake-srt"
 
     @pytest.mark.django_db
     def test_video_timestamps_become_ordered_excerpts(self, person, tmp_path):
