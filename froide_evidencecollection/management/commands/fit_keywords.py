@@ -219,7 +219,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--ngram-max",
             type=int,
-            default=1,
+            default=2,
             help=(
                 "Longest keyphrase length in words: 1 = single words only, "
                 "2 = also bigrams, 3 = also trigrams (default: 2)."
