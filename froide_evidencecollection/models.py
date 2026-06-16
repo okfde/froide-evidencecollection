@@ -725,6 +725,13 @@ class TextSegment:
     def is_redistributed(self) -> bool:
         return self.kind.startswith("redistributed:")
 
+    @property
+    def base_kind(self) -> str:
+        # The semantic kind without the `redistributed:` prefix, so the detail
+        # view can pick a per-kind style (quote / post / caption / …) without
+        # branching on provenance. Mirrors `_topic_sort_key`'s split.
+        return self.kind.split(":", 1)[1] if self.is_redistributed else self.kind
+
 
 class EvidenceSource:
     """
@@ -1338,6 +1345,27 @@ class SocialMediaPost(EvidenceSource, models.Model):
     @property
     def publication_date(self):
         return self.posted_at.date() if self.posted_at else None
+
+    @cached_property
+    def visible_screenshots(self):
+        # Archival screenshots that actually carry an image file, for the
+        # detail view's provenance display. Reads the prefetched `screenshots`.
+        return [s for s in self.screenshots.all() if s.image]
+
+    @cached_property
+    def media_descriptions(self):
+        # (kind, text) for each attached image/video that has a description,
+        # for the detail view's Visual material section. The media files
+        # themselves are admin-only and not shown publicly; only what they
+        # depict. Reads the prefetched `images` / `videos`.
+        out = []
+        for img in self.images.all():
+            if img.description and img.description.strip():
+                out.append(("image", img.description.strip()))
+        for video in self.videos.all():
+            if video.description and video.description.strip():
+                out.append(("video", video.description.strip()))
+        return out
 
     def compute_slug(self) -> str:
         return make_evidence_slug(self.account.platform, self.platform_post_id)

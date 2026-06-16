@@ -260,6 +260,7 @@ class EvidenceDetailView(EvidenceMixin, DetailView):
             "attachments",
             "social_media_post__images",
             "social_media_post__videos__excerpts",
+            "social_media_post__screenshots",
         )
 
     def get_breadcrumbs(self, context):
