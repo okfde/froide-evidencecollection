@@ -650,15 +650,15 @@ class JSONImporter:
         # `video_timestamp` (the excerpts) and the `srt_file` transcript sidecar
         # only accompany a video file, so the video — and its excerpts — exist
         # only when there's a file.
-        video_path = item.get("video_file")
-        if video_path:
-            report_data = item.get("report_data") or {}
-            self._upsert_video(
-                post,
-                video_path,
-                report_data.get("video_timestamp") or [],
-                item.get("srt_file") or "",
-            )
+        # video_path = item.get("video_file")
+        # if video_path:
+        #    report_data = item.get("report_data") or {}
+        # self._upsert_video(
+        #    post,
+        #    video_path,
+        #    report_data.get("video_timestamp") or [],
+        #    item.get("srt_file") or "",
+        # )
 
         screenshot_path = item.get("screenshot_file")
         if screenshot_path:
