@@ -2,7 +2,10 @@
 Seed an evidence's originators from observation-layer source data.
 
 Maps the originating actor recorded on an evidence's source (a
-SocialMediaPost) onto the evidence's `originators` relation.
+SocialMediaPost) onto the evidence's quotes' `originators` relation —
+originators live on the claim (`Quote`), not the evidence, so the post's
+author is seeded as the default originator of each of the evidence's quotes
+(a curator can override per quote, e.g. for a multi-speaker video).
 
 Idempotent: re-running adds nothing already present (M2M `add` is a no-op
 for existing members), so curator edits are preserved across re-runs.
@@ -29,4 +32,5 @@ def _seed_from_social_media_post(evidence: Evidence, post: SocialMediaPost) -> N
 
 
 def _ensure_originator(evidence: Evidence, actor: Actor) -> None:
-    evidence.originators.add(actor)
+    for quote in evidence.quotes.all():
+        quote.originators.add(actor)

@@ -32,13 +32,14 @@ from .models import (
     Category,
     Chapter,
     Evidence,
-    EvidenceMention,
     EvidenceType,
     InstitutionalLevel,
     Keyword,
     KeywordGroup,
     Organization,
     PoliticalPosition,
+    Quote,
+    Reference,
     Role,
     SocialMediaAccount,
 )
@@ -47,7 +48,9 @@ from .models import (
 class EvidenceExporter:
     EXPORT_FIELDS = [
         ("id", _("Id")),
-        ("citation", _("Citation")),
+        # Citation text now lives on the evidence's quotes (deduped cited spans);
+        # join them for the flat export.
+        ("quotes__text", _("Citation")),
         ("description", _("Description")),
         ("documentation_date", _("Documentation Date")),
         ("evidence_type__name", _("Evidence Type")),
@@ -249,17 +252,19 @@ class EvidenceDetailView(EvidenceMixin, DetailView):
             "evidence_type",
             "social_media_post__account",
         ).prefetch_related(
-            "originators__person__status",
-            "originators__organization__institutional_level",
-            "related_actors__person__status",
-            "related_actors__organization__institutional_level",
+            # Originators/related actors/keywords live on the quotes now, so the
+            # evidence reaches them through `quotes`.
+            "quotes__originators__person__status",
+            "quotes__originators__organization__institutional_level",
+            "quotes__related_actors__person__status",
+            "quotes__related_actors__organization__institutional_level",
             # Only enabled keywords — a curator-disabled keyword is suppressed
             # everywhere, including this listing (mirrors the topic cloud).
-            Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
-            "mentions__category",
+            Prefetch("quotes__keywords", queryset=Keyword.objects.filter(enabled=True)),
+            "quotes__references__category",
             "attachments",
             "social_media_post__images",
-            "social_media_post__videos__excerpts",
+            "social_media_post__videos",
         )
 
     def get_breadcrumbs(self, context):
@@ -278,12 +283,12 @@ EVIDENCE_CARD_SELECT_RELATED = (
     "social_media_post__account",
 )
 EVIDENCE_CARD_PREFETCH_RELATED = (
-    "originators__person__status",
-    "originators__organization__institutional_level",
-    "mentions__category",
+    "quotes__originators__person__status",
+    "quotes__originators__organization__institutional_level",
+    "quotes__references__category",
     "attachments",
     "social_media_post__images",
-    "social_media_post__videos__excerpts",
+    "social_media_post__videos",
 )
 
 ACTOR_PROFILE_EVIDENCE_LIMIT = 20
@@ -309,17 +314,17 @@ class ActorDetailView(DetailView):
         context = super().get_context_data(**kwargs)
         actor = self.object
 
-        # "Originated by this actor" vs. "Related" — the two plain M2M fields
-        # on Evidence (`originators` / `related_actors`).
+        # "Originated by this actor" vs. "Related" — the actor relations now live
+        # on the evidence's quotes, so we match through `quotes`.
         originated = (
-            Evidence.objects.filter(originators=actor)
+            Evidence.objects.filter(quotes__originators=actor)
             .select_related(*EVIDENCE_CARD_SELECT_RELATED)
             .prefetch_related(*EVIDENCE_CARD_PREFETCH_RELATED)
             .order_by("-pk")
             .distinct()
         )
         related = (
-            Evidence.objects.filter(related_actors=actor)
+            Evidence.objects.filter(quotes__related_actors=actor)
             .select_related(*EVIDENCE_CARD_SELECT_RELATED)
             .prefetch_related(*EVIDENCE_CARD_PREFETCH_RELATED)
             .order_by("-pk")
@@ -547,9 +552,11 @@ class DashboardView(EvidenceListView):
 
         # Discovery tiles only render in the empty state, but populating them
         # unconditionally costs little and keeps the template branchless.
+        # Originators live on quotes now, so an actor's evidence count is the
+        # distinct evidences behind the quotes it originated.
         context["top_originators"] = (
             Actor.objects.annotate(
-                evidence_count=Count("originated_evidence", distinct=True)
+                evidence_count=Count("originated_quotes__evidence", distinct=True)
             )
             .filter(evidence_count__gt=0)
             .order_by("-evidence_count", "name")[:10]
@@ -674,8 +681,10 @@ class EvidenceTopicCloudView(TemplateView):
     # Relation path from an Evidence to the political positions held by the
     # posting actor's person. Only social-media-post evidence reaches it;
     # document-backed evidence has no account/actor and falls out.
+    # Relative to the cloud's queryset root, which is now `Quote`, so the path
+    # to the posting person's positions runs through the quote's evidence.
     POLITICAL_POSITION_PREFIX = (
-        "social_media_post__account__actor__person__political_positions"
+        "evidence__social_media_post__account__actor__person__political_positions"
     )
 
     @classmethod
@@ -792,7 +801,7 @@ class EvidenceTopicCloudView(TemplateView):
         if not attr_conds:
             return None
 
-        posted_date = TruncDate("social_media_post__posted_at")
+        posted_date = TruncDate("evidence__social_media_post__posted_at")
         active = (
             Q(**{f"{pp}__start_date__isnull": True})
             | Q(**{f"{pp}__start_date__lte": posted_date})
@@ -810,60 +819,65 @@ class EvidenceTopicCloudView(TemplateView):
         # fetched + deserialized for every joined row, and they're not used
         # here. The account fields are pulled via select_related so the SR
         # outline reads them without an N+1. ``topic_fit_at__isnull=False`` is
-        # the "is fitted" gate — only fitted evidence has the embedding coords
-        # the cloud plots; the cluster itself is no longer surfaced (and the
-        # keyword fit no longer sets the `topic` FK at all).
-        # Account-derived facets traverse the `social_media_post` source.
+        # the "is fitted" gate — only fitted quotes have the embedding coords the
+        # cloud plots; the cluster itself is no longer surfaced (and the keyword
+        # fit no longer sets the `topic` FK at all). The fitted unit is the
+        # `Quote` (the atomic claim), reached for source/account facets through
+        # its `evidence`.
         qs = (
-            Evidence.objects.filter(topic_fit_at__isnull=False)
+            Quote.objects.filter(topic_fit_at__isnull=False)
             .select_related(
-                "social_media_post__account__actor",
+                "evidence__social_media_post__account__actor",
             )
             # Media is a reverse FK (to-many), so it can't ride select_related;
-            # prefetch it for `_snippet`'s transcription read. `keywords` is the
+            # prefetch it for `_snippet`'s full-source read. `keywords` is the
             # facet index, read in-memory by `_build_facets`; prefetch only the
             # enabled ones so curator-disabled keywords never reach the view.
             .prefetch_related(
-                "social_media_post__images",
-                "social_media_post__videos__excerpts",
+                "evidence__social_media_post__images",
+                "evidence__social_media_post__videos",
                 Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
             )
             .only(
                 "pk",
-                "citation",
-                "description",
+                "text",
+                "text_override",
+                "is_full_source",
                 "topic_id",
                 "topic_x",
                 "topic_y",
-                "social_media_post__url",
-                "social_media_post__title",
-                "social_media_post__text",
-                "social_media_post__posted_at",
-                "social_media_post__account__platform",
-                "social_media_post__account__username",
-                "social_media_post__account__actor",
-                "document__url",
-                "document__title",
-                "document__text",
-                "document__published_at",
+                "evidence__slug",
+                "evidence__description",
+                "evidence__social_media_post__url",
+                "evidence__social_media_post__title",
+                "evidence__social_media_post__text",
+                "evidence__social_media_post__posted_at",
+                "evidence__social_media_post__account__platform",
+                "evidence__social_media_post__account__username",
+                "evidence__social_media_post__account__actor",
             )
-            .order_by("-social_media_post__posted_at", "-pk")
+            .order_by("-evidence__social_media_post__posted_at", "-pk")
         )
 
         params = self.request.GET
         q = (params.get("q") or "").strip()
         if q:
-            # The media join (a to-many) can multiply rows, so de-dupe.
+            # The media join (a to-many) can multiply rows, so de-dupe. Searches
+            # the quote's own cited text plus the source text behind it.
             qs = qs.filter(
-                Q(social_media_post__title__icontains=q)
-                | Q(social_media_post__text__icontains=q)
-                | Q(social_media_post__images__content_text__icontains=q)
-                | Q(social_media_post__images__content_text_override__icontains=q)
-                | Q(social_media_post__videos__excerpts__text__icontains=q)
-                | Q(social_media_post__videos__excerpts__text_override__icontains=q)
-                | Q(document__text__icontains=q)
-                | Q(citation__icontains=q)
-                | Q(description__icontains=q)
+                Q(text__icontains=q)
+                | Q(text_override__icontains=q)
+                | Q(evidence__social_media_post__title__icontains=q)
+                | Q(evidence__social_media_post__text__icontains=q)
+                | Q(evidence__social_media_post__images__content_text__icontains=q)
+                | Q(
+                    evidence__social_media_post__images__content_text_override__icontains=q
+                )
+                | Q(evidence__social_media_post__videos__transcript__icontains=q)
+                | Q(
+                    evidence__social_media_post__videos__transcript_override__icontains=q
+                )
+                | Q(evidence__description__icontains=q)
             ).distinct()
 
         # Topic (keyword group): the broad entry point, single-select. Selecting
@@ -891,7 +905,7 @@ class EvidenceTopicCloudView(TemplateView):
             chapter = Chapter.objects.filter(pk=chapter_id).first()
             if chapter is not None:
                 subtree = Chapter.get_tree(chapter)
-                qs = qs.filter(mentions__chapter__in=subtree).distinct()
+                qs = qs.filter(references__chapter__in=subtree).distinct()
 
         # Keyword facets: narrow to evidence whose text actually contains the
         # selected keyword lemma(s), via the Evidence↔Keyword index. Several
@@ -905,11 +919,11 @@ class EvidenceTopicCloudView(TemplateView):
 
         platform = (params.get("platform") or "").strip()
         if platform:
-            qs = qs.filter(social_media_post__account__platform=platform)
+            qs = qs.filter(evidence__social_media_post__account__platform=platform)
 
         for name, lookup in (
-            ("posted_after", "social_media_post__posted_at__date__gte"),
-            ("posted_before", "social_media_post__posted_at__date__lte"),
+            ("posted_after", "evidence__social_media_post__posted_at__date__gte"),
+            ("posted_before", "evidence__social_media_post__posted_at__date__lte"),
         ):
             value = (params.get(name) or "").strip()
             if value:
@@ -918,7 +932,9 @@ class EvidenceTopicCloudView(TemplateView):
         actor = (params.get("actor") or "").strip()
         if actor:
             try:
-                qs = qs.filter(social_media_post__account__actor_id=int(actor))
+                qs = qs.filter(
+                    evidence__social_media_post__account__actor_id=int(actor)
+                )
             except ValueError:
                 pass
 
@@ -932,29 +948,31 @@ class EvidenceTopicCloudView(TemplateView):
         return qs
 
     @classmethod
-    def _snippet(cls, evidence):
-        # Source text for the outline. Reads the post's own fields directly
-        # rather than `search_text` so it stays within the prefetched columns
-        # and doesn't recurse into redistributed posts.
-        # Media text is read from the prefetched `images` / `videos__excerpts`
-        # relations: an image's on-screen text plus each video excerpt's text.
-        post = evidence.social_media_post
-        if post is not None:
-            media_bits = [
-                img.resolved_content_text
-                for img in post.images.all()
-                if img.resolved_content_text
-            ]
-            media_bits += [
-                excerpt.resolved_text
-                for video in post.videos.all()
-                for excerpt in video.excerpts.all()
-                if excerpt.resolved_text
-            ]
-            media_text = " ".join(media_bits)
-            raw_parts = (post.title, post.text, media_text)
+    def _snippet(cls, quote):
+        # Text for a dot's outline/hover. A sub-quote shows its own cited text;
+        # a full-source quote falls back to the post's own fields (title, text,
+        # media on-screen text + transcript), read from the prefetched relations
+        # so it stays query-free and doesn't recurse into redistributed posts.
+        if not quote.is_full_source and quote.resolved_text.strip():
+            raw_parts = (quote.resolved_text,)
         else:
-            raw_parts = (evidence.description,)
+            evidence = quote.evidence
+            post = evidence.social_media_post if evidence.social_media_post_id else None
+            if post is not None:
+                media_bits = [
+                    img.resolved_content_text
+                    for img in post.images.all()
+                    if img.resolved_content_text
+                ]
+                media_bits += [
+                    video.resolved_transcript
+                    for video in post.videos.all()
+                    if video.resolved_transcript
+                ]
+                media_text = " ".join(media_bits)
+                raw_parts = (post.title, post.text, media_text)
+            else:
+                raw_parts = (evidence.description,)
         parts = [p.strip() for p in raw_parts if p and p.strip()]
         text = " — ".join(parts)
         if len(text) > cls.SNIPPET_CHARS:
@@ -984,7 +1002,7 @@ class EvidenceTopicCloudView(TemplateView):
         groups = (
             KeywordGroup.objects.annotate(
                 count=Count(
-                    "keywords__evidences",
+                    "keywords__quotes",
                     filter=Q(keywords__enabled=True),
                     distinct=True,
                 )
@@ -1069,20 +1087,20 @@ class EvidenceTopicCloudView(TemplateView):
                 path = path[:-steplen]  # step to the parent path
             main_chain[c.id] = chain
 
-        # Distinct topic-fitted evidence per main-topic node, in one pass over the
-        # mention↔chapter pairs: a mention at chapter ``c`` counts toward every
-        # main-topic node on ``c``'s path, so subtree subsumption falls out for
-        # free (and a node inherits all its descendants' evidence).
+        # Distinct topic-fitted quotes per main-topic node, in one pass over the
+        # reference↔chapter pairs: a reference at chapter ``c`` counts its quote
+        # toward every main-topic node on ``c``'s path, so subtree subsumption
+        # falls out for free (and a node inherits all its descendants' quotes).
         coverage: dict[int, set[int]] = defaultdict(set)
-        pairs = EvidenceMention.objects.filter(
-            evidence__topic_fit_at__isnull=False, chapter__isnull=False
-        ).values_list("evidence_id", "chapter_id")
-        for ev_id, ch_id in pairs:
+        pairs = Reference.objects.filter(
+            quote__topic_fit_at__isnull=False, chapter__isnull=False
+        ).values_list("quote_id", "chapter_id")
+        for quote_id, ch_id in pairs:
             for mt_id in main_chain.get(ch_id, ()):
-                coverage[mt_id].add(ev_id)
-        counts = {mt_id: len(ev_ids) for mt_id, ev_ids in coverage.items()}
+                coverage[mt_id].add(quote_id)
+        counts = {mt_id: len(quote_ids) for mt_id, quote_ids in coverage.items()}
 
-        # Condensed parent links among the evidence-bearing main-topic nodes:
+        # Condensed parent links among the quote-bearing main-topic nodes:
         # a node's parent is the second entry of its chain (the first being
         # itself); a node with no main-topic ancestor is a root.
         children: dict[int, list[int]] = defaultdict(list)
@@ -1360,12 +1378,12 @@ class EvidenceTopicCloudView(TemplateView):
         # running a second COUNT query against the filtered set.
         fetched = list(qs[: self.MAX_EVIDENCE + 1])
         truncated = len(fetched) > self.MAX_EVIDENCE
-        evidences = fetched[: self.MAX_EVIDENCE]
-        _mark(f"fetch evidence ({len(evidences)})")
+        quotes = fetched[: self.MAX_EVIDENCE]
+        _mark(f"fetch quotes ({len(quotes)})")
 
         # Dot positions are pinned to the *unfiltered* embedding extents so a
         # dot keeps the same screen position as filters narrow the visible set.
-        bounds_agg = Evidence.objects.filter(
+        bounds_agg = Quote.objects.filter(
             topic__isnull=False,
             topic_x__isnull=False,
             topic_y__isnull=False,
@@ -1400,7 +1418,7 @@ class EvidenceTopicCloudView(TemplateView):
         # the basis of each keyword's cached `df`.
         group_color = self._assign_group_colors(group_options)
         group_label = {o["id"]: o["label"] for o in group_options}
-        n_docs = Evidence.objects.filter(topic__isnull=False).count()
+        n_docs = Quote.objects.filter(topic__isnull=False).count()
         _mark("topic colours")
 
         # Main-topic bar: a hierarchical, single-select filter over the report's
@@ -1419,13 +1437,13 @@ class EvidenceTopicCloudView(TemplateView):
         # superset; this is the exact, per-evidence cut. Single-select → one id.
         if selected_group_ids:
             gid = selected_group_ids[0]
-            evidences = [e for e in evidences if self._dominant_group(e, n_docs) == gid]
-            _mark(f"dominant-group filter ({len(evidences)})")
+            quotes = [q for q in quotes if self._dominant_group(q, n_docs) == gid]
+            _mark(f"dominant-group filter ({len(quotes)})")
 
         # Cloud points — keep dotted only if we have coordinates. Each dot is
         # tinted by its dominant keyword group (neutral when ungrouped).
         plottable = [
-            e for e in evidences if e.topic_x is not None and e.topic_y is not None
+            q for q in quotes if q.topic_x is not None and q.topic_y is not None
         ]
         # Render every <circle> as a single string in Python instead of
         # looping in the template. With ~1000 points the template loop is the
@@ -1434,28 +1452,32 @@ class EvidenceTopicCloudView(TemplateView):
         esc = html.escape
         circle_parts = []
         for pt in self._project(plottable, bounds=bounds):
-            ev = pt["post"]
-            # Account-derived bits come from the social-media-post source;
-            # document-backed evidence leaves them blank.
-            account = ev.social_media_post.account if ev.social_media_post_id else None
+            q = pt["post"]
+            evidence = q.evidence
+            # Account-derived bits come from the quote's evidence's post source.
+            account = (
+                evidence.social_media_post.account
+                if evidence.social_media_post_id
+                else None
+            )
             platform = account.get_platform_display() if account else ""
             username = account.username if account and account.username else ""
             # The dot's actor, so the side panel can highlight one actor's dots.
             actor_id = account.actor_id if account and account.actor_id else ""
-            pub_date = ev.source.publication_date if ev.source else None
+            pub_date = evidence.source.publication_date if evidence.source else None
             posted_on = pub_date.isoformat() if pub_date else ""
             # Tint by dominant keyword group; `data-group` carries the id so a
             # later group-highlight interaction can key off it client-side.
-            group_id = self._dominant_group(ev, n_docs)
+            group_id = self._dominant_group(q, n_docs)
             fill = group_color.get(group_id, self.DOT_COLOR)
             circle_parts.append(
-                f'<circle data-href="{esc(ev.get_absolute_url())}"'
+                f'<circle data-href="{esc(evidence.get_absolute_url())}"'
                 f' data-platform="{esc(platform)}"'
                 f' data-username="{esc(username)}"'
                 f' data-actor="{actor_id}"'
                 f' data-group="{group_id if group_id is not None else ""}"'
                 f' data-posted-on="{posted_on}"'
-                f' data-snippet="{esc(self._snippet(ev))}"'
+                f' data-snippet="{esc(self._snippet(q))}"'
                 f' cx="{pt["cx"]}" cy="{pt["cy"]}"'
                 f' r="4"'
                 f' fill="{fill}"></circle>'
@@ -1470,8 +1492,9 @@ class EvidenceTopicCloudView(TemplateView):
         # that actor's dots client-side rather than filtering. One `in_bulk`
         # resolves the names/labels so the panel reads like the actor dropdown.
         actor_counts = {}
-        for ev in evidences:
-            post = ev.social_media_post if ev.social_media_post_id else None
+        for q in quotes:
+            evidence = q.evidence
+            post = evidence.social_media_post if evidence.social_media_post_id else None
             actor_id = post.account.actor_id if post and post.account_id else None
             if actor_id:
                 actor_counts[actor_id] = actor_counts.get(actor_id, 0) + 1
@@ -1490,22 +1513,22 @@ class EvidenceTopicCloudView(TemplateView):
         # evidence, newest first (the queryset is already date-ordered). Capped
         # at OUTLINE_MAX_EVIDENCE so the hidden DOM stays bounded; the remainder
         # is summarised with a "narrow the filters" note.
-        outline_shown = evidences[: self.OUTLINE_MAX_EVIDENCE]
+        outline_shown = quotes[: self.OUTLINE_MAX_EVIDENCE]
         outline_items = [
             {
-                # `post` feeds the optional account/title line; it is the post
-                # source (None for document-backed evidence, which then renders
-                # snippet-only). `url` always points at the evidence detail page
-                # so every source type gets a working link. `posted_on` uses the
-                # source's publication date so documents still show a date.
-                "post": ev.social_media_post,
-                "url": ev.get_absolute_url(),
-                "snippet": self._snippet(ev),
-                "posted_on": ev.source.publication_date if ev.source else None,
+                # `post` feeds the optional account/title line. `url` points at
+                # the quote's evidence detail page. `posted_on` uses the source's
+                # publication date.
+                "post": q.evidence.social_media_post,
+                "url": q.evidence.get_absolute_url(),
+                "snippet": self._snippet(q),
+                "posted_on": (
+                    q.evidence.source.publication_date if q.evidence.source else None
+                ),
             }
-            for ev in outline_shown
+            for q in outline_shown
         ]
-        outline_hidden_count = max(0, len(evidences) - len(outline_shown))
+        outline_hidden_count = max(0, len(quotes) - len(outline_shown))
         _mark(f"outline ({len(outline_items)})")
 
         # Look up the currently-selected actor so the combobox button can
@@ -1525,7 +1548,7 @@ class EvidenceTopicCloudView(TemplateView):
         # chip, nor lingers in the resubmitted form state.
         selected_keywords = self._selected_enabled_keywords(self.request.GET)
         facets = self._build_facets(
-            evidences,
+            quotes,
             selected_keywords,
             # An enabled keyword selection (or a group) narrows the set too, so
             # it also turns on keyness — but only once disabled/unknown lemmas
@@ -1548,7 +1571,7 @@ class EvidenceTopicCloudView(TemplateView):
 
         actors = list(
             Actor.objects.filter(
-                social_media_accounts__posts__evidence__topic__isnull=False
+                social_media_accounts__posts__evidence__quotes__topic__isnull=False
             )
             .distinct()
             .order_by("name")
@@ -1563,7 +1586,7 @@ class EvidenceTopicCloudView(TemplateView):
         # position at post time (see `_political_position_q`); the options here
         # are just the universe of values, not time-bounded.
         pp_qs = PoliticalPosition.objects.filter(
-            person__actor__social_media_accounts__posts__evidence__topic_fit_at__isnull=False
+            person__actor__social_media_accounts__posts__evidence__quotes__topic_fit_at__isnull=False
         )
         role_ids = set(
             pp_qs.filter(role__isnull=False).values_list("role_id", flat=True)
@@ -1588,12 +1611,12 @@ class EvidenceTopicCloudView(TemplateView):
         # the active filters (like the embedding bounds above). The current
         # selection is parsed back out of the date params the filter applies, so
         # an empty selection lands the handles at the full extent.
-        year_agg = Evidence.objects.filter(
+        year_agg = Quote.objects.filter(
             topic__isnull=False,
-            social_media_post__posted_at__isnull=False,
+            evidence__social_media_post__posted_at__isnull=False,
         ).aggregate(
-            earliest=Min("social_media_post__posted_at"),
-            latest=Max("social_media_post__posted_at"),
+            earliest=Min("evidence__social_media_post__posted_at"),
+            latest=Max("evidence__social_media_post__posted_at"),
         )
         year_min = year_agg["earliest"].year if year_agg["earliest"] else None
         year_max = year_agg["latest"].year if year_agg["latest"] else None
@@ -1613,7 +1636,7 @@ class EvidenceTopicCloudView(TemplateView):
                 "cloud_point_count": cloud_point_count,
                 "svg_width": self.SVG_WIDTH,
                 "svg_height": self.SVG_HEIGHT,
-                "evidence_count": len(evidences),
+                "evidence_count": len(quotes),
                 "truncated": truncated,
                 "max_evidence": self.MAX_EVIDENCE,
                 "keyword_groups": group_options,

@@ -1,5 +1,4 @@
 import json
-from datetime import timedelta
 
 import pytest
 
@@ -8,13 +7,13 @@ from froide_evidencecollection.models import (
     Actor,
     Chapter,
     Evidence,
-    EvidenceMention,
     PostImage,
     PostScreenshot,
     PostVideo,
+    Quote,
+    Reference,
     SocialMediaAccount,
     SocialMediaPost,
-    VideoExcerpt,
 )
 
 from .factories import OrganizationFactory, PersonFactory
@@ -112,11 +111,14 @@ class TestJSONImporter:
         assert Actor.objects.count() == 1
 
         stats = importer.log_stats()
+        # With no report_data the evidence still gets its whole-post claim: one
+        # full-source Quote.
         assert set(stats.keys()) == {
             "Actor",
             "SocialMediaAccount",
             "SocialMediaPost",
             "Evidence",
+            "Quote",
         }
         for model_stats in stats.values():
             assert len(model_stats["created"]) == 1
@@ -142,12 +144,14 @@ class TestJSONImporter:
             # German JA/NEIN flag for whether the image relates to the text.
             image_alt_text={"alt_text": "A protest sign", "text_bezug_zum_bild": "JA"},
             video_file="./video/x.mp4",
+            # The full transcript text (searched/displayed).
+            transcription="spoken words in the video",
             # `srt_file` is the video's transcript sidecar (single path string).
             srt_file="./srt/x.srt",
             # `screenshot_file` is a single path string.
             screenshot_file="./shot/s.png",
             # `report_data` is currently required by the importer (temporary).
-            # `video_timestamp` carries the video's excerpts.
+            # `video_timestamp` is parked verbatim on the video.
             report_data={
                 "footnote_url": ["https://t.me/example/1"],
                 "video_timestamp": [
@@ -165,26 +169,33 @@ class TestJSONImporter:
             },
         )
 
-        JSONImporter(path).run()
+        importer = JSONImporter(path)
+        importer.run()
+        # The created-media diffs must be JSON-serializable — every media model
+        # excludes its FileField(s) from serialization, so a FieldFile never
+        # reaches ImportExportRun.changes (regression guard for the screenshot
+        # file that briefly slipped through).
+        json.dumps(importer.log_stats())
 
         sm_post = SocialMediaPost.objects.get()
         image = sm_post.images.get()
         video = sm_post.videos.get()
         screenshot = sm_post.screenshots.get()
-        # The video_timestamp entry becomes the video's (order 0) excerpt, with
-        # "HH:MM:SS" parsed into start/end durations.
-        excerpt = video.excerpts.get()
-        assert excerpt.text == "spoken words"
-        assert excerpt.start == timedelta(seconds=1)
-        assert excerpt.end == timedelta(seconds=5)
+        # The full transcript is stored as searchable text; the video file is
+        # not stored (only its source path is kept for reference).
+        assert video.transcript == "spoken words in the video"
+        assert video.source_path == "./video/x.mp4"
+        # The report's time ranges are parked verbatim, decoupled from quotes.
+        assert video.timestamps == [
+            {"start": "00:00:01", "end": "00:00:05", "excerpt": "spoken words"}
+        ]
         assert image.content_text == ""
         # Alt-text fields land on the image; JA -> True.
         assert image.description == "A protest sign"
         assert image.is_related_to_text is True
-        assert video.source_path == "./video/x.mp4"
         assert screenshot.source_path == "./shot/s.png"
-        # File bytes are copied into the FileField.
-        assert video.file.read() == b"fake-video"
+        # File bytes are copied into the FileField for the image and screenshot
+        # (the video keeps no file).
         assert image.file.read() == b"fake-image"
         assert screenshot.file.read() == b"fake-screenshot"
         # The SRT sidecar lands in the video's transcript_file.
@@ -195,22 +206,20 @@ class TestJSONImporter:
         importer.run()
         assert PostImage.objects.count() == 1
         assert PostVideo.objects.count() == 1
-        assert VideoExcerpt.objects.count() == 1
         assert PostScreenshot.objects.count() == 1
         stats = importer.log_stats()
         assert "PostImage" not in stats
         assert "PostVideo" not in stats
-        assert "VideoExcerpt" not in stats
         assert "PostScreenshot" not in stats
 
     @pytest.mark.django_db
     def test_reimport_backfills_missing_media_file(self, person, tmp_path, settings):
         settings.MEDIA_ROOT = str(tmp_path / "media")
-        (tmp_path / "video").mkdir()
-        media_file = tmp_path / "video" / "x.mp4"
+        (tmp_path / "img").mkdir()
+        media_file = tmp_path / "img" / "y.png"
 
         post = _make_post(
-            video_file="./video/x.mp4",
+            image_file="./img/y.png",
             report_data={"footnote_url": ["https://t.me/example/1"]},
         )
         path = _write_dump(
@@ -226,29 +235,29 @@ class TestJSONImporter:
         # First run: the file isn't on disk yet, so the row is created without
         # one (the historical situation that left 0 files attached).
         JSONImporter(path).run()
-        m = PostVideo.objects.get()
+        m = PostImage.objects.get()
         assert not m.file
-        assert m.source_path == "./video/x.mp4"
+        assert m.source_path == "./img/y.png"
 
         # The file becomes available; a re-import backfills it onto the
         # existing row rather than skipping it via the update branch.
-        media_file.write_bytes(b"fake-video")
+        media_file.write_bytes(b"fake-image")
         JSONImporter(path).run()
-        assert PostVideo.objects.count() == 1
-        assert PostVideo.objects.get().file.read() == b"fake-video"
+        assert PostImage.objects.count() == 1
+        assert PostImage.objects.get().file.read() == b"fake-image"
 
     @pytest.mark.django_db
-    def test_video_timestamps_become_ordered_excerpts(self, person, tmp_path):
+    def test_video_timestamps_are_parked_verbatim(self, person, tmp_path):
+        timestamps = [
+            {"start": "00:00:10", "end": "00:00:20", "excerpt": "first"},
+            {"start": "01:02:03", "end": "01:02:30", "excerpt": "second"},
+        ]
         post = _make_post(
             video_file="./video/x.mp4",
+            transcription="full transcript",
             report_data={
                 "footnote_url": ["https://t.me/example/1"],
-                "video_timestamp": [
-                    {"start": "00:00:10", "end": "00:00:20", "excerpt": "first"},
-                    # An entirely-empty entry is skipped, not stored as a row.
-                    {"start": None, "end": None, "excerpt": None},
-                    {"start": "01:02:03", "end": "01:02:30", "excerpt": "second"},
-                ],
+                "video_timestamp": timestamps,
             },
         )
         path = _write_dump(
@@ -264,18 +273,19 @@ class TestJSONImporter:
         JSONImporter(path).run()
 
         video = PostVideo.objects.get()
-        # The empty entry is dropped; the two real ones become ordered excerpts.
-        excerpts = list(video.excerpts.all())
-        assert [(e.order, e.text) for e in excerpts] == [(0, "first"), (1, "second")]
-        assert excerpts[0].start == timedelta(seconds=10)
-        assert excerpts[0].end == timedelta(seconds=20)
-        assert excerpts[1].start == timedelta(hours=1, minutes=2, seconds=3)
+        # The report's ranges are stored as-is on the video; no quotes are
+        # derived from them (the source doesn't link a timestamp to a citation).
+        assert video.timestamps == timestamps
+        # The post carries no citations, so its only quote is the full-source
+        # one — the timestamps did not spawn any sub-quotes.
+        assert Quote.objects.count() == 1
+        assert Quote.objects.get().is_full_source
 
-        # Idempotent: re-running neither duplicates excerpts nor reports changes.
+        # Idempotent: re-running reports no change to the video.
         importer = JSONImporter(path)
         importer.run()
-        assert VideoExcerpt.objects.count() == 2
-        assert "VideoExcerpt" not in importer.log_stats()
+        assert PostVideo.objects.count() == 1
+        assert "PostVideo" not in importer.log_stats()
 
     @pytest.mark.django_db
     def test_reimport_same_data_produces_no_changes(self, person, tmp_path):
@@ -684,7 +694,7 @@ class TestJSONImporter:
         assert stub.is_verified is False
 
     @pytest.mark.django_db
-    def test_mentions_are_added_and_removed_across_runs(self, person, tmp_path):
+    def test_references_are_added_and_removed_across_runs(self, person, tmp_path):
         path = _write_dump(
             tmp_path,
             {
@@ -708,7 +718,10 @@ class TestJSONImporter:
         JSONImporter(path).run()
 
         evidence = Evidence.objects.get()
-        assert evidence.mentions.count() == 2
+        assert Reference.objects.filter(quote__evidence=evidence).count() == 2
+        # No citations -> a single full-source quote shared by both references.
+        assert evidence.quotes.count() == 1
+        assert evidence.quotes.get().is_full_source
 
         path2 = _write_dump(
             tmp_path,
@@ -735,14 +748,72 @@ class TestJSONImporter:
         importer.run()
 
         evidence.refresh_from_db()
-        existing = {(m.category.name, m.footnote) for m in evidence.mentions.all()}
+        existing = {
+            (r.category.name, r.footnote)
+            for r in Reference.objects.filter(quote__evidence=evidence)
+        }
         assert existing == {("B", "2"), ("C", "3")}
 
         stats = importer.log_stats()
-        assert len(stats["EvidenceMention"]["created"]) == 1
-        assert len(stats["EvidenceMention"]["deleted"]) == 1
-        # Mention (B, 2) is untouched, no spurious churn.
-        assert EvidenceMention.objects.filter(category__name="B").count() == 1
+        assert len(stats["Reference"]["created"]) == 1
+        assert len(stats["Reference"]["deleted"]) == 1
+        # Reference (B, 2) is untouched, no spurious churn.
+        assert Reference.objects.filter(category__name="B").count() == 1
+        # The shared full-source quote survives; no duplicate quote is created.
+        assert evidence.quotes.count() == 1
+
+    @pytest.mark.django_db
+    def test_citations_become_deduped_quotes(self, person, tmp_path):
+        # Three footnotes: two cite the same bit, one cites a different bit, and
+        # one has no citation (whole post). The same bit collapses onto one
+        # quote; the blank citation maps to the full-source quote.
+        path = _write_dump(
+            tmp_path,
+            {
+                person.name_hash: {
+                    "label": "Max Mustermann",
+                    "social_media": {
+                        "telegram": [
+                            _make_post(
+                                report_data={
+                                    "footnote_url": ["https://t.me/example/1"],
+                                    "topic": ["A", "B", "C", "D"],
+                                    "footnote_id": ["1", "2", "3", "4"],
+                                    "fliesstext": [
+                                        "the relevant bit",
+                                        "the relevant bit",
+                                        "a different bit",
+                                        "",
+                                    ],
+                                }
+                            ),
+                        ]
+                    },
+                }
+            },
+        )
+        JSONImporter(path).run()
+
+        evidence = Evidence.objects.get()
+        # Two distinct sub-quotes + one full-source quote = 3 quotes for 4 refs.
+        assert evidence.quotes.count() == 3
+        assert evidence.quotes.filter(is_full_source=True).count() == 1
+        texts = set(
+            evidence.quotes.filter(is_full_source=False).values_list("text", flat=True)
+        )
+        assert texts == {"the relevant bit", "a different bit"}
+
+        # The two footnotes citing the same bit share one quote.
+        shared = evidence.quotes.get(text="the relevant bit")
+        assert {r.footnote for r in shared.references.all()} == {"1", "2"}
+
+        # Idempotent: re-running creates no new quotes or references.
+        importer = JSONImporter(path)
+        importer.run()
+        assert evidence.quotes.count() == 3
+        assert Reference.objects.filter(quote__evidence=evidence).count() == 4
+        assert "Quote" not in importer.log_stats()
+        assert "Reference" not in importer.log_stats()
 
     def test_chapter_tree_is_built_from_structure(self, person, tmp_path):
         path = _write_dump(
@@ -794,8 +865,8 @@ class TestJSONImporter:
         assert not root.is_main_topic
         assert not leaf_a.is_main_topic
 
-        # The leaf chapter is linked from each mention.
-        assert {m.chapter for m in EvidenceMention.objects.all()} == {leaf_a, leaf_b}
+        # The leaf chapter is linked from each reference.
+        assert {r.chapter for r in Reference.objects.all()} == {leaf_a, leaf_b}
 
         # Subsumed counts include descendants.
         assert root.subsumed_evidences().count() == 2
@@ -817,7 +888,12 @@ class TestJSONImporter:
         JSONImporter(path).run()
 
         evidence = Evidence.objects.get()
-        assert list(evidence.originators.all()) == [person.actor]
+        # No report_data -> a single full-source quote, seeded with the post's
+        # account actor as its originator.
+        quote = evidence.quotes.get()
+        assert quote.is_full_source
+        assert list(quote.originators.all()) == [person.actor]
+        assert evidence.originator_actors == [person.actor]
 
     @pytest.mark.django_db
     def test_links_reply_to_parent_post_within_batch(self, person, tmp_path):

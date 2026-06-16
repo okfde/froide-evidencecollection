@@ -18,7 +18,6 @@ from .models import (
     Chapter,
     Election,
     Evidence,
-    EvidenceMention,
     ImportExportRun,
     Keyword,
     KeywordGroup,
@@ -30,11 +29,12 @@ from .models import (
     PostImage,
     PostScreenshot,
     PostVideo,
+    Quote,
+    Reference,
     Role,
     SocialMediaAccount,
     SocialMediaPost,
     Topic,
-    VideoExcerpt,
 )
 from .utils import selectable_regions
 
@@ -185,52 +185,16 @@ class PostVideoInline(admin.TabularInline):
     model = PostVideo
     extra = 0
     fields = [
-        "preview",
-        "file",
-        "transcript_file",
         "source_path",
         "description",
-        "excerpts_summary",
+        "transcript_file",
+        "transcript",
+        "transcript_override",
     ]
-    # Fully import-owned. Excerpt text (and its curator override) lives on the
-    # related VideoExcerpt rows — edited via their own admin, since Django can't
-    # nest an inline within an inline; here they're shown read-only for context.
-    readonly_fields = fields
-
-    @admin.display(description=_("preview"))
-    def preview(self, obj):
-        # Render the video inline so editors can view it on the post page.
-        # A transcript-only video carries no file.
-        if not obj.file:
-            return _("(no file)")
-        style = "max-height: 240px; max-width: 320px;"
-        return format_html(
-            '<video src="{}" controls preload="metadata" style="{}"></video>',
-            obj.file.url,
-            style,
-        )
-
-    @admin.display(description=_("excerpts"))
-    def excerpts_summary(self, obj):
-        if obj.pk is None:
-            return ""
-        excerpts = obj.excerpts.all()
-        if not excerpts:
-            return _("(no excerpts)")
-        return format_html_join(
-            mark_safe("<br>"),
-            "{}. {}",
-            ((e.order, e.resolved_text) for e in excerpts),
-        )
-
-
-@admin.register(VideoExcerpt)
-class VideoExcerptAdmin(ReadOnlyAdmin):
-    list_display = ["video", "order", "resolved_text"]
-    fields = ["video", "order", "start", "end", "text", "text_override"]
-    # `text` is import-owned; `text_override` is the curator's correction
-    # (preserved across re-imports), the one editable field here.
-    readonly_fields = [f for f in fields if f != "text_override"]
+    # Import-owned except `transcript_override`, the curator's correction of the
+    # imported `transcript` (preserved across re-imports). No video file is
+    # stored — only the transcript.
+    readonly_fields = [f for f in fields if f != "transcript_override"]
 
 
 class PostScreenshotInline(admin.TabularInline):
@@ -605,24 +569,24 @@ class AttachmentInline(admin.TabularInline):
     extra = 0
 
 
-class EvidenceMentionInline(admin.TabularInline):
-    model = EvidenceMention
+class ReferenceInline(admin.TabularInline):
+    model = Reference
     extra = 0
-    fields = ["category", "footnote", "chapter", "chapter_structure", "citation"]
+    fields = ["category", "footnote", "chapter", "chapter_structure"]
     readonly_fields = fields
 
 
-class CategoryMentionInline(admin.TabularInline):
-    model = EvidenceMention
+class CategoryReferenceInline(admin.TabularInline):
+    model = Reference
     fk_name = "category"
     extra = 0
-    fields = ["evidence", "footnote", "chapter", "chapter_structure", "citation"]
+    fields = ["quote", "footnote", "chapter", "chapter_structure"]
     readonly_fields = fields
 
 
 @admin.register(Category)
 class CategoryAdmin(ReadOnlyAdmin):
-    inlines = [CategoryMentionInline]
+    inlines = [CategoryReferenceInline]
     list_display = ["name"]
     search_fields = ["name"]
 
@@ -677,26 +641,51 @@ class ChapterAdmin(ReadOnlyAdmin):
     subsumed_evidences.short_description = _("subsumed evidences")
 
 
+class QuoteInline(admin.TabularInline):
+    model = Quote
+    extra = 0
+    fields = [
+        "is_full_source",
+        "text",
+        "text_override",
+        "start",
+        "end",
+        "topic",
+        "topic_reassigned",
+    ]
+    # Import-owned except `text_override`, the curator's correction of the
+    # imported `text`. References (category/footnote) live on the Quote and are
+    # edited via the Quote admin, since Django can't nest an inline in an inline.
+    readonly_fields = [f for f in fields if f != "text_override"]
+
+
+@admin.register(Quote)
+class QuoteAdmin(ReadOnlyAdmin):
+    inlines = [ReferenceInline]
+    list_display = ["evidence", "is_full_source", "topic", "topic_reassigned"]
+    list_filter = ["is_full_source", "topic_reassigned"]
+    search_fields = ["text", "text_override"]
+    filter_horizontal = ["originators", "related_actors", "keywords"]
+
+
 @admin.register(Evidence)
 class EvidenceAdmin(ReadOnlyAdmin):
     inlines = [
         AttachmentInline,
-        EvidenceMentionInline,
+        QuoteInline,
     ]
     list_display = [
         "external_id",
         "title",
         "evidence_type",
         "originator_list",
-        "topic",
-        "topic_reassigned",
     ]
     filter_horizontal = ["collections"]
-    list_filter = ["collections", "evidence_type", "topic_reassigned"]
-    search_fields = ["citation", "description"]
+    list_filter = ["collections", "evidence_type"]
+    search_fields = ["description", "quotes__text"]
 
     def originator_list(self, obj):
-        return ", ".join([originator.name for originator in obj.originators.all()])
+        return ", ".join(actor.name for actor in obj.originator_actors)
 
     originator_list.short_description = _("originators")
 
@@ -796,12 +785,10 @@ class KeywordAdmin(admin.ModelAdmin):
     @staticmethod
     def _labelled_chunks(ev):
         """Yield ``(label, text)`` for each named piece of an evidence's text,
-        so a snippet can name where it came from. Citation/description are the
-        evidence's own fields; the rest are the source's labelled segments
-        (title, post text, transcript, …), tagged with the redistribution
-        attribution when present."""
-        if ev.citation:
-            yield _("Citation"), ev.citation
+        so a snippet can name where it came from. Description is the evidence's
+        own field; the rest are the assembled segments (title, post text,
+        transcript, the evidence's quotes, …), tagged with the redistribution or
+        citation attribution when present."""
         if ev.description:
             yield _("Description"), ev.description
         for seg in ev.text_segments:
@@ -817,18 +804,21 @@ class KeywordAdmin(admin.ModelAdmin):
 
         # Match the keyword's recorded surface forms; fall back to the lemma if
         # a row somehow has none. These are the variants that actually occurred
-        # in the corpus, extracted from each evidence's `topic_text`.
+        # in the corpus, extracted from each quote's `topic_text`.
         pattern = _surface_form_pattern(
             obj.surface_forms or {}
         ) or _surface_form_pattern([obj.lemma])
 
-        total = obj.evidences.count()
-        evidences = obj.evidences.select_related(
+        # Keywords attach to quotes; list the distinct evidences whose quotes
+        # carry this keyword.
+        related = Evidence.objects.filter(quotes__keywords=obj).distinct()
+        total = related.count()
+        evidences = related.select_related(
             "social_media_post__account",
         ).prefetch_related(
             "social_media_post__images",
-            "social_media_post__videos__excerpts",
-            "mentions__category",
+            "social_media_post__videos",
+            "quotes__references__category",
         )[: self.RELATED_EVIDENCE_LIMIT]
 
         items = []

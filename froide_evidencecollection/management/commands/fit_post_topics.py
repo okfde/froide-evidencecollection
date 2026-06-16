@@ -1,17 +1,19 @@
-"""Fit a BERTopic model over Evidence text, persist flat Topic rows with
-per-topic keywords, update each evidence's topic FK + 2D coordinates for the
-topic cloud view, and build the evidence ↔ keyword index that drives the
-cloud's keyword facets.
+"""Fit a BERTopic model over Quote text, persist flat Topic rows with per-topic
+keywords, update each quote's topic FK + 2D coordinates for the topic cloud
+view, and build the quote ↔ keyword index that drives the cloud's keyword
+facets.
 
-Each evidence's input text is `Evidence.topic_text` — the source text
-(post body, transcription, redistributed content, document text, …) assembled
-highest-signal-first, since the embedding model truncates to a token window.
+The fitted unit is the `Quote` (the atomic claim), not the Evidence. Each
+quote's input text is `Quote.topic_text` — the cited span, or, for a full-source
+quote, the source text (post body, transcription, redistributed content, …)
+assembled highest-signal-first, since the embedding model truncates to a token
+window.
 
 Keyword facets: the candidate vocabulary is the union of the leaf topics'
-c-TF-IDF keywords, lemmatised (German) and deduplicated. Each evidence is then
+c-TF-IDF keywords, lemmatised (German) and deduplicated. Each quote is then
 linked to the keywords whose lemma actually occurs in its text, so a facet
-selection narrows to evidence that genuinely contains the word rather than to
-evidence merely sharing a cluster.
+selection narrows to quotes that genuinely contain the word rather than to
+quotes merely sharing a cluster.
 
 Run manually (or via cron); the topic cloud view reads the cached numbers.
 
@@ -26,7 +28,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from froide_evidencecollection.models import Evidence, Keyword, Topic
+from froide_evidencecollection.models import Keyword, Quote, Topic
 
 # Curated German stopword list, expanded with social-media filler. Used as
 # the c-TF-IDF vocabulary filter so topic labels surface content words instead
@@ -168,7 +170,7 @@ def _lemma_set(text: str, lemmatize) -> set[str]:
 
 
 class Command(BaseCommand):
-    help = "Fit BERTopic over Evidence text and store Topic rows + 2D coords."
+    help = "Fit BERTopic over Quote text and store Topic rows + 2D coords."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -176,7 +178,7 @@ class Command(BaseCommand):
             type=int,
             default=30,
             help=(
-                "Skip evidence whose assembled text is shorter than this "
+                "Skip quotes whose assembled text is shorter than this "
                 "(default: 30)."
             ),
         )
@@ -253,20 +255,20 @@ class Command(BaseCommand):
             default=DEFAULT_KEYWORD_MIN_DF,
             help=(
                 "A candidate keyword only becomes a facet if its lemma occurs "
-                "in at least this many pieces of evidence (default: %(default)s)."
+                "in at least this many quotes (default: %(default)s)."
             ),
         )
         parser.add_argument(
             "--limit",
             type=int,
             default=None,
-            help="Only fit the first N pieces of evidence (for quick experiments).",
+            help="Only fit the first N quotes (for quick experiments).",
         )
         parser.add_argument(
             "--reset",
             action="store_true",
             help=(
-                "Also clear topic FK + coords on evidence that doesn't end up "
+                "Also clear topic FK + coords on quotes that don't end up "
                 "in the fitted set (e.g. too short, dropped by --limit)."
             ),
         )
@@ -295,51 +297,51 @@ class Command(BaseCommand):
             ) from exc
 
         min_len = options["min_text_len"]
-        # select_related/prefetch_related cover everything Evidence.topic_text
-        # touches: both source kinds, the redistribution chain a post recurses
-        # into, and each post's media (a to-many, so prefetched), so iterating
-        # doesn't fan out to per-row queries.
+        # select_related/prefetch_related cover everything Quote.topic_text
+        # touches: a full-source quote walks its evidence's source — both source
+        # kinds, the redistribution chain a post recurses into, and each post's
+        # media (a to-many, so prefetched) — so iterating doesn't fan out to
+        # per-row queries.
         qs = (
-            Evidence.objects.all()
+            Quote.objects.all()
             .select_related(
-                "social_media_post__account",
-                "social_media_post__redistributes__account",
-                "social_media_post__redistributes__redistributes__account",
+                "evidence__social_media_post__account",
+                "evidence__social_media_post__redistributes__account",
+                "evidence__social_media_post__redistributes__redistributes__account",
             )
             .prefetch_related(
-                "social_media_post__images",
-                "social_media_post__videos__excerpts",
-                "social_media_post__redistributes__images",
-                "social_media_post__redistributes__videos__excerpts",
-                "social_media_post__redistributes__redistributes__images",
-                "social_media_post__redistributes__redistributes__videos__excerpts",
-                "mentions__category",
+                "evidence__social_media_post__images",
+                "evidence__social_media_post__videos",
+                "evidence__social_media_post__redistributes__images",
+                "evidence__social_media_post__redistributes__videos",
+                "evidence__social_media_post__redistributes__redistributes__images",
+                "evidence__social_media_post__redistributes__redistributes__videos",
             )
             .order_by("pk")
         )
         if options["limit"]:
             qs = qs[: options["limit"]]
 
-        evidences: list[Evidence] = []
+        quotes: list[Quote] = []
         docs: list[str] = []
         # chunk_size is required for .iterator() once prefetch_related is in
         # play (Django fetches the related rows per chunk).
-        for ev in qs.iterator(chunk_size=500):
-            text = ev.topic_text
+        for quote in qs.iterator(chunk_size=500):
+            text = quote.topic_text
             if len(text) < min_len:
                 continue
-            evidences.append(ev)
+            quotes.append(quote)
             docs.append(text)
 
         if len(docs) < options["min_topic_size"] * 2:
             raise CommandError(
-                f"Need at least {options['min_topic_size'] * 2} usable pieces of "
-                f"evidence to fit topics; got {len(docs)}. Lower --min-topic-size "
+                f"Need at least {options['min_topic_size'] * 2} usable quotes "
+                f"to fit topics; got {len(docs)}. Lower --min-topic-size "
                 "or import more evidence."
             )
 
         self.stdout.write(
-            f"Embedding {len(docs)} pieces of evidence with "
+            f"Embedding {len(docs)} quotes with "
             f"{options['embedding_model']} (max_seq_length="
             f"{options['max_seq_length']})…"
         )
@@ -391,7 +393,7 @@ class Command(BaseCommand):
 
         # Snapshot the raw HDBSCAN assignment before outlier reduction, so we
         # can flag which evidence were genuine outliers (-1) that got moved
-        # into a topic below (persisted as Evidence.topic_reassigned).
+        # into a topic below (persisted as Quote.topic_reassigned).
         raw_topics = list(topics)
 
         # Fine-grained 'leaf' clustering leaves a large outlier (-1) bucket;
@@ -486,13 +488,13 @@ class Command(BaseCommand):
                     candidate_surface[lemma] = kw
         vocab = set(candidate_surface)
 
-        # Per-evidence matched lemmas (restricted to the vocabulary) plus a
+        # Per-quote matched lemmas (restricted to the vocabulary) plus a
         # corpus-wide document frequency so we can drop rare ones.
-        ev_lemmas: list[set[str]] = []
+        doc_lemmas: list[set[str]] = []
         lemma_df: dict[str, int] = {}
         for text in docs:
             matched = _lemma_set(text, lemmatize) & vocab
-            ev_lemmas.append(matched)
+            doc_lemmas.append(matched)
             for lemma in matched:
                 lemma_df[lemma] = lemma_df.get(lemma, 0) + 1
 
@@ -527,12 +529,12 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             # Topics are fully derived, so wipe + recreate (SET_NULL nulls
-            # Evidence.topic; we re-bind below). Keywords are NOT wiped: they
+            # Quote.topic; we re-bind below). Keywords are NOT wiped: they
             # carry curator edits (custom_label, enabled) that must survive a
             # refit, so they're reconciled by lemma further down. Clear only the
             # derived M2M links here; they're rebuilt against the kept rows.
             Topic.objects.all().delete()
-            Evidence.keywords.through.objects.all().delete()
+            Quote.keywords.through.objects.all().delete()
 
             # Flat leaves (incl. the outlier cluster) — no hierarchy.
             leaf_pk_by_tid: dict[int, int] = {}
@@ -579,32 +581,32 @@ class Command(BaseCommand):
             stale.filter(custom_label="", enabled=True, group__isnull=True).delete()
             stale.update(df=0)
 
-            for ev, raw, tid, (x, y) in zip(
-                evidences, raw_topics, topics, coords, strict=True
+            for quote, raw, tid, (x, y) in zip(
+                quotes, raw_topics, topics, coords, strict=True
             ):
-                ev.topic_id = leaf_pk_by_tid[tid]
-                ev.topic_x = float(x)
-                ev.topic_y = float(y)
-                ev.topic_fit_at = now
+                quote.topic_id = leaf_pk_by_tid[tid]
+                quote.topic_x = float(x)
+                quote.topic_y = float(y)
+                quote.topic_fit_at = now
                 # Genuine outlier (-1) that reduction moved into a real topic.
-                ev.topic_reassigned = raw == -1 and tid != -1
+                quote.topic_reassigned = raw == -1 and tid != -1
 
             fields = ["topic", "topic_x", "topic_y", "topic_fit_at", "topic_reassigned"]
-            Evidence.objects.bulk_update(evidences, fields, batch_size=500)
+            Quote.objects.bulk_update(quotes, fields, batch_size=500)
 
-            # Evidence ↔ keyword links, built straight into the through table.
-            Through = Evidence.keywords.through
+            # Quote ↔ keyword links, built straight into the through table.
+            Through = Quote.keywords.through
             through_rows = [
-                Through(evidence_id=ev.pk, keyword_id=keyword_pk_by_lemma[lemma])
-                for ev, matched in zip(evidences, ev_lemmas, strict=True)
+                Through(quote_id=quote.pk, keyword_id=keyword_pk_by_lemma[lemma])
+                for quote, matched in zip(quotes, doc_lemmas, strict=True)
                 for lemma in matched
                 if lemma in kept_lemmas
             ]
             Through.objects.bulk_create(through_rows, batch_size=1000)
 
             if options["reset"]:
-                fitted_ids = {e.pk for e in evidences}
-                Evidence.objects.exclude(pk__in=fitted_ids).update(
+                fitted_ids = {q.pk for q in quotes}
+                Quote.objects.exclude(pk__in=fitted_ids).update(
                     topic=None,
                     topic_x=None,
                     topic_y=None,
@@ -616,9 +618,9 @@ class Command(BaseCommand):
         n_outliers = leaf_sizes.get(-1, 0)
         self.stdout.write(
             self.style.SUCCESS(
-                f"Done. Fitted {len(evidences)} pieces of evidence into "
+                f"Done. Fitted {len(quotes)} quotes into "
                 f"{n_leaves} topics ({n_outliers} outliers); "
-                f"{len(through_rows)} evidence-keyword links across "
+                f"{len(through_rows)} quote-keyword links across "
                 f"{len(keyword_pk_by_lemma)} keywords."
             )
         )
