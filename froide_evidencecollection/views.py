@@ -805,6 +805,65 @@ class EvidenceTopicCloudView(TemplateView):
             active &= cond
         return active
 
+    @staticmethod
+    def _regions_by_evidence(evidences):
+        """Map evidence pk → the region(s) of the political function its posting
+        person held when it was posted, as a display string (e.g. ``"Bayern"``).
+
+        Mirrors `_political_position_q`'s active-at-post-time test (the position's
+        start on or before and end on or after the post date, a null bound
+        counting as unbounded) but only to *show* the Bundesland the originator's
+        function was anchored in. Evidence with no posting person, no dated post,
+        or no region-bearing active position is simply absent from the map. A
+        person holding several matching positions yields their distinct regions,
+        comma-joined.
+        """
+        # Posting person + post date per evidence. Only social-media evidence
+        # reaches a person (document-backed evidence has no account/actor).
+        person_ids = set()
+        ev_meta = []  # (evidence_pk, person_id, post_date)
+        for ev in evidences:
+            post = ev.social_media_post if ev.social_media_post_id else None
+            if post is None or post.posted_at is None or not post.account_id:
+                continue
+            account = post.account
+            if not account.actor_id:
+                continue
+            person_id = account.actor.person_id
+            if not person_id:
+                continue
+            person_ids.add(person_id)
+            ev_meta.append((ev.pk, person_id, post.posted_at.date()))
+        if not person_ids:
+            return {}
+
+        # Region-bearing positions for those persons, grouped by person so the
+        # per-evidence date match below is a cheap in-memory scan.
+        positions_by_person = defaultdict(list)
+        for pos in (
+            PoliticalPosition.objects.filter(
+                person_id__in=person_ids, region__isnull=False
+            )
+            .select_related("region")
+            .only("person_id", "start_date", "end_date", "region__name")
+        ):
+            positions_by_person[pos.person_id].append(pos)
+
+        regions = {}
+        for ev_pk, person_id, post_date in ev_meta:
+            names = []
+            for pos in positions_by_person.get(person_id, ()):
+                if pos.start_date and pos.start_date > post_date:
+                    continue
+                if pos.end_date and pos.end_date < post_date:
+                    continue
+                name = pos.region.name
+                if name and name not in names:
+                    names.append(name)
+            if names:
+                regions[ev_pk] = ", ".join(names)
+        return regions
+
     def _filter_qs(self):
         # `.only()` is load-bearing: SocialMediaPost has wide JSONFields
         # (`raw`, `user_snapshot`, `reactions`) that would otherwise be
@@ -1486,6 +1545,10 @@ class EvidenceTopicCloudView(TemplateView):
         # at OUTLINE_MAX_EVIDENCE so the hidden DOM stays bounded; the remainder
         # is summarised with a "narrow the filters" note.
         outline_shown = evidences[: self.OUTLINE_MAX_EVIDENCE]
+        # Region of the political function each posting person held at post time,
+        # shown next to the actor in the table view. One grouped query over the
+        # shown set (see `_regions_by_evidence`).
+        region_by_ev = self._regions_by_evidence(outline_shown)
         outline_items = [
             {
                 # `post` feeds the optional account/title line; it is the post
@@ -1496,6 +1559,8 @@ class EvidenceTopicCloudView(TemplateView):
                 "url": ev.get_absolute_url(),
                 "snippet": self._snippet(ev),
                 "posted_on": ev.source.publication_date if ev.source else None,
+                # Region of the originator's function at post time (table view).
+                "region": region_by_ev.get(ev.pk, ""),
             }
             for ev in outline_shown
         ]

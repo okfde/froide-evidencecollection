@@ -63,6 +63,10 @@
                 </p>
             {% endif %}
         </div>
+        {# ── Tabular view ───────────────────────────────────────── #}
+        {# Same evidence set as a real table; shown only when the     #}
+        {# "Table" tab is active (CSS toggles on .topic-cloud-page).  #}
+        {% include "froide_evidencecollection/_topic_cloud_table.html" %}
     {% else %}
         <div class="alert alert-info">
             {% if has_filters %}

@@ -5,232 +5,258 @@
             integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
             crossorigin="anonymous"
             defer></script>
-    <div class="container-fluid my-4 topic-cloud-page">
+    <div class="container-fluid my-4 topic-cloud-page topic-view-cloud">
         <header class="mb-3 d-flex flex-wrap align-items-baseline gap-3">
             <h1 class="mb-0">{% trans "Topics" %}</h1>
             <a href="{% url 'evidencecollection:dashboard' %}" class="small">{% trans "← Back to list view" %}</a>
         </header>
-        {# ── Sticky toolbar: compact filter row + legend ──────────── #}
-        {# A single horizontal bar of small controls; wraps on narrow #}
-        {# viewports. Sticky so it travels with the canvas without    #}
-        {# eating the sidebar's worth of horizontal space.            #}
-        <div class="topic-cloud-toolbar mb-3"
-             aria-label="{% trans 'Filter evidence' %}">
-            <form id="topic-filter-form"
-                  method="get"
-                  action=""
-                  data-reset-url="{{ reset_url }}"
-                  class="topic-filter-row"
-                  hx-get="{{ request.path }}"
-                  hx-target="#topic-cloud-results"
-                  hx-swap="outerHTML"
-                  hx-trigger="submit, change[!event.target.closest('#tf-actor-popup')], input[event.target.id==='tf-q'] changed delay:350ms">
-                {# Carries the selected keyword facets; one hidden input per    #}
-                {# active keyword, managed by the facet cloud below (which      #}
-                {# lives outside the swapped results, like the legend). Several #}
-                {# keywords AND together; independent of the Topic select.      #}
-                <span id="tf-keywords">
-                    {% for kw in selected_keywords %}<input type="hidden" name="keyword" value="{{ kw }}">{% endfor %}
-                </span>
-                {# Selected topic (single-select), managed by the topic bar     #}
-                {# below: at most one hidden input, narrowing the cloud to the   #}
-                {# dots that topic dominates. Lives in the form so it rides      #}
-                {# every filter submit.                                          #}
-                <span id="tf-groups">
-                    {% for gid in selected_group_ids %}<input type="hidden" name="group" value="{{ gid }}">{% endfor %}
-                </span>
-                {# Selected main-topic chapter (single-select), managed by the   #}
-                {# main-topic tree below: at most one hidden input, narrowing the #}
-                {# cloud to evidence under that chapter's subtree. Independent of #}
-                {# the keyword-group `group` select — the two stack (AND).        #}
-                <span id="tf-chapters">
-                    {% if selected_chapter_id %}<input type="hidden" name="chapter" value="{{ selected_chapter_id }}">{% endif %}
-                </span>
-                <div class="topic-filter-field topic-filter-field--search">
-                    <label for="tf-q" class="topic-filter-label">{% trans "Search" %}</label>
-                    <input type="search"
-                           id="tf-q"
-                           name="q"
-                           class="form-control form-control-sm"
-                           placeholder="{% trans 'Text in evidence…' %}"
-                           value="{{ request.GET.q|default_if_none:'' }}">
-                </div>
-                <div class="topic-filter-field">
-                    <label for="tf-platform" class="topic-filter-label">{% trans "Platform" %}</label>
-                    <select id="tf-platform" name="platform" class="form-select form-select-sm">
-                        <option value="">{% trans "any" %}</option>
-                        {% for value, label in platforms %}
-                            <option value="{{ value }}"
-                                    {% if request.GET.platform == value %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="topic-filter-field topic-actor-field">
-                    <label for="tf-actor-button" class="topic-filter-label">{% trans "Actor" %}</label>
-                    {# Combobox: real dropdown — clicking the button     #}
-                    {# opens a popup containing a search input and the   #}
-                    {# filtered actor list. The hidden input carries the #}
-                    {# PK that the form actually submits.                #}
-                    <input type="hidden"
-                           name="actor"
-                           id="tf-actor"
-                           value="{{ request.GET.actor|default_if_none:'' }}">
-                    <button type="button"
-                            id="tf-actor-button"
-                            class="form-select form-select-sm text-start topic-actor-button"
-                            aria-haspopup="listbox"
-                            aria-expanded="false"
-                            aria-controls="tf-actor-popup">
-                        <span id="tf-actor-button-label">
-                            {% if selected_actor %}
-                                {{ selected_actor }}
-                            {% else %}
-                                {% trans "any" %}
-                            {% endif %}
-                        </span>
-                    </button>
-                    <div id="tf-actor-popup" class="topic-actor-popup" hidden>
+        {# ── Sticky filter region ──────────────────────────────────── #}
+        {# The whole filter stack — compact toolbar row, topic bar,      #}
+        {# main-topic tree and keyword facets — is pinned together so it #}
+        {# travels with the canvas as the cloud scrolls behind it. The   #}
+        {# host divs stay inside the wrapper so their htmx swaps still    #}
+        {# target them by id.                                            #}
+        <div class="topic-cloud-filters">
+            {# A single horizontal bar of small controls; wraps on narrow #}
+            {# viewports.                                                 #}
+            <div class="topic-cloud-toolbar mb-3"
+                 aria-label="{% trans 'Filter evidence' %}">
+                <form id="topic-filter-form"
+                      method="get"
+                      action=""
+                      data-reset-url="{{ reset_url }}"
+                      class="topic-filter-row"
+                      hx-get="{{ request.path }}"
+                      hx-target="#topic-cloud-results"
+                      hx-swap="outerHTML"
+                      hx-trigger="submit, change[!event.target.closest('#tf-actor-popup')], input[event.target.id==='tf-q'] changed delay:350ms">
+                    {# Carries the selected keyword facets; one hidden input per    #}
+                    {# active keyword, managed by the facet cloud below (which      #}
+                    {# lives outside the swapped results, like the legend). Several #}
+                    {# keywords AND together; independent of the Topic select.      #}
+                    <span id="tf-keywords">
+                        {% for kw in selected_keywords %}<input type="hidden" name="keyword" value="{{ kw }}">{% endfor %}
+                    </span>
+                    {# Selected topic (single-select), managed by the topic bar     #}
+                    {# below: at most one hidden input, narrowing the cloud to the   #}
+                    {# dots that topic dominates. Lives in the form so it rides      #}
+                    {# every filter submit.                                          #}
+                    <span id="tf-groups">
+                        {% for gid in selected_group_ids %}<input type="hidden" name="group" value="{{ gid }}">{% endfor %}
+                    </span>
+                    {# Selected main-topic chapter (single-select), managed by the   #}
+                    {# main-topic tree below: at most one hidden input, narrowing the #}
+                    {# cloud to evidence under that chapter's subtree. Independent of #}
+                    {# the keyword-group `group` select — the two stack (AND).        #}
+                    <span id="tf-chapters">
+                        {% if selected_chapter_id %}<input type="hidden" name="chapter" value="{{ selected_chapter_id }}">{% endif %}
+                    </span>
+                    <div class="topic-filter-field topic-filter-field--search">
+                        <label for="tf-q" class="topic-filter-label">{% trans "Search" %}</label>
                         <input type="search"
-                               id="tf-actor-search"
+                               id="tf-q"
+                               name="q"
                                class="form-control form-control-sm"
-                               autocomplete="off"
-                               placeholder="{% trans 'Search actors…' %}">
-                        <ul id="tf-actor-options"
-                            role="listbox"
-                            aria-label="{% trans 'Actor' %}"
-                            class="list-unstyled mb-0 topic-actor-options">
-                            <li role="option"
-                                data-value=""
-                                {% if not request.GET.actor %}aria-selected="true"{% endif %}>
-                                {% trans "— any —" %}
-                            </li>
-                            {% for actor in actors %}
-                                <li role="option"
-                                    data-value="{{ actor.pk }}"
-                                    {% if request.GET.actor == actor.pk|stringformat:'s' %}aria-selected="true"{% endif %}>
-                                    {{ actor }}
-                                </li>
-                            {% endfor %}
-                        </ul>
+                               placeholder="{% trans 'Text in evidence…' %}"
+                               value="{{ request.GET.q|default_if_none:'' }}">
                     </div>
-                </div>
-                {# Originator-function filters: the function (role) the posting #}
-                {# person held when the evidence was posted, plus the           #}
-                {# institutional level and region of that same function. Plain  #}
-                {# selects in the form, so a change rides the htmx filter        #}
-                {# submit like Platform. Each lists only values that occur on    #}
-                {# some poster's positions, so every option can yield a result.  #}
-                <div class="topic-filter-field">
-                    <label for="tf-role" class="topic-filter-label">{% trans "Function" %}</label>
-                    <select id="tf-role" name="role" class="form-select form-select-sm">
-                        <option value="">{% trans "any" %}</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}"
-                                    {% if request.GET.role == role.id|stringformat:'s' %}selected{% endif %}>
-                                {{ role.name }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="topic-filter-field">
-                    <label for="tf-level" class="topic-filter-label">{% trans "Institutional level" %}</label>
-                    <select id="tf-level" name="level" class="form-select form-select-sm">
-                        <option value="">{% trans "any" %}</option>
-                        {% for level in levels %}
-                            <option value="{{ level.id }}"
-                                    {% if request.GET.level == level.id|stringformat:'s' %}selected{% endif %}>
-                                {{ level.name }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="topic-filter-field">
-                    <label for="tf-region" class="topic-filter-label">{% trans "Region" %}</label>
-                    <select id="tf-region" name="region" class="form-select form-select-sm">
-                        <option value="">{% trans "any" %}</option>
-                        {% for region in regions %}
-                            <option value="{{ region.id }}"
-                                    {% if request.GET.region == region.id|stringformat:'s' %}selected{% endif %}>
-                                {{ region.name }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                {# Year range: a dual-handle slider whose handles snap to year #}
-                {# ticks. Dragging picks a multi-year span; clicking a tick    #}
-                {# selects that single year. The handles write Jan-1 / Dec-31  #}
-                {# into these hidden date inputs, so the server filter reuses   #}
-                {# posted_after / posted_before unchanged. Rendered only when   #}
-                {# the corpus spans more than one year (else a slider is moot). #}
-                <input type="hidden"
-                       name="posted_after"
-                       id="tf-after"
-                       value="{{ request.GET.posted_after|default_if_none:'' }}">
-                <input type="hidden"
-                       name="posted_before"
-                       id="tf-before"
-                       value="{{ request.GET.posted_before|default_if_none:'' }}">
-                {% if year_min and year_max and year_max > year_min %}
-                    <div class="topic-filter-field topic-year-field">
-                        <span class="topic-filter-label" id="tf-year-readout" aria-live="polite">{% trans "Years" %}</span>
-                        <div class="topic-year-slider"
-                             data-year-min="{{ year_min }}"
-                             data-year-max="{{ year_max }}"
-                             data-year-from="{{ selected_year_from }}"
-                             data-year-to="{{ selected_year_to }}">
-                            <div class="topic-year-slider__track" id="tf-year-track">
-                                <div class="topic-year-slider__rail"></div>
-                                <div class="topic-year-slider__range" id="tf-year-range"></div>
-                                <div class="topic-year-slider__ticks" id="tf-year-ticks"></div>
-                                <input type="range"
-                                       id="tf-year-low"
-                                       class="topic-year-slider__input"
-                                       min="{{ year_min }}"
-                                       max="{{ year_max }}"
-                                       step="1"
-                                       value="{{ selected_year_from }}"
-                                       aria-label="{% trans 'Earliest year' %}">
-                                <input type="range"
-                                       id="tf-year-high"
-                                       class="topic-year-slider__input"
-                                       min="{{ year_min }}"
-                                       max="{{ year_max }}"
-                                       step="1"
-                                       value="{{ selected_year_to }}"
-                                       aria-label="{% trans 'Latest year' %}">
-                            </div>
-                            <div class="topic-year-slider__ends" aria-hidden="true">
-                                <span>{{ year_min }}</span><span>{{ year_max }}</span>
-                            </div>
+                    <div class="topic-filter-field">
+                        <label for="tf-platform" class="topic-filter-label">{% trans "Platform" %}</label>
+                        <select id="tf-platform" name="platform" class="form-select form-select-sm">
+                            <option value="">{% trans "any" %}</option>
+                            {% for value, label in platforms %}
+                                <option value="{{ value }}"
+                                        {% if request.GET.platform == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="topic-filter-field topic-actor-field">
+                        <label for="tf-actor-button" class="topic-filter-label">{% trans "Actor" %}</label>
+                        {# Combobox: real dropdown — clicking the button     #}
+                        {# opens a popup containing a search input and the   #}
+                        {# filtered actor list. The hidden input carries the #}
+                        {# PK that the form actually submits.                #}
+                        <input type="hidden"
+                               name="actor"
+                               id="tf-actor"
+                               value="{{ request.GET.actor|default_if_none:'' }}">
+                        <button type="button"
+                                id="tf-actor-button"
+                                class="form-select form-select-sm text-start topic-actor-button"
+                                aria-haspopup="listbox"
+                                aria-expanded="false"
+                                aria-controls="tf-actor-popup">
+                            <span id="tf-actor-button-label">
+                                {% if selected_actor %}
+                                    {{ selected_actor }}
+                                {% else %}
+                                    {% trans "any" %}
+                                {% endif %}
+                            </span>
+                        </button>
+                        <div id="tf-actor-popup" class="topic-actor-popup" hidden>
+                            <input type="search"
+                                   id="tf-actor-search"
+                                   class="form-control form-control-sm"
+                                   autocomplete="off"
+                                   placeholder="{% trans 'Search actors…' %}">
+                            <ul id="tf-actor-options"
+                                role="listbox"
+                                aria-label="{% trans 'Actor' %}"
+                                class="list-unstyled mb-0 topic-actor-options">
+                                <li role="option"
+                                    data-value=""
+                                    {% if not request.GET.actor %}aria-selected="true"{% endif %}>
+                                    {% trans "— any —" %}
+                                </li>
+                                {% for actor in actors %}
+                                    <li role="option"
+                                        data-value="{{ actor.pk }}"
+                                        {% if request.GET.actor == actor.pk|stringformat:'s' %}aria-selected="true"{% endif %}>
+                                        {{ actor }}
+                                    </li>
+                                {% endfor %}
+                            </ul>
                         </div>
                     </div>
-                {% endif %}
-                <div class="topic-filter-actions">
-                    <a href="{{ reset_url }}"
-                       id="topic-filter-reset"
-                       class="btn btn-sm btn-outline-secondary"
-                       {% if not has_filters %}hidden{% endif %}>{% trans "Reset" %}</a>
-                </div>
-            </form>
+                    {# Originator-function filters: the function (role) the posting #}
+                    {# person held when the evidence was posted, plus the           #}
+                    {# institutional level and region of that same function. Plain  #}
+                    {# selects in the form, so a change rides the htmx filter        #}
+                    {# submit like Platform. Each lists only values that occur on    #}
+                    {# some poster's positions, so every option can yield a result.  #}
+                    <div class="topic-filter-field">
+                        <label for="tf-role" class="topic-filter-label">{% trans "Function" %}</label>
+                        <select id="tf-role" name="role" class="form-select form-select-sm">
+                            <option value="">{% trans "any" %}</option>
+                            {% for role in roles %}
+                                <option value="{{ role.id }}"
+                                        {% if request.GET.role == role.id|stringformat:'s' %}selected{% endif %}>
+                                    {{ role.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="topic-filter-field">
+                        <label for="tf-level" class="topic-filter-label">{% trans "Institutional level" %}</label>
+                        <select id="tf-level" name="level" class="form-select form-select-sm">
+                            <option value="">{% trans "any" %}</option>
+                            {% for level in levels %}
+                                <option value="{{ level.id }}"
+                                        {% if request.GET.level == level.id|stringformat:'s' %}selected{% endif %}>
+                                    {{ level.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="topic-filter-field">
+                        <label for="tf-region" class="topic-filter-label">{% trans "Region" %}</label>
+                        <select id="tf-region" name="region" class="form-select form-select-sm">
+                            <option value="">{% trans "any" %}</option>
+                            {% for region in regions %}
+                                <option value="{{ region.id }}"
+                                        {% if request.GET.region == region.id|stringformat:'s' %}selected{% endif %}>
+                                    {{ region.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {# Year range: a dual-handle slider whose handles snap to year #}
+                    {# ticks. Dragging picks a multi-year span; clicking a tick    #}
+                    {# selects that single year. The handles write Jan-1 / Dec-31  #}
+                    {# into these hidden date inputs, so the server filter reuses   #}
+                    {# posted_after / posted_before unchanged. Rendered only when   #}
+                    {# the corpus spans more than one year (else a slider is moot). #}
+                    <input type="hidden"
+                           name="posted_after"
+                           id="tf-after"
+                           value="{{ request.GET.posted_after|default_if_none:'' }}">
+                    <input type="hidden"
+                           name="posted_before"
+                           id="tf-before"
+                           value="{{ request.GET.posted_before|default_if_none:'' }}">
+                    {% if year_min and year_max and year_max > year_min %}
+                        <div class="topic-filter-field topic-year-field">
+                            <span class="topic-filter-label" id="tf-year-readout" aria-live="polite">{% trans "Years" %}</span>
+                            <div class="topic-year-slider"
+                                 data-year-min="{{ year_min }}"
+                                 data-year-max="{{ year_max }}"
+                                 data-year-from="{{ selected_year_from }}"
+                                 data-year-to="{{ selected_year_to }}">
+                                <div class="topic-year-slider__track" id="tf-year-track">
+                                    <div class="topic-year-slider__rail"></div>
+                                    <div class="topic-year-slider__range" id="tf-year-range"></div>
+                                    <div class="topic-year-slider__ticks" id="tf-year-ticks"></div>
+                                    <input type="range"
+                                           id="tf-year-low"
+                                           class="topic-year-slider__input"
+                                           min="{{ year_min }}"
+                                           max="{{ year_max }}"
+                                           step="1"
+                                           value="{{ selected_year_from }}"
+                                           aria-label="{% trans 'Earliest year' %}">
+                                    <input type="range"
+                                           id="tf-year-high"
+                                           class="topic-year-slider__input"
+                                           min="{{ year_min }}"
+                                           max="{{ year_max }}"
+                                           step="1"
+                                           value="{{ selected_year_to }}"
+                                           aria-label="{% trans 'Latest year' %}">
+                                </div>
+                                <div class="topic-year-slider__ends" aria-hidden="true">
+                                    <span>{{ year_min }}</span><span>{{ year_max }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+                    <div class="topic-filter-actions">
+                        <a href="{{ reset_url }}"
+                           id="topic-filter-reset"
+                           class="btn btn-sm btn-outline-secondary"
+                           {% if not has_filters %}hidden{% endif %}>{% trans "Reset" %}</a>
+                    </div>
+                </form>
+            </div>
+            {# ── Topic bar + keyword facet cloud ──────────────────────── #}
+            {# Topics: broad entry points, single-select; each chip carries its  #}
+            {# identity colour (so the bar doubles as the dot colour key) and    #}
+            {# selecting one narrows the cloud to the dots that topic dominates  #}
+            {# — all one colour. Keywords: each chip is one word, tagged with    #}
+            {# its parent topic's colour so it is never seen apart from its       #}
+            {# broader topic; several keywords AND together, narrowing to         #}
+            {# evidence containing them. Both live outside #topic-cloud-results   #}
+            {# are re-rendered on every filter change (JS swaps them from the      #}
+            {# partial response) so counts and the co-occurring set stay current.  #}
+            <div id="topic-groups-host">{% include "froide_evidencecollection/_topic_groups.html" %}</div>
+            <div id="topic-chapters-host">{% include "froide_evidencecollection/_topic_chapters.html" %}</div>
+            <div id="topic-facets-host">{% include "froide_evidencecollection/_topic_facets.html" %}</div>
         </div>
-        {# ── Topic bar + keyword facet cloud ──────────────────────── #}
-        {# Topics: broad entry points, single-select; each chip carries its  #}
-        {# identity colour (so the bar doubles as the dot colour key) and    #}
-        {# selecting one narrows the cloud to the dots that topic dominates  #}
-        {# — all one colour. Keywords: each chip is one word, tagged with    #}
-        {# its parent topic's colour so it is never seen apart from its       #}
-        {# broader topic; several keywords AND together, narrowing to         #}
-        {# evidence containing them. Both live outside #topic-cloud-results   #}
-        {# are re-rendered on every filter change (JS swaps them from the      #}
-        {# partial response) so counts and the co-occurring set stay current.  #}
-        <div id="topic-groups-host">{% include "froide_evidencecollection/_topic_groups.html" %}</div>
-        <div id="topic-chapters-host">{% include "froide_evidencecollection/_topic_chapters.html" %}</div>
-        <div id="topic-facets-host">{% include "froide_evidencecollection/_topic_facets.html" %}</div>
+        {# /.topic-cloud-filters #}
         {# Two columns: the scatter (+ count line / outline) on the left, the #}
         {# "Actors in view" panel on the right. The panel lists the actors    #}
         {# present in the filtered set; clicking one highlights that actor's   #}
         {# dots in the cloud. It lives outside #topic-cloud-results and is     #}
         {# swapped wholesale on every filter change, like the facet cloud.     #}
+        {# ── View tabs: scatter cloud ⇆ tabular list ──────────────────── #}
+        {# Pure client-side toggle (see the tab script): clicking a tab        #}
+        {# flips a class on .topic-cloud-page, which CSS uses to show the       #}
+        {# matching view. Lives outside #topic-cloud-results so the choice      #}
+        {# survives filter swaps.                                              #}
+        <div class="topic-cloud-tabs"
+             role="tablist"
+             aria-label="{% trans 'View mode' %}">
+            <button type="button"
+                    class="topic-cloud-tab is-active"
+                    role="tab"
+                    aria-selected="true"
+                    data-view="cloud">{% trans "Cloud" %}</button>
+            <button type="button"
+                    class="topic-cloud-tab"
+                    role="tab"
+                    aria-selected="false"
+                    data-view="table">{% trans "Table" %}</button>
+        </div>
         <main class="topic-cloud-main">
             <div class="topic-cloud-main__cloud">{% include "froide_evidencecollection/_topic_cloud_results.html" %}</div>
             <div id="topic-actors-host" class="topic-cloud-main__actors">
@@ -260,6 +286,43 @@
         .topic-cloud-main { flex-direction: column; }
         .topic-cloud-main__actors { flex: 1 1 auto; width: 100%; }
     }
+    /* ── View tabs (Cloud ⇆ Table) ─────────────────────────────────────
+       A small two-button tablist above the results. The active tab keeps a
+       solid underline; switching flips a class on .topic-cloud-page which the
+       rules below read to show one view and hide the other. */
+    .topic-cloud-tabs {
+        display: flex;
+        gap: .25rem;
+        margin-bottom: .75rem;
+        border-bottom: 1px solid #e2e2e2;
+    }
+    .topic-cloud-tab {
+        border: 0;
+        background: none;
+        padding: .35rem .85rem;
+        font-size: .9rem;
+        color: #6b5d4f;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+    }
+    .topic-cloud-tab:hover { color: #4a3f33; }
+    .topic-cloud-tab:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 2px; }
+    .topic-cloud-tab.is-active {
+        color: #6b4f2c;
+        font-weight: 600;
+        border-bottom-color: #6b4f2c;
+    }
+    /* The table view is hidden until its tab is active; the cloud view is the
+       default. In table mode the scatter and the "Actors in view" side panel
+       step aside so the table spans the full width, and the SR-only outline is
+       dropped since the table is now the accessible representation. */
+    .topic-cloud-table { display: none; }
+    .topic-cloud-page.topic-view-table .topic-cloud-table { display: block; }
+    .topic-cloud-page.topic-view-table .topic-cloud-svg { display: none; }
+    .topic-cloud-page.topic-view-table .topic-cloud-main__actors { display: none; }
+    .topic-cloud-page.topic-view-table .topic-cloud-outline { display: none; }
+    .topic-cloud-table__region { color: #8a7d6c; }
     .topic-cloud-svg {
         margin: 0;
         background: #fafafa;
@@ -296,24 +359,31 @@
            legend) plus the page header. */
         max-height: calc(100vh - 14rem);
     }
-    /* Sticky toolbar: a single horizontal strip that stays pinned
-       to the top while the canvas scrolls behind it. The toolbar
-       has its own background and shadow so it reads as a layer
-       above the cloud. Drops sticky on mobile because the bar
-       wraps tall enough to feel oppressive when pinned. */
+    /* Sticky filter region: the whole filter stack (toolbar + topic bar +
+       main-topic tree + keyword facets) stays pinned to the top while the
+       canvas scrolls behind it. The wrapper carries its own background and
+       a bottom shadow so the whole block reads as one layer above the cloud.
+       Drops sticky on mobile because the stack is tall enough to feel
+       oppressive when pinned. */
+    .topic-cloud-filters {
+        background: var(--bs-body-bg, #fff);
+    }
+    @media (min-width: 768px) {
+        .topic-cloud-filters {
+            position: sticky;
+            top: .5rem;
+            z-index: 20;
+            /* A little bottom padding + shadow so dots scrolling underneath
+               don't kiss the last filter row. */
+            padding-bottom: .5rem;
+            box-shadow: 0 6px 6px -4px rgba(0, 0, 0, .12);
+        }
+    }
     .topic-cloud-toolbar {
         background: var(--bs-body-bg, #fff);
         border: 1px solid #e2e2e2;
         border-radius: .375rem;
         padding: .5rem .75rem;
-        z-index: 20;
-    }
-    @media (min-width: 768px) {
-        .topic-cloud-toolbar {
-            position: sticky;
-            top: .5rem;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, .06);
-        }
     }
     .topic-filter-row {
         display: flex;
@@ -1395,6 +1465,35 @@
 
         bindCloud();
 
+        // ── View tabs: scatter cloud ⇆ tabular list ───────────────────
+        // Pure client-side: clicking a tab flips a class on .topic-cloud-page
+        // (read by CSS to show one view, hide the other) and moves the active
+        // styling. The choice lives outside #topic-cloud-results, so it persists
+        // across filter swaps. The table content itself is server-rendered and
+        // swapped like the outline, so it stays in sync with the filters.
+        (function () {
+            var page = document.querySelector('.topic-cloud-page');
+            var tabs = document.querySelectorAll('.topic-cloud-tab');
+            if (!page || !tabs.length) return;
+            function setView(view) {
+                page.classList.toggle('topic-view-table', view === 'table');
+                page.classList.toggle('topic-view-cloud', view === 'cloud');
+                Array.prototype.forEach.call(tabs, function (tab) {
+                    var on = tab.getAttribute('data-view') === view;
+                    tab.classList.toggle('is-active', on);
+                    tab.setAttribute('aria-selected', on ? 'true' : 'false');
+                });
+                // Returning to the cloud after it was hidden: re-frame the dots
+                // so the SVG fills the (now measurable) frame again.
+                if (view === 'cloud') fitToCircles(false);
+            }
+            Array.prototype.forEach.call(tabs, function (tab) {
+                tab.addEventListener('click', function () {
+                    setView(tab.getAttribute('data-view'));
+                });
+            });
+        })();
+
         // ── Actor combobox: button opens a popup with a search input ──
         // and a filterable list. The hidden input carries the submitted
         // PK; selecting an option dispatches a `change` event on it so
@@ -1652,6 +1751,7 @@
         var TOP_LEVEL_SELECTORS = [
             'p.text-muted',
             'div.topic-cloud-outline',
+            'div.topic-cloud-table',
             'div.alert',
         ];
 

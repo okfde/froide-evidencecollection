@@ -1,0 +1,49 @@
+{% load i18n %}
+{# Tabular view of the matching evidence — the same set the SR outline lists  #}
+{# (capped at OUTLINE_MAX_EVIDENCE), shown as a real table when the "Table"    #}
+{# tab is active. Hidden by default via CSS; the tab bar toggles a class on    #}
+{# .topic-cloud-page. Lives inside #topic-cloud-results, and is named in the   #}
+{# JS TOP_LEVEL_SELECTORS so it is swapped on every filter change.             #}
+<div class="topic-cloud-table">
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle topic-cloud-table__table">
+            <thead>
+                <tr>
+                    <th scope="col">{% trans "Date" %}</th>
+                    <th scope="col">{% trans "Platform" %}</th>
+                    <th scope="col">{% trans "Actor" %}</th>
+                    <th scope="col" class="text-end">{% trans "Link" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in outline_items %}
+                    <tr>
+                        <td class="text-nowrap">
+                            {% if item.posted_on %}
+                                <time datetime="{{ item.posted_on|date:'Y-m-d' }}">{{ item.posted_on|date:"Y-m-d" }}</time>
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>{{ item.post.account.get_platform_display|default:"—" }}</td>
+                        <td>
+                            {{ item.post.account.actor|default:"—" }}
+                            {% if item.region %}<span class="topic-cloud-table__region">· {{ item.region }}</span>{% endif %}
+                        </td>
+                        <td class="text-end text-nowrap">
+                            <a href="{{ item.url }}" target="_blank" rel="noopener">
+                                {% trans "View" %}
+                                <span class="visually-hidden">{% trans "(opens in new tab)" %}</span>
+                            </a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if outline_hidden_count %}
+        <p class="text-muted small">
+            {% blocktrans count counter=outline_hidden_count %}{{ counter }} further piece of evidence is not listed here — narrow the filters to reach it.{% plural %}{{ counter }} further pieces of evidence are not listed here — narrow the filters to reach them.{% endblocktrans %}
+        </p>
+    {% endif %}
+</div>
