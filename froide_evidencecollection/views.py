@@ -842,10 +842,6 @@ class EvidenceTopicCloudView(TemplateView):
                 "social_media_post__account__platform",
                 "social_media_post__account__username",
                 "social_media_post__account__actor",
-                "document__url",
-                "document__title",
-                "document__text",
-                "document__published_at",
             )
             .order_by("-social_media_post__posted_at", "-pk")
         )
@@ -861,7 +857,6 @@ class EvidenceTopicCloudView(TemplateView):
                 | Q(social_media_post__images__content_text_override__icontains=q)
                 | Q(social_media_post__videos__excerpts__text__icontains=q)
                 | Q(social_media_post__videos__excerpts__text_override__icontains=q)
-                | Q(document__text__icontains=q)
                 | Q(citation__icontains=q)
                 | Q(description__icontains=q)
             ).distinct()
@@ -1435,8 +1430,7 @@ class EvidenceTopicCloudView(TemplateView):
         circle_parts = []
         for pt in self._project(plottable, bounds=bounds):
             ev = pt["post"]
-            # Account-derived bits come from the social-media-post source;
-            # document-backed evidence leaves them blank.
+            # Account-derived bits come from the social-media-post source.
             account = ev.social_media_post.account if ev.social_media_post_id else None
             platform = account.get_platform_display() if account else ""
             username = account.username if account and account.username else ""
@@ -1494,10 +1488,9 @@ class EvidenceTopicCloudView(TemplateView):
         outline_items = [
             {
                 # `post` feeds the optional account/title line; it is the post
-                # source (None for document-backed evidence, which then renders
-                # snippet-only). `url` always points at the evidence detail page
+                # source. `url` always points at the evidence detail page
                 # so every source type gets a working link. `posted_on` uses the
-                # source's publication date so documents still show a date.
+                # source's publication date.
                 "post": ev.social_media_post,
                 "url": ev.get_absolute_url(),
                 "snippet": self._snippet(ev),
