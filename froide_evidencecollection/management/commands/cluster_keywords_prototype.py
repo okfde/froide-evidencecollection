@@ -45,7 +45,7 @@ Requires bertopic's stack (sentence-transformers, numpy, scikit-learn).
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from froide_evidencecollection.models import Keyword, KeywordGroup, Quote
+from froide_evidencecollection.models import Evidence, Keyword, KeywordGroup
 
 
 class Command(BaseCommand):
@@ -145,9 +145,9 @@ class Command(BaseCommand):
         labels = [kw["label"] for kw in keywords]
         n_kw = len(keywords)
 
-        # Per-document (quote) keyword index from the through table (one query).
-        Through = Quote.keywords.through
-        pairs = Through.objects.values_list("quote_id", "keyword__lemma")
+        # Per-evidence keyword index from the through table (one query).
+        Through = Evidence.keywords.through
+        pairs = Through.objects.values_list("evidence_id", "keyword__lemma")
         ev_kw: dict[int, set[int]] = {}
         for ev_id, lemma in pairs.iterator(chunk_size=5000):
             j = col.get(lemma)
@@ -311,7 +311,7 @@ class Command(BaseCommand):
 
         # ── Resolve the slice ───────────────────────────────────────────────
         topic_arg = options["topic"].strip()
-        ev_qs = Quote.objects.filter(topic__isnull=False)
+        ev_qs = Evidence.objects.filter(topic__isnull=False)
         if topic_arg.isdigit():
             ev_qs = ev_qs.filter(topic_id=int(topic_arg))
             slice_desc = f"topic_id={topic_arg}"
@@ -320,7 +320,7 @@ class Command(BaseCommand):
             slice_desc = f"topic label ~ {topic_arg!r}"
         slice_ids = set(ev_qs.values_list("pk", flat=True)) & ev_kw.keys()
         if not slice_ids:
-            raise CommandError(f"No fitted quotes matched the slice ({slice_desc}).")
+            raise CommandError(f"No fitted evidence matched the slice ({slice_desc}).")
 
         # Per-keyword count inside the slice.
         a = np.zeros(n_kw, dtype=float)

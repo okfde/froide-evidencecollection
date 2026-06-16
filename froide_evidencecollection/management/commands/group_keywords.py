@@ -62,29 +62,29 @@ from django.db import transaction
 from froide_evidencecollection.management.commands.fit_keywords import (
     DEFAULT_EMBEDDINGS_CACHE,
 )
-from froide_evidencecollection.models import Keyword, KeywordGroup, Quote
+from froide_evidencecollection.models import Evidence, Keyword, KeywordGroup
 
 
-def _document_queryset():
-    """Quotes with the relations `Quote.topic_text` touches prefetched, so
+def _evidence_queryset():
+    """Evidence with the relations `Evidence.topic_text` touches prefetched, so
     assembling each document's text doesn't fan out to per-row queries. Mirrors
     the queryset `fit_keywords` builds, so the text (and thus its hash, the cache
-    key) matches the cached document embeddings exactly. The document unit is the
-    `Quote` (the atomic claim), reached for source text through its evidence."""
+    key) matches the cached document embeddings exactly."""
     return (
-        Quote.objects.all()
+        Evidence.objects.all()
         .select_related(
-            "evidence__social_media_post__account",
-            "evidence__social_media_post__redistributes__account",
-            "evidence__social_media_post__redistributes__redistributes__account",
+            "social_media_post__account",
+            "social_media_post__redistributes__account",
+            "social_media_post__redistributes__redistributes__account",
         )
         .prefetch_related(
-            "evidence__social_media_post__images",
-            "evidence__social_media_post__videos",
-            "evidence__social_media_post__redistributes__images",
-            "evidence__social_media_post__redistributes__videos",
-            "evidence__social_media_post__redistributes__redistributes__images",
-            "evidence__social_media_post__redistributes__redistributes__videos",
+            "social_media_post__images",
+            "social_media_post__videos__excerpts",
+            "social_media_post__redistributes__images",
+            "social_media_post__redistributes__videos__excerpts",
+            "social_media_post__redistributes__redistributes__images",
+            "social_media_post__redistributes__redistributes__videos__excerpts",
+            "mentions__category",
         )
         .order_by("pk")
     )
@@ -260,11 +260,11 @@ class Command(BaseCommand):
         labels = [kw["label"] for kw in keywords]
         n_kw = len(keywords)
 
-        # Per-document (quote) keyword index from the through table (one query),
-        # and its inverse (keyword -> document) for coverage. Restricted to the
-        # enabled keywords above via `col`.
-        Through = Quote.keywords.through
-        pairs = Through.objects.values_list("quote_id", "keyword__lemma")
+        # Per-evidence keyword index from the through table (one query), and its
+        # inverse (keyword -> evidence) for coverage. Restricted to the enabled
+        # keywords above via `col`.
+        Through = Evidence.keywords.through
+        pairs = Through.objects.values_list("evidence_id", "keyword__lemma")
         ev_kw: dict[int, set[int]] = {}
         kw_evs: list[set[int]] = [set() for _ in range(n_kw)]
         for ev_id, lemma in pairs.iterator(chunk_size=5000):
@@ -273,7 +273,9 @@ class Command(BaseCommand):
                 ev_kw.setdefault(ev_id, set()).add(j)
                 kw_evs[j].add(ev_id)
         if not ev_kw:
-            raise CommandError("No quote-keyword links found — run fit_keywords first.")
+            raise CommandError(
+                "No evidence-keyword links found — run fit_keywords first."
+            )
         df = np.array([len(s) for s in kw_evs], dtype=float)
 
         embedder = SentenceTransformer(options["embedding_model"])
@@ -562,14 +564,14 @@ class Command(BaseCommand):
             return {}
 
     def _document_vectors(self, ev_ids, doc_cache, embedder, np):
-        """Map each linked quote id to its document embedding, taking cache hits
-        (keyed by the same text hash fit_keywords uses) and encoding only the
-        misses in one batch. Returns ``{quote_id: np.ndarray}``."""
+        """Map each linked evidence id to its document embedding, taking cache
+        hits (keyed by the same text hash fit_keywords uses) and encoding only
+        the misses in one batch. Returns ``{evidence_id: np.ndarray}``."""
         ev_ids = set(ev_ids)
         ev_vec: dict[int, "np.ndarray"] = {}
         miss_ids: list[int] = []
         miss_texts: list[str] = []
-        qs = _document_queryset().filter(pk__in=ev_ids)
+        qs = _evidence_queryset().filter(pk__in=ev_ids)
         for ev in qs.iterator(chunk_size=500):
             text = ev.topic_text
             h = hashlib.sha1(text.encode("utf-8")).hexdigest()

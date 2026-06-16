@@ -1,30 +1,25 @@
-"""Extract per-quote keywords with KeyBERT (no topic clustering) and store the
-quote ↔ keyword index plus each quote's 2D embedding coordinates for the cloud
-view.
-
-The fitted unit is the `Quote` (the atomic claim), not the Evidence: a post with
-several cited bits contributes several points, and a post with no sub-citation
-has a single full-source quote standing in for the whole post.
+"""Extract per-evidence keywords with KeyBERT (no topic clustering) and store
+the evidence ↔ keyword index plus each evidence's 2D embedding coordinates for
+the cloud view.
 
 This is the cluster-free successor to `fit_post_topics`. There is no BERTopic /
 HDBSCAN step: keywords come straight from KeyBERT, which scores candidate
 keyphrases against each document's own embedding and keeps the most salient.
 
-Design "B" — KeyBERT is the *linker*, not just a candidate generator: a quote is
-linked to exactly the keyphrases KeyBERT judged salient *for that quote*. A
-keyword's document frequency is therefore "documents KeyBERT picked it for", and
-a facet selection narrows to the quotes KeyBERT associated with the concept —
-which may include quotes that imply the concept without containing the literal
-word (the looser, semantic matching we wanted to test).
+Design "B" — KeyBERT is the *linker*, not just a candidate generator: an
+evidence is linked to exactly the keyphrases KeyBERT judged salient *for that
+evidence*. A keyword's document frequency is therefore "documents KeyBERT picked
+it for", and a facet selection narrows to the evidence KeyBERT associated with
+the concept — which may include evidence that implies the concept without
+containing the literal word (the looser, semantic matching we wanted to test).
 
-Each quote's input text is `Quote.topic_text` — the cited span, or, for a
-full-source quote, the source text assembled highest-signal-first (the embedding
-model truncates to a token window).
+Each evidence's input text is `Evidence.topic_text` — the source text assembled
+highest-signal-first, since the embedding model truncates to a token window.
 
 The cloud's dot *positions* still come from a 2D UMAP pass over the same
-embeddings — that was always independent of clustering. The `Quote.topic` FK and
-`Topic` rows are intentionally left untouched here; the view's "is fitted" gate
-reads `topic_fit_at` instead, which this command sets.
+embeddings — that was always independent of clustering. The `Evidence.topic` FK
+and `Topic` rows are intentionally left untouched here; the view's "is fitted"
+gate reads `topic_fit_at` instead, which this command sets.
 
 Run manually (or via cron); the cloud view reads the cached numbers.
 
@@ -42,7 +37,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from froide_evidencecollection.models import Keyword, Quote
+from froide_evidencecollection.models import Evidence, Keyword
 
 # Curated German stopword list, expanded with social-media filler. Used to
 # filter candidate keyphrases *after* ngram formation: a term is dropped when
@@ -180,7 +175,7 @@ def _lemmatize_phrase(phrase: str, lemmatize) -> str:
 
 
 class Command(BaseCommand):
-    help = "Extract per-quote keywords with KeyBERT and store the index + 2D coords."
+    help = "Extract per-evidence keywords with KeyBERT and store the index + 2D coords."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -188,7 +183,7 @@ class Command(BaseCommand):
             type=int,
             default=30,
             help=(
-                "Skip quotes whose assembled text is shorter than this "
+                "Skip evidence whose assembled text is shorter than this "
                 "(default: 30)."
             ),
         )
@@ -216,7 +211,7 @@ class Command(BaseCommand):
             type=int,
             default=10,
             help=(
-                "How many keyphrases KeyBERT extracts per quote "
+                "How many keyphrases KeyBERT extracts per piece of evidence "
                 "(its top-N by similarity to the document). More = denser "
                 "links and more candidate keywords (default: 10)."
             ),
@@ -258,7 +253,7 @@ class Command(BaseCommand):
             default=DEFAULT_KEYWORD_MIN_DF,
             help=(
                 "A keyword only becomes a facet if KeyBERT picked it for at "
-                "least this many quotes (default: %(default)s)."
+                "least this many pieces of evidence (default: %(default)s)."
             ),
         )
         parser.add_argument(
@@ -306,13 +301,13 @@ class Command(BaseCommand):
             "--limit",
             type=int,
             default=None,
-            help="Only fit the first N quotes (for quick experiments).",
+            help="Only fit the first N pieces of evidence (for quick experiments).",
         )
         parser.add_argument(
             "--reset",
             action="store_true",
             help=(
-                "Also clear coords + fit marker on quotes that don't end "
+                "Also clear coords + fit marker on evidence that doesn't end "
                 "up in the fitted set (e.g. too short, dropped by --limit)."
             ),
         )
@@ -343,47 +338,47 @@ class Command(BaseCommand):
             options["embeddings_cache"] += ".npz"
 
         min_len = options["min_text_len"]
-        # select_related/prefetch_related cover everything Quote.topic_text
-        # touches (a full-source quote walks its evidence's source text) so
-        # iterating doesn't fan out to per-row queries.
+        # select_related/prefetch_related cover everything Evidence.topic_text
+        # touches so iterating doesn't fan out to per-row queries.
         qs = (
-            Quote.objects.all()
+            Evidence.objects.all()
             .select_related(
-                "evidence__social_media_post__account",
-                "evidence__social_media_post__redistributes__account",
-                "evidence__social_media_post__redistributes__redistributes__account",
+                "social_media_post__account",
+                "social_media_post__redistributes__account",
+                "social_media_post__redistributes__redistributes__account",
             )
             .prefetch_related(
-                "evidence__social_media_post__images",
-                "evidence__social_media_post__videos",
-                "evidence__social_media_post__redistributes__images",
-                "evidence__social_media_post__redistributes__videos",
-                "evidence__social_media_post__redistributes__redistributes__images",
-                "evidence__social_media_post__redistributes__redistributes__videos",
+                "social_media_post__images",
+                "social_media_post__videos__excerpts",
+                "social_media_post__redistributes__images",
+                "social_media_post__redistributes__videos__excerpts",
+                "social_media_post__redistributes__redistributes__images",
+                "social_media_post__redistributes__redistributes__videos__excerpts",
+                "mentions__category",
             )
             .order_by("pk")
         )
         if options["limit"]:
             qs = qs[: options["limit"]]
 
-        quotes: list[Quote] = []
+        evidences: list[Evidence] = []
         docs: list[str] = []
-        for quote in qs.iterator(chunk_size=500):
-            text = quote.topic_text
+        for ev in qs.iterator(chunk_size=500):
+            text = ev.topic_text
             if len(text) < min_len:
                 continue
-            quotes.append(quote)
+            evidences.append(ev)
             docs.append(text)
 
         # UMAP needs a handful of neighbours to build the 2D projection.
         if len(docs) < 5:
             raise CommandError(
-                f"Need at least 5 usable quotes; got {len(docs)}. "
+                f"Need at least 5 usable pieces of evidence; got {len(docs)}. "
                 "Lower --min-text-len or import more evidence."
             )
 
         self.stdout.write(
-            f"Embedding {len(docs)} quotes with "
+            f"Embedding {len(docs)} pieces of evidence with "
             f"{options['embedding_model']} (max_seq_length="
             f"{options['max_seq_length']})…"
         )
@@ -530,7 +525,7 @@ class Command(BaseCommand):
 
         # lemma -> {surface form (lower-cased) -> document count}
         surface_counts: dict[str, dict[str, int]] = {}
-        doc_lemmas: list[set[str]] = []
+        ev_lemmas: list[set[str]] = []
         lemma_df: dict[str, int] = {}
         # Salience aggregates per lemma: the max and the sum/count of the KeyBERT
         # scores of every pick that produced it, for the cached salience fields.
@@ -559,7 +554,7 @@ class Command(BaseCommand):
                     lemma_score_max[lemma] = score
                 lemma_score_sum[lemma] = lemma_score_sum.get(lemma, 0.0) + score
                 lemma_score_n[lemma] = lemma_score_n.get(lemma, 0) + 1
-            doc_lemmas.append(matched)
+            ev_lemmas.append(matched)
             for lemma in matched:
                 lemma_df[lemma] = lemma_df.get(lemma, 0) + 1
 
@@ -593,7 +588,7 @@ class Command(BaseCommand):
             # Keywords are NOT wiped: they carry curator edits (custom_label,
             # enabled, group) that must survive a refit, so they're reconciled
             # by lemma below. Clear only the derived M2M links here.
-            Quote.keywords.through.objects.all().delete()
+            Evidence.keywords.through.objects.all().delete()
 
             # Keyword rows for the kept lemmas — upserted by lemma so a curator's
             # custom_label / enabled / group edits survive. The fit owns only the
@@ -625,28 +620,28 @@ class Command(BaseCommand):
             stale.filter(custom_label="", enabled=True, group__isnull=True).delete()
             stale.update(df=0, salience_max=0.0, salience_mean=0.0)
 
-            for quote, (x, y) in zip(quotes, coords, strict=True):
-                quote.topic_x = float(x)
-                quote.topic_y = float(y)
-                quote.topic_fit_at = now
+            for ev, (x, y) in zip(evidences, coords, strict=True):
+                ev.topic_x = float(x)
+                ev.topic_y = float(y)
+                ev.topic_fit_at = now
 
-            Quote.objects.bulk_update(
-                quotes, ["topic_x", "topic_y", "topic_fit_at"], batch_size=500
+            Evidence.objects.bulk_update(
+                evidences, ["topic_x", "topic_y", "topic_fit_at"], batch_size=500
             )
 
-            # Quote ↔ keyword links, built straight into the through table.
-            Through = Quote.keywords.through
+            # Evidence ↔ keyword links, built straight into the through table.
+            Through = Evidence.keywords.through
             through_rows = [
-                Through(quote_id=quote.pk, keyword_id=keyword_pk_by_lemma[lemma])
-                for quote, matched in zip(quotes, doc_lemmas, strict=True)
+                Through(evidence_id=ev.pk, keyword_id=keyword_pk_by_lemma[lemma])
+                for ev, matched in zip(evidences, ev_lemmas, strict=True)
                 for lemma in matched
                 if lemma in kept_lemmas
             ]
             Through.objects.bulk_create(through_rows, batch_size=1000)
 
             if options["reset"]:
-                fitted_ids = {q.pk for q in quotes}
-                Quote.objects.exclude(pk__in=fitted_ids).update(
+                fitted_ids = {e.pk for e in evidences}
+                Evidence.objects.exclude(pk__in=fitted_ids).update(
                     topic_x=None,
                     topic_y=None,
                     topic_fit_at=None,
@@ -654,8 +649,8 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Done. Fitted {len(quotes)} quotes; "
-                f"{len(through_rows)} quote-keyword links across "
+                f"Done. Fitted {len(evidences)} pieces of evidence; "
+                f"{len(through_rows)} evidence-keyword links across "
                 f"{len(keyword_pk_by_lemma)} keywords."
             )
         )

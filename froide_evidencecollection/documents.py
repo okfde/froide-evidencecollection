@@ -10,7 +10,7 @@ from froide.helper.search import (
     get_text_analyzer,
 )
 
-from .models import Actor, Affiliation, Evidence, Person, Reference
+from .models import Affiliation, Evidence, Person
 
 evidence_index = get_index("evidence")
 person_index = get_index("person")
@@ -53,27 +53,27 @@ class EvidenceDocument(DSLDocument):
 
     class Django:
         model = Evidence
-        fields = ["description"]
+        fields = ["citation", "description"]
         # Fields to be indexed for full text search.
-        fts_fields = ["description"]
+        fts_fields = ["citation", "description"]
 
     def get_queryset(self):
         return (
             super()
             .get_queryset()
             .prefetch_related(
-                "quotes__originators__person__affiliations__organization__institutional_level",
-                "quotes__originators__person__affiliations__role",
-                "quotes__references__category",
+                "originators__person__affiliations__organization__institutional_level",
+                "originators__person__affiliations__role",
+                "mentions__category",
                 # `search_text` walks each post's media and the redistribution
                 # chain it recurses into; prefetch both so indexing doesn't
                 # fan out to per-row queries.
                 "social_media_post__images",
-                "social_media_post__videos",
+                "social_media_post__videos__excerpts",
                 "social_media_post__redistributes__images",
-                "social_media_post__redistributes__videos",
+                "social_media_post__redistributes__videos__excerpts",
                 "social_media_post__redistributes__redistributes__images",
-                "social_media_post__redistributes__redistributes__videos",
+                "social_media_post__redistributes__redistributes__videos__excerpts",
             )
             .select_related(
                 "evidence_type",
@@ -87,17 +87,10 @@ class EvidenceDocument(DSLDocument):
         source = obj.source
         return source.publication_date if source is not None else None
 
-    def _originator_actors(self, obj: Evidence):
-        """Distinct originator actors across the evidence's quotes (originators
-        live on the claim/quote, not the post)."""
-        return Actor.objects.filter(originated_quotes__evidence=obj).distinct()
-
     def _get_active_affiliations(self, obj: Evidence):
         """Return affiliations active at the source's publication date, or all if no date."""
-        person_ids = (
-            self._originator_actors(obj)
-            .filter(person__isnull=False)
-            .values_list("person_id", flat=True)
+        person_ids = obj.originators.filter(person__isnull=False).values_list(
+            "person_id", flat=True
         )
 
         affiliations = Affiliation.objects.filter(person_id__in=person_ids)
@@ -114,24 +107,16 @@ class EvidenceDocument(DSLDocument):
         return affiliations
 
     def prepare_originators(self, obj: Evidence):
-        return list(self._originator_actors(obj).values_list("id", flat=True))
+        return list(obj.originators.values_list("id", flat=True))
 
     def prepare_originator_names(self, obj: Evidence):
-        return list(self._originator_actors(obj).values_list("name", flat=True))
+        return list(obj.originators.values_list("name", flat=True))
 
     def prepare_categories(self, obj: Evidence):
-        return list(
-            Reference.objects.filter(quote__evidence=obj)
-            .values_list("category_id", flat=True)
-            .distinct()
-        )
+        return list(obj.mentions.values_list("category_id", flat=True).distinct())
 
     def prepare_category_names(self, obj: Evidence):
-        return list(
-            Reference.objects.filter(quote__evidence=obj)
-            .values_list("category__name", flat=True)
-            .distinct()
-        )
+        return list(obj.mentions.values_list("category__name", flat=True).distinct())
 
     def prepare_platform(self, obj: Evidence):
         post = obj.social_media_post

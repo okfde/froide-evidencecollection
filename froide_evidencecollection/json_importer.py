@@ -3,7 +3,7 @@ import logging
 import os
 import re
 from calendar import monthrange
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from itertools import zip_longest
 
 from django.core.files import File
@@ -16,6 +16,7 @@ from froide_evidencecollection.models import (
     Category,
     Chapter,
     Evidence,
+    EvidenceMention,
     InstitutionalLevel,
     Organization,
     Person,
@@ -23,11 +24,10 @@ from froide_evidencecollection.models import (
     PostImage,
     PostScreenshot,
     PostVideo,
-    Quote,
-    Reference,
     Role,
     SocialMediaAccount,
     SocialMediaPost,
+    VideoExcerpt,
 )
 from froide_evidencecollection.relation_seeding import seed_relations_from_source
 from froide_evidencecollection.utils import (
@@ -578,10 +578,8 @@ class JSONImporter:
         post = self._upsert_post(account, platform_post_id, post_fields)
         self._import_media(post, item)
         evidence = self._upsert_evidence(post, external_id, evidence_fields)
-        # References (and their quotes) first, so seeding has quotes to attach
-        # the originator to — originators live on the quote, not the evidence.
-        self._upsert_references(evidence, item)
         seed_relations_from_source(evidence)
+        self._upsert_mentions(evidence, item)
 
         self._post_index[(account.id, post.platform_post_id)] = post.id
 
@@ -627,14 +625,13 @@ class JSONImporter:
     # ------------------------------------------------------------------
     def _import_media(self, post, item):
         # An image, (at most one) video, and an archival screenshot of the post.
-        # An image's content_text is curator-filled; a video carries its full
-        # `transcription` text (searched) plus the report's relevant time ranges
-        # (`video_timestamp`, parked verbatim); a screenshot is a pure provenance
-        # file. The per-media text feeds Evidence.text_segments. Each single-file
-        # field is a path string (or None when absent). `image_alt_text`
-        # accompanies `image_file`: a dict carrying the curator's alt text
-        # (`alt_text`) and whether the image relates to the post's text
-        # (`text_bezug_zum_bild`, "JA"/"NEIN").
+        # An image's content_text is curator-filled; a video's searched text is
+        # its excerpts (from report_data.video_timestamp); a screenshot is a
+        # pure provenance file. The per-media text feeds Evidence.text_segments.
+        # prepare_import has collapsed each single-file field to a path string
+        # (or None when absent). `image_alt_text` accompanies `image_file`: a
+        # dict carrying the curator's alt text (`alt_text`) and whether the
+        # image relates to the post's text (`text_bezug_zum_bild`, "JA"/"NEIN").
         image_path = item.get("image_file")
         if image_path:
             alt = item.get("image_alt_text") or {}
@@ -650,19 +647,17 @@ class JSONImporter:
                 },
             )
 
-        # The `transcription` text, `srt_file` sidecar and `video_timestamp`
-        # ranges only accompany a video, so the video exists only when there's a
-        # video file. The video file itself is not stored — only its path
-        # (`source_path`) for reference.
+        # `video_timestamp` (the excerpts) and the `srt_file` transcript sidecar
+        # only accompany a video file, so the video — and its excerpts — exist
+        # only when there's a file.
         video_path = item.get("video_file")
         if video_path:
             report_data = item.get("report_data") or {}
             self._upsert_video(
                 post,
                 video_path,
-                transcript_text=(item.get("transcription") or "").strip(),
-                timestamps=report_data.get("video_timestamp") or [],
-                transcript_path=item.get("srt_file") or "",
+                report_data.get("video_timestamp") or [],
+                item.get("srt_file") or "",
             )
 
         screenshot_path = item.get("screenshot_file")
@@ -701,52 +696,104 @@ class JSONImporter:
             self.stats.track_updated(model, old_data, obj)
         return obj
 
-    def _upsert_video(
-        self, post, source_path, transcript_text, timestamps, transcript_path=""
-    ):
-        # The video file is not stored: `source_path` is kept only as a reference
-        # to the original file name. `transcript` and `timestamps` are
-        # import-owned and overwritten on re-import (the curator's
-        # `transcript_override` is never touched); the SRT sidecar is backfilled
-        # if missing.
+    def _upsert_video(self, post, source_path, timestamps, transcript_path=""):
         self.stats.reset_instance(PostVideo)
         video = PostVideo.objects.filter(post=post, source_path=source_path).first()
         if video is None:
-            video = PostVideo(
-                post=post,
-                source_path=source_path,
-                transcript=transcript_text,
-                timestamps=timestamps,
-            )
+            video = PostVideo(post=post, source_path=source_path)
+            self._attach_media_file(video, source_path)
             self._attach_media_file(video, transcript_path, "transcript_file")
             video.save()
             self.stats.track_created(PostVideo, video)
+            self._sync_video_excerpts(video, timestamps)
             return video
 
+        # Backfill the media file and/or transcript on a row that predates file
+        # storage (or whose file could not be resolved on an earlier run); the
+        # excerpts are synced separately so a curator override survives re-import.
         old_data = to_dict(video)
         update = False
-        for field, value in (
-            ("transcript", transcript_text),
-            ("timestamps", timestamps),
-        ):
-            if not equals(getattr(video, field), value):
-                setattr(video, field, value)
-                update = True
+        if source_path and not video.file:
+            self._attach_media_file(video, source_path)
+            update = update or bool(video.file)
         if transcript_path and not video.transcript_file:
             self._attach_media_file(video, transcript_path, "transcript_file")
             update = update or bool(video.transcript_file)
         if update:
             video.save()
             self.stats.track_updated(PostVideo, old_data, video)
+        self._sync_video_excerpts(video, timestamps)
         return video
+
+    def _sync_video_excerpts(self, video, timestamps):
+        # Build the video's excerpts from report_data.video_timestamp: one row
+        # per entry, ordered by position, with `start`/`end` parsed from
+        # "HH:MM:SS". Entirely-empty entries (start, end and excerpt all blank)
+        # are skipped. Match existing rows by `order` and overwrite only the
+        # import-owned fields (`start`, `end`, `text`) so a curator's
+        # `text_override` survives re-import; drop rows the import no longer backs.
+        desired = []
+        for entry in timestamps or []:
+            start = self._parse_timestamp(entry.get("start"))
+            end = self._parse_timestamp(entry.get("end"))
+            text = (entry.get("excerpt") or "").strip()
+            if start is None and end is None and not text:
+                continue
+            desired.append((start, end, text))
+
+        existing = {e.order: e for e in video.excerpts.all()}
+        for order, (start, end, text) in enumerate(desired):
+            excerpt = existing.pop(order, None)
+            if excerpt is None:
+                self.stats.reset_instance(VideoExcerpt)
+                excerpt = VideoExcerpt.objects.create(
+                    video=video, order=order, start=start, end=end, text=text
+                )
+                self.stats.track_created(VideoExcerpt, excerpt)
+            elif (
+                not equals(excerpt.start, start)
+                or not equals(excerpt.end, end)
+                or not equals(excerpt.text, text)
+            ):
+                self.stats.reset_instance(VideoExcerpt)
+                old_data = to_dict(excerpt)
+                excerpt.start, excerpt.end, excerpt.text = start, end, text
+                excerpt.save()
+                self.stats.track_updated(VideoExcerpt, old_data, excerpt)
+        for excerpt in existing.values():
+            self.stats.reset_instance(VideoExcerpt)
+            data = to_dict(excerpt)
+            excerpt.delete()
+            self.stats.track_deleted(VideoExcerpt, data)
+
+    @staticmethod
+    def _parse_timestamp(value):
+        # "HH:MM:SS" (or "MM:SS") -> timedelta; blank/garbage -> None. Excerpt
+        # times are best-effort metadata, so an unparseable value is logged and
+        # stored as None rather than failing the import.
+        if not value:
+            return None
+        try:
+            nums = [int(p) for p in value.split(":")]
+        except (ValueError, AttributeError):
+            logger.warning("Unparseable video timestamp %r; storing None.", value)
+            return None
+        if len(nums) == 3:
+            hours, minutes, seconds = nums
+        elif len(nums) == 2:
+            hours, minutes, seconds = 0, nums[0], nums[1]
+        else:
+            logger.warning("Unexpected video timestamp %r; storing None.", value)
+            return None
+        return timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
     def _attach_media_file(self, media, source_path, field_name="file"):
         # Import bundles ship media as paths relative to the JSON file
-        # (e.g. "./image/foo.jpg"); resolve against its directory and copy the
-        # bytes into the named FileField (`file` for an image/screenshot,
+        # (e.g. "./video/foo.mp4"); resolve against its directory and copy the
+        # bytes into the named FileField (`file` for the media itself,
         # `transcript_file` for a video's SRT sidecar). A missing file is
-        # tolerated — the row still feeds text_segments — but logged so the miss
-        # is visible.
+        # tolerated — the row (and a video's excerpts) still feed text_segments —
+        # but logged so the miss is visible.
         if not source_path:
             return
         base_dir = os.path.dirname(os.path.abspath(self.json_path))
@@ -921,160 +968,57 @@ class JSONImporter:
         return account
 
     # ------------------------------------------------------------------
-    # Quotes (cited spans) and references (category/footnote tuples)
+    # Evidence mentions (category/page tuples)
     # ------------------------------------------------------------------
-    def _upsert_references(self, evidence, item):
-        # The report cites this evidence at one or more footnotes. Each footnote
-        # row carries a category, chapter path and a cited text (`fliesstext`).
-        # Distinct cited texts become `Quote`s (deduped); each footnote row
-        # becomes a `Reference` pointing at the quote for its text. Several
-        # references can share one quote (same bit cited under different
-        # categories/footnotes); a blank citation means "no sub-selection" and
-        # maps to the evidence's single full-source quote.
+    def _upsert_mentions(self, evidence, item):
         report_data = item.get("report_data") or {}
         topics = report_data.get("topic") or []
         footnotes = report_data.get("footnote_id") or []
         chapter_structures = report_data.get("chapter_sturcrue") or []
         citations = report_data.get("fliesstext") or []
-
-        # Normalise the parallel arrays into per-reference rows, dropping rows
-        # without a category (the reference's required anchor).
-        rows = []
-        if topics or footnotes or chapter_structures:
-            for category_name, footnote, chapter_structure, citation in zip_longest(
-                topics, footnotes, chapter_structures, citations, fillvalue=None
-            ):
-                category_name = (category_name or "").strip()
-                if not category_name:
-                    continue
-                rows.append(
-                    (
-                        category_name,
-                        (footnote or "").strip(),
-                        chapter_structure or [],
-                        citation,
-                    )
-                )
-
-        # With no usable rows, the evidence still has its whole-post claim: a
-        # single full-source quote (the cloud point + the originator's home).
-        # Leave any quotes from a previous run untouched (parity with the old
-        # "no report_data -> no change" behaviour).
-        if not rows:
-            if not evidence.quotes.exists():
-                self.stats.reset_instance(Quote)
-                quote = Quote.objects.create(
-                    evidence=evidence, text="", is_full_source=True
-                )
-                self.stats.track_created(Quote, quote)
+        if not (topics or footnotes or chapter_structures):
             return
 
-        # 1. Resolve the quotes these rows need, deduped by normalized cited text.
-        quote_by_key = self._sync_quotes(evidence, [citation for *_, citation in rows])
-
-        # 2. Upsert the references, each pointing at its row's quote. Keyed by
-        #    (category, footnote) like the old mentions.
-        existing = {
-            (r.category_id, r.footnote): r
-            for r in Reference.objects.filter(quote__evidence=evidence)
-        }
+        existing = {(m.category_id, m.footnote): m for m in evidence.mentions.all()}
         wanted = set()
-        for category_name, footnote, chapter_structure, citation in rows:
+
+        for category_name, footnote, chapter_structure, citation in zip_longest(
+            topics, footnotes, chapter_structures, citations, fillvalue=None
+        ):
+            category_name = (category_name or "").strip()
+            if not category_name:
+                continue
             category, _ = Category.objects.get_or_create(name=category_name)
+            footnote = (footnote or "").strip()
             key = (category.id, footnote)
             wanted.add(key)
             chapter = self._get_or_create_chapter(
-                chapter_structure, topic=category_name
+                chapter_structure or [], topic=category_name
             )
-            quote = quote_by_key[self._quote_key(citation)]
             if key in existing:
-                ref = existing[key]
-                update_fields = []
-                if ref.quote_id != quote.id:
-                    ref.quote = quote
-                    update_fields.append("quote")
-                if chapter is not None and ref.chapter_id != chapter.id:
-                    ref.chapter = chapter
-                    update_fields.append("chapter")
-                if not equals(ref.chapter_structure, chapter_structure):
-                    ref.chapter_structure = chapter_structure
-                    update_fields.append("chapter_structure")
-                if update_fields:
-                    ref.save(update_fields=update_fields)
+                mention = existing[key]
+                if chapter is not None and mention.chapter_id != chapter.id:
+                    mention.chapter = chapter
+                    mention.save(update_fields=["chapter"])
                 continue
-            self.stats.reset_instance(Reference)
-            ref = Reference.objects.create(
-                quote=quote,
+            self.stats.reset_instance(EvidenceMention)
+            mention = EvidenceMention.objects.create(
+                evidence=evidence,
                 category=category,
                 footnote=footnote,
-                chapter_structure=chapter_structure,
+                chapter_structure=chapter_structure or [],
                 chapter=chapter,
+                citation=citation or "",
             )
-            self.stats.track_created(Reference, ref)
+            self.stats.track_created(EvidenceMention, mention)
 
-        for key, ref in existing.items():
+        for key, mention in existing.items():
             if key in wanted:
                 continue
-            self.stats.reset_instance(Reference)
-            ref_id = ref.id
-            ref.delete()
-            self.stats.track_deleted(Reference, ref_id)
-
-        # 3. Drop quotes left without any reference (e.g. a citation that no
-        #    longer appears in the report).
-        self._prune_orphan_quotes(evidence)
-
-    @staticmethod
-    def _quote_key(citation):
-        # Dedup key for a quote within an evidence. A blank citation means "no
-        # sub-selection": it maps to the single full-source quote (the whole
-        # post is the relevant text), keyed by "". Otherwise the
-        # whitespace-normalized cited text, so citations differing only in
-        # whitespace collapse onto one quote (best-effort; cleaned variants that
-        # differ in wording stay distinct, which is acceptable).
-        text = (citation or "").strip()
-        if not text:
-            return ""
-        return re.sub(r"\s+", " ", text)
-
-    def _sync_quotes(self, evidence, citations):
-        # Build {quote_key: Quote} for the distinct cited texts in `citations`.
-        # Existing quotes are matched by their imported `text` (full-source by
-        # flag), so a curator's `text_override` survives re-import. Returns the
-        # mapping; orphan pruning happens in the caller after references are set.
-        wanted = {}  # key -> representative imported text ("" for full source)
-        for citation in citations:
-            key = self._quote_key(citation)
-            wanted.setdefault(key, "" if key == "" else (citation or "").strip())
-
-        existing = {}
-        for quote in evidence.quotes.all():
-            existing["" if quote.is_full_source else self._quote_key(quote.text)] = (
-                quote
-            )
-
-        result = {}
-        for key, text in wanted.items():
-            quote = existing.get(key)
-            if quote is None:
-                self.stats.reset_instance(Quote)
-                quote = Quote.objects.create(
-                    evidence=evidence,
-                    text=text,
-                    is_full_source=(key == ""),
-                )
-                self.stats.track_created(Quote, quote)
-            result[key] = quote
-        return result
-
-    def _prune_orphan_quotes(self, evidence):
-        for quote in evidence.quotes.all():
-            if quote.references.exists():
-                continue
-            self.stats.reset_instance(Quote)
-            quote_id = quote.id
-            quote.delete()
-            self.stats.track_deleted(Quote, quote_id)
+            self.stats.reset_instance(EvidenceMention)
+            mention_id = mention.id
+            mention.delete()
+            self.stats.track_deleted(EvidenceMention, mention_id)
 
     def _get_or_create_chapter(self, labels, topic):
         """Materialise the chapter path and flag the topic node.

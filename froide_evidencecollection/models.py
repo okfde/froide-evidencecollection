@@ -745,10 +745,6 @@ class EvidenceSource:
     def text_segments(self) -> list[TextSegment]:
         raise NotImplementedError
 
-    @property
-    def topic_source_text(self) -> str:
-        raise NotImplementedError
-
     def compute_slug(self) -> str:
         """Derive the stable public slug for an Evidence backed by this source.
 
@@ -769,6 +765,7 @@ class Evidence(TrackableModel):
     slug = models.SlugField(
         max_length=EVIDENCE_SLUG_LENGTH, unique=True, verbose_name=_("slug")
     )
+    citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
     description = models.TextField(
         blank=True, default="", verbose_name=_("description")
     )
@@ -790,14 +787,58 @@ class Evidence(TrackableModel):
         related_name="evidence",
         verbose_name=_("social media post"),
     )
+    originators = models.ManyToManyField(
+        Actor,
+        related_name="originated_evidence",
+        verbose_name=_("originators"),
+    )
+    related_actors = models.ManyToManyField(
+        Actor,
+        related_name="related_evidence",
+        verbose_name=_("related actors"),
+    )
     documentation_date = models.DateField(
         null=True, blank=True, verbose_name=_("documentation date")
     )
 
-    # The cited text, topic fit, keywords and originators all live on the
-    # related `Quote`s (see `Quote`): topic modelling and the keyword/topic
-    # cloud resolve at the claim grain, not the post grain. An Evidence is the
-    # per-post, slug-bearing identity that groups those quotes.
+    # Populated by the `fit_post_topics` management command, which fits
+    # BERTopic over `search_text` (the assembled source text). `topic` points
+    # to the leaf Topic; null means this evidence hasn't been fitted yet (or
+    # carries no usable text). topic_x/topic_y are the per-evidence 2D UMAP
+    # coordinates used by the cloud view.
+    topic = models.ForeignKey(
+        "Topic",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="evidences",
+        verbose_name=_("topic"),
+    )
+    topic_x = models.FloatField(null=True, blank=True, verbose_name=_("topic x"))
+    topic_y = models.FloatField(null=True, blank=True, verbose_name=_("topic y"))
+    topic_fit_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("topic fitted at")
+    )
+    topic_reassigned = models.BooleanField(
+        default=False,
+        verbose_name=_("topic reassigned from outlier"),
+        help_text=_(
+            "True if this evidence was an HDBSCAN outlier in the most recent "
+            "fit and was moved into its topic by outlier reduction, rather "
+            "than being a core cluster member."
+        ),
+    )
+    # Populated by `fit_post_topics` alongside the topic fit: the content
+    # keywords whose lemma actually occurs in this evidence's text. Drives the
+    # keyword-facet browse surface of the topic cloud. Unlike `topic`, this is
+    # an evidence-level signal (the word is really in the text), not a
+    # cluster-level one.
+    keywords = models.ManyToManyField(
+        "Keyword",
+        blank=True,
+        related_name="evidences",
+        verbose_name=_("keywords"),
+    )
 
     class Meta:
         verbose_name = _("piece of evidence")
@@ -840,26 +881,22 @@ class Evidence(TrackableModel):
         source = self.source
         return source.display_text if source is not None else ""
 
-    def _quote_text_segments(self) -> list["TextSegment"]:
-        # Each sub-quote (a cited span shorter than the whole post) becomes a
-        # searched citation segment, labelled with the categories/footnotes that
-        # reference it. Full-source quotes carry no text of their own (the post
-        # text already covers them), so they are skipped here. Reads prefetched
-        # `quotes` (+ `quotes__references__category`), skipping empty quotes.
+    def _mention_text_segments(self) -> list["TextSegment"]:
+        # The per-mention citation quotes (`EvidenceMention.citation`): the
+        # curated, category-relevant text the evidence was filed under. These
+        # are the searched / topic-modelled text (`for_search`/`for_topics`),
+        # standing in for the raw video-excerpt transcripts (which are now
+        # display-only). Each is labelled with its category and footnote for the
+        # detail view. Reads prefetched `mentions` (ordered by footnote),
+        # skipping mentions that carry no citation.
         segments = []
-        for quote in self.quotes.all():
-            if quote.is_full_source:
-                continue
-            text = quote.resolved_text.strip()
+        for mention in self.mentions.all():
+            text = (mention.citation or "").strip()
             if not text:
                 continue
-            labels = []
-            for ref in quote.references.all():
-                label = str(ref.category)
-                if ref.footnote:
-                    label = f"{label} · {ref.footnote}"
-                labels.append(label)
-            attribution = " / ".join(dict.fromkeys(labels))
+            attribution = str(mention.category)
+            if mention.footnote:
+                attribution = f"{attribution} · {mention.footnote}"
             segments.append(
                 TextSegment("citation", _("Citation"), text, attribution=attribution)
             )
@@ -867,13 +904,12 @@ class Evidence(TrackableModel):
 
     @property
     def text_segments(self) -> list["TextSegment"]:
-        # The source's labelled text followed by the evidence's own sub-quotes.
-        # Single definition behind the detail view and the search index. Topic
-        # modelling no longer reads this: it resolves per `Quote` (see
-        # `Quote.topic_text`).
+        # The source's labelled text followed by the evidence's own per-mention
+        # citations. Single definition behind the detail view, search index and
+        # topic modelling.
         source = self.source
         segments = list(source.text_segments()) if source is not None else []
-        segments.extend(self._quote_text_segments())
+        segments.extend(self._mention_text_segments())
         return segments
 
     @property
@@ -882,35 +918,45 @@ class Evidence(TrackableModel):
         # Elasticsearch. Order is irrelevant to ES (it tokenises everything).
         return "\n\n".join(s.text for s in self.text_segments if s.for_search)
 
+    @property
+    def topic_text(self) -> str:
+        # Input to BERTopic. Distinct from `search_text`: only `for_topics`
+        # segments, reordered (`_topic_sort_key`) so the highest-signal fields
+        # lead — because the embedding model truncates to a fixed token window,
+        # so trailing text is dropped before it influences the topic. Stable
+        # sort keeps each source's internal order within a priority tier.
+        # `_clean_topic_text` strips URLs and normalises @mentions / #hashtags
+        # to plain words (noise + wasted token budget).
+        segments = sorted(
+            (s for s in self.text_segments if s.for_topics), key=_topic_sort_key
+        )
+        text = "\n\n".join(s.text for s in segments)
+        return _clean_topic_text(text)
+
     @cached_property
     def domain(self) -> str:
         return urlparse(self.url).netloc
 
     @cached_property
     def categories(self):
-        return Category.objects.filter(references__quote__evidence=self).distinct()
+        return Category.objects.filter(mentions__evidence=self).distinct()
 
     @cached_property
     def originator_actors(self):
-        # Distinct originators across the evidence's quotes (originators live on
-        # the claim/quote, not the post). Reads prefetched `quotes__originators`
-        # so a page of N cards costs one prefetch instead of N SELECTs.
-        seen = {}
-        for quote in self.quotes.all():
-            for actor in quote.originators.all():
-                seen.setdefault(actor.pk, actor)
-        return list(seen.values())
+        # Reads from the `originators` prefetch (one query for the whole page)
+        # rather than firing a fresh SELECT per card. Falls back to a query if
+        # the caller did not prefetch.
+        return list(self.originators.all())
 
     @cached_property
     def categories_distinct(self):
-        # Same intent as `categories` but reads from prefetched
-        # `quotes__references` rather than issuing a fresh query, so a page of N
-        # evidence cards costs one prefetch instead of N SELECTs.
+        # Same intent as `categories` but reads from prefetched `mentions`
+        # rather than issuing a fresh query, so a page of N evidence cards
+        # costs one prefetch instead of N SELECTs.
         seen = {}
-        for quote in self.quotes.all():
-            for ref in quote.references.all():
-                if ref.category_id not in seen:
-                    seen[ref.category_id] = ref.category
+        for mention in self.mentions.all():
+            if mention.category_id not in seen:
+                seen[mention.category_id] = mention.category
         return list(seen.values())
 
     ATTACHMENT_KIND_ORDER = ("image", "video", "audio", "pdf", "other")
@@ -929,13 +975,12 @@ class Evidence(TrackableModel):
     def categories_with_footnotes(self):
         # Like `categories_distinct` but pairs each category with the footnote
         # references it appears under (deduped, sorted). Reads from prefetched
-        # `quotes__references`, so it costs nothing per row beyond the prefetch.
+        # `mentions`, so it costs nothing per row beyond the prefetch.
         by_pk = {}
-        for quote in self.quotes.all():
-            for ref in quote.references.all():
-                entry = by_pk.setdefault(ref.category_id, (ref.category, []))
-                if ref.footnote:
-                    entry[1].append(ref.footnote)
+        for mention in self.mentions.all():
+            entry = by_pk.setdefault(mention.category_id, (mention.category, []))
+            if mention.footnote:
+                entry[1].append(mention.footnote)
         return [
             (cat, sorted(set(footnotes)))
             for cat, footnotes in sorted(
@@ -945,143 +990,6 @@ class Evidence(TrackableModel):
 
     def get_absolute_url(self):
         return reverse("evidencecollection:evidence-detail", kwargs={"slug": self.slug})
-
-
-class Quote(TrackableModel):
-    """A distinct cited span of an evidence's source — the atomic claim.
-
-    One row per *distinct* quoted text within an Evidence: references to the
-    same bit (under different categories/footnotes) collapse onto one quote, so
-    the cited text is stored once and the claim is a single point in the topic
-    cloud. The topic fit, coordinates, keywords and originators all live here
-    rather than on the Evidence, because topic modelling and the keyword/topic
-    cloud resolve at the claim grain.
-
-    `is_full_source` marks the degenerate "the whole post is the quote" case
-    (several references can quote the whole post): such a quote carries no text
-    of its own — its `topic_text` is the post's full text and the detail view
-    renders the post itself rather than a duplicate quote block. `start`/`end`
-    optionally time-code a quote within a video transcript. `text` is
-    import-filled; `text_override` is the curator's correction preserved across
-    re-imports (read via `resolved_text`, same idiom as `PostImage`).
-    """
-
-    evidence = models.ForeignKey(
-        Evidence,
-        on_delete=models.CASCADE,
-        related_name="quotes",
-        verbose_name=_("evidence"),
-    )
-    text = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("text"),
-        help_text=_("Cited text (searched). Import-filled."),
-    )
-    text_override = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("text (corrected)"),
-        help_text=_(
-            "Curator correction of the cited text. Blank falls back to the "
-            "imported value. Preserved across re-imports."
-        ),
-    )
-    is_full_source = models.BooleanField(
-        default=False,
-        verbose_name=_("is full source"),
-        help_text=_(
-            "The quote is the whole post: its topic uses the full source text "
-            "and it is not rendered as a separate quote block."
-        ),
-    )
-    start = models.DurationField(null=True, blank=True, verbose_name=_("start"))
-    end = models.DurationField(null=True, blank=True, verbose_name=_("end"))
-    originators = models.ManyToManyField(
-        Actor,
-        blank=True,
-        related_name="originated_quotes",
-        verbose_name=_("originators"),
-    )
-    related_actors = models.ManyToManyField(
-        Actor,
-        blank=True,
-        related_name="related_quotes",
-        verbose_name=_("related actors"),
-    )
-    # Populated by the `fit_post_topics` management command, which fits the
-    # topic model over each quote's `topic_text`. `topic` points to the leaf
-    # Topic; null means this quote hasn't been fitted yet (or carries no usable
-    # text). topic_x/topic_y are the per-quote 2D coordinates used by the cloud.
-    topic = models.ForeignKey(
-        "Topic",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="quotes",
-        verbose_name=_("topic"),
-    )
-    topic_x = models.FloatField(null=True, blank=True, verbose_name=_("topic x"))
-    topic_y = models.FloatField(null=True, blank=True, verbose_name=_("topic y"))
-    topic_fit_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("topic fitted at")
-    )
-    topic_reassigned = models.BooleanField(
-        default=False,
-        verbose_name=_("topic reassigned from outlier"),
-        help_text=_(
-            "True if this quote was an HDBSCAN outlier in the most recent fit "
-            "and was moved into its topic by outlier reduction, rather than "
-            "being a core cluster member."
-        ),
-    )
-    # Populated by `fit_post_topics` alongside the topic fit: the content
-    # keywords whose lemma actually occurs in this quote's text. Drives the
-    # keyword-facet browse surface of the topic cloud.
-    keywords = models.ManyToManyField(
-        "Keyword",
-        blank=True,
-        related_name="quotes",
-        verbose_name=_("keywords"),
-    )
-
-    class Meta:
-        verbose_name = _("quote")
-        verbose_name_plural = _("quotes")
-
-    def __str__(self):
-        if self.is_full_source:
-            return f"{self.evidence} — (full source)"
-        return f"{self.evidence} — {self.resolved_text[:50]}"
-
-    @property
-    def resolved_text(self) -> str:
-        # Curator correction wins over the imported text; blank override falls
-        # back. Single source of truth for "the cited text of this quote".
-        return self.text_override or self.text
-
-    @property
-    def topic_text(self) -> str:
-        # Input to the topic model. For a full-source quote, model the post's
-        # whole text (priority-ordered via the source); otherwise the cited
-        # span. `_clean_topic_text` strips URLs and normalises @mentions /
-        # #hashtags to plain words (noise + wasted token budget).
-        if self.is_full_source:
-            source = self.evidence.source
-            text = source.topic_source_text if source is not None else ""
-        else:
-            text = self.resolved_text
-        return _clean_topic_text(text)
-
-    def exclude_from_serialization(self):
-        return super().exclude_from_serialization() + [
-            "topic",
-            "topic_x",
-            "topic_y",
-            "topic_fit_at",
-            "topic_reassigned",
-            "keywords",
-        ]
 
 
 class Topic(models.Model):
@@ -1342,10 +1250,16 @@ class SocialMediaPost(EvidenceSource, models.Model):
         # Text carried by the post's attached media. Each image contributes a
         # description of what it shows plus its on-screen text (`content_text`,
         # an `extracted_text` segment); each video contributes a description
-        # plus its full `transcript` (a `transcription` segment). The kinds keep
-        # the right topic priority and display label. Reads the prefetched
-        # `images` / `videos` relations so a prefetch keeps it query-free; emit
-        # only non-empty fields.
+        # plus the text of each of its transcript excerpts (`transcription`
+        # segments). The kinds keep the right topic priority and display label.
+        # Reads the prefetched `images` / `videos` (+ `videos__excerpts`)
+        # relations so a prefetch keeps it query-free; emit only non-empty
+        # fields.
+        #
+        # Transcription segments are display-only (`for_search=False`,
+        # `for_topics=False`): the searched/topic-modelled text for a video now
+        # comes from the curated per-mention citations on the evidence (see
+        # `Evidence._mention_text_segments`), not the raw excerpt transcripts.
         segments = []
         for image in self.images.all():
             for kind, label, value in (
@@ -1355,12 +1269,24 @@ class SocialMediaPost(EvidenceSource, models.Model):
                 if value and value.strip():
                     segments.append(TextSegment(kind, label, value.strip()))
         for video in self.videos.all():
-            for kind, label, value in (
-                ("description", _("Media description"), video.description),
-                ("transcription", _("Transcription"), video.resolved_transcript),
-            ):
+            if video.description and video.description.strip():
+                segments.append(
+                    TextSegment(
+                        "description", _("Media description"), video.description.strip()
+                    )
+                )
+            for excerpt in video.excerpts.all():
+                value = excerpt.resolved_text
                 if value and value.strip():
-                    segments.append(TextSegment(kind, label, value.strip()))
+                    segments.append(
+                        TextSegment(
+                            "transcription",
+                            _("Transcription"),
+                            value.strip(),
+                            for_search=False,
+                            for_topics=False,
+                        )
+                    )
         return segments
 
     def text_segments(
@@ -1407,17 +1333,6 @@ class SocialMediaPost(EvidenceSource, models.Model):
         return textwrap.shorten(self.full_text, width=50, placeholder="...")
 
     @property
-    def topic_source_text(self) -> str:
-        # The full source text to topic-model when the whole post is the unit
-        # (a full-source `Quote`). Priority-ordered like the post body so the
-        # highest-signal fields lead before the embedding's token window
-        # truncates; `Quote.topic_text` applies the URL/tag cleaning.
-        segments = sorted(
-            (s for s in self.text_segments() if s.for_topics), key=_topic_sort_key
-        )
-        return "\n\n".join(s.text for s in segments)
-
-    @property
     def publication_date(self):
         return self.posted_at.date() if self.posted_at else None
 
@@ -1431,25 +1346,26 @@ class SocialMediaPost(EvidenceSource, models.Model):
 
 
 class BasePostMedia(TrackableModel):
-    """Shared fields/behaviour for a media item belonging to a SocialMediaPost.
+    """Shared fields/behaviour for a media file belonging to a SocialMediaPost.
 
-    Abstract: the concrete `PostImage`, `PostVideo` and `PostScreenshot` each
-    get their own table so a row carries only the fields valid for its type.
-    Media hangs off the post rather than the Evidence because the post is the
-    `EvidenceSource`: the per-media text is surfaced through
-    `SocialMediaPost.text_segments()` and so flows into `Evidence.text_segments`
-    like any other source text.
+    Abstract: the concrete `PostImage` and `PostVideo` each get their own table
+    so a row carries only the fields valid for its type (the previous single
+    `PostMedia` model mixed image-only and video-only fields). Media hangs off
+    the post rather than the Evidence because the post is the `EvidenceSource`:
+    the per-media text is surfaced through `SocialMediaPost.text_segments()` and
+    so flows into `Evidence.text_segments` like any other source text. The files
+    themselves are admin-only and not rendered in the public views.
 
-    The actual `file` lives on the concrete subclasses, not here: a screenshot
-    always has one, an image keeps one for internal correctness-checking, and a
-    video stores no file at all (only its `transcript`). `source_path` is the
-    relative path from the import payload (e.g. "./video/foo.mp4"), kept as a
-    durable reference to the original file name and used as the natural key for
-    idempotent re-import (mirrors Attachment.external_id). The `post` FK and its
-    `(post, source_path)` uniqueness live on the concrete subclasses — each
-    needs its own `related_name` (`images` / `videos` / `screenshots`).
+    `source_path` is the relative path from the import payload (e.g.
+    "./video/foo.mp4"), used as the natural key for idempotent re-import
+    (mirrors Attachment.external_id). The `post` FK and its `(post, source_path)`
+    uniqueness live on the concrete subclasses — each needs its own
+    `related_name` (`images` / `videos`).
     """
 
+    file = models.FileField(
+        upload_to="post_media", max_length=255, blank=True, verbose_name=_("file")
+    )
     source_path = models.CharField(
         max_length=512, blank=True, default="", verbose_name=_("source path")
     )
@@ -1464,7 +1380,10 @@ class BasePostMedia(TrackableModel):
         abstract = True
 
     def __str__(self):
-        return f"{self.post} - {self.source_path}"
+        return f"{self.post} - {self.file.name or self.source_path}"
+
+    def exclude_from_serialization(self):
+        return super().exclude_from_serialization() + ["file"]
 
 
 class PostImage(BasePostMedia):
@@ -1483,10 +1402,6 @@ class PostImage(BasePostMedia):
         on_delete=models.CASCADE,
         related_name="images",
         verbose_name=_("post"),
-    )
-    # Required: an image always keeps its file for internal correctness-checking.
-    file = models.FileField(
-        upload_to="post_media", max_length=255, verbose_name=_("file")
     )
     content_text = models.TextField(
         blank=True,
@@ -1530,20 +1445,14 @@ class PostImage(BasePostMedia):
         # back. Single source of truth for "the searched text of this image".
         return self.content_text_override or self.content_text
 
-    def exclude_from_serialization(self):
-        return super().exclude_from_serialization() + ["file"]
-
 
 class PostVideo(BasePostMedia):
     """A video attached to a SocialMediaPost.
 
-    The video file itself is not stored — only its `transcript`, which is the
-    searched/displayed text (shown collapsed in the UI for long videos).
-    `transcript_override` holds a curator's correction preserved across
-    re-imports, read via `resolved_transcript` (the same auto/override idiom as
-    `PostImage.content_text`). The relevant cited spans of a video live as
-    `Quote`s on the Evidence, optionally time-coded via `Quote.start`/`end`.
-    `transcript_file` keeps the original sidecar (e.g. an SRT) as a backup.
+    The searched text of a video is not its whole transcript but the relevant
+    *excerpt(s)*, held as `VideoExcerpt` rows (one video can have several). The
+    full transcript is kept verbatim as a backup in `transcript_file` (e.g. an
+    SRT sidecar) and is never searched.
     """
 
     post = models.ForeignKey(
@@ -1552,35 +1461,15 @@ class PostVideo(BasePostMedia):
         related_name="videos",
         verbose_name=_("post"),
     )
-    transcript = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("transcript"),
-        help_text=_("Full transcript (searched). Import-filled."),
-    )
-    transcript_override = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("transcript (corrected)"),
-        help_text=_(
-            "Curator correction of the transcript. Blank falls back to the "
-            "imported value. Preserved across re-imports."
-        ),
-    )
-    # Original transcript sidecar (e.g. an SRT), kept verbatim as a backup.
+    # Full transcript kept verbatim as a backup (e.g. an SRT sidecar of the
+    # video). Distinct from `file`, which is the media itself. Never parsed and
+    # never searched — the excerpts carry the searched text.
     transcript_file = models.FileField(
         upload_to="post_media",
         max_length=255,
         blank=True,
         verbose_name=_("transcript file"),
-        help_text=_("Original transcript file (e.g. SRT), kept as backup."),
-    )
-    # Relevant time ranges from the report ([{start, end, excerpt}]), parked
-    # verbatim. Decoupled from quotes because the source doesn't link a
-    # timestamp to a specific citation; a curator can time-code a Quote
-    # (Quote.start/end) when the correspondence is known.
-    timestamps = models.JSONField(
-        default=list, blank=True, verbose_name=_("timestamps")
+        help_text=_("Full transcript (e.g. SRT), kept as backup; not searched."),
     )
 
     class Meta:
@@ -1594,17 +1483,66 @@ class PostVideo(BasePostMedia):
             ),
         ]
 
-    @property
-    def resolved_transcript(self) -> str:
-        # Curator correction wins over the imported transcript; blank override
-        # falls back. Single source of truth for "the searched text of this
-        # video".
-        return self.transcript_override or self.transcript
-
     def exclude_from_serialization(self):
-        # `transcript` is excluded too: it can be long, and a verbatim copy in
-        # ImportExportRun.changes would swamp the diff (like the post's `raw`).
-        return super().exclude_from_serialization() + ["transcript_file", "transcript"]
+        return super().exclude_from_serialization() + ["transcript_file"]
+
+
+class VideoExcerpt(TrackableModel):
+    """A relevant, time-coded excerpt of a video's transcript.
+
+    One `PostVideo` can have several. `text` is the searched excerpt text: it is
+    import-filled and may be wrong, while `text_override` holds a curator's
+    correction preserved across re-imports. Read via `resolved_text`
+    (`text_override or text`) — the same auto/override idiom as
+    `PostImage.content_text`. `start`/`end` locate the excerpt within the video;
+    `order` keeps a stable display/import sequence (and is the natural key the
+    importer matches on, so an override survives re-import).
+    """
+
+    video = models.ForeignKey(
+        PostVideo,
+        on_delete=models.CASCADE,
+        related_name="excerpts",
+        verbose_name=_("video"),
+    )
+    order = models.PositiveIntegerField(default=0, verbose_name=_("order"))
+    start = models.DurationField(null=True, blank=True, verbose_name=_("start"))
+    end = models.DurationField(null=True, blank=True, verbose_name=_("end"))
+    text = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("text"),
+        help_text=_("Transcript excerpt text (searched). Import-filled."),
+    )
+    text_override = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("text (corrected)"),
+        help_text=_(
+            "Curator correction of the excerpt text. Blank falls back to the "
+            "imported value. Preserved across re-imports."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("video excerpt")
+        verbose_name_plural = _("video excerpts")
+        ordering = ["video", "order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["video", "order"],
+                name="unique_excerpt_order_per_video",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.video} [{self.order}]"
+
+    @property
+    def resolved_text(self) -> str:
+        # Curator correction wins over the imported text; blank override falls
+        # back. Single source of truth for "the searched text of this excerpt".
+        return self.text_override or self.text
 
 
 class PostScreenshot(BasePostMedia):
@@ -1612,11 +1550,10 @@ class PostScreenshot(BasePostMedia):
 
     Unlike `PostImage`/`PostVideo`, a screenshot is not media *content* carried
     by the post but a capture *of* the post — proof of what was posted and how
-    it looked. Every post is expected to have one, so `file` is required. The
-    post's own text already lives in `SocialMediaPost.text`, so a screenshot
-    carries no searched text and contributes nothing to `text_segments` or the
-    search index; it is a pure archival file (with an optional `description` for
-    admin context, inherited from `BasePostMedia`).
+    it looked. The post's own text already lives in `SocialMediaPost.text`, so a
+    screenshot carries no searched text and contributes nothing to
+    `text_segments` or the search index; it is a pure archival file (with an
+    optional `description` for admin context, inherited from `BasePostMedia`).
     """
 
     post = models.ForeignKey(
@@ -1624,9 +1561,6 @@ class PostScreenshot(BasePostMedia):
         on_delete=models.CASCADE,
         related_name="screenshots",
         verbose_name=_("post"),
-    )
-    file = models.FileField(
-        upload_to="post_media", max_length=255, verbose_name=_("file")
     )
 
     class Meta:
@@ -1639,9 +1573,6 @@ class PostScreenshot(BasePostMedia):
                 name="unique_screenshot_per_post_source",
             ),
         ]
-
-    def exclude_from_serialization(self):
-        return super().exclude_from_serialization() + ["file"]
 
 
 class Collection(models.Model):
@@ -1731,25 +1662,17 @@ class Category(models.Model):
         return self.name
 
 
-class Reference(models.Model):
-    """A single footnote reference to a quote in the underlying report.
-
-    Many references can point at one `Quote` (the same bit cited under several
-    categories/footnotes). The cited text itself lives on the `Quote`; a
-    reference carries only *where in the report* it appears — its category,
-    footnote and chapter.
-    """
-
-    quote = models.ForeignKey(
-        "Quote",
+class EvidenceMention(models.Model):
+    evidence = models.ForeignKey(
+        Evidence,
         on_delete=models.CASCADE,
-        related_name="references",
-        verbose_name=_("quote"),
+        related_name="mentions",
+        verbose_name=_("evidence"),
     )
     category = models.ForeignKey(
         "Category",
         on_delete=models.CASCADE,
-        related_name="references",
+        related_name="mentions",
         verbose_name=_("category"),
     )
     footnote = models.CharField(
@@ -1763,17 +1686,18 @@ class Reference(models.Model):
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="references",
+        related_name="mentions",
         verbose_name=_("chapter"),
     )
+    citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
 
     class Meta:
-        verbose_name = _("reference")
-        verbose_name_plural = _("references")
+        verbose_name = _("evidence mention")
+        verbose_name_plural = _("evidence mentions")
         ordering = ["footnote"]
 
     def __str__(self):
-        return f"{self.quote.evidence} — {self.category} ({self.footnote})"
+        return f"{self.evidence} — {self.category} ({self.footnote})"
 
     def exclude_from_serialization(self):
         return ["id"]
@@ -1834,9 +1758,7 @@ class Chapter(MP_Node):
     def subsumed_evidences(self):
         """Evidences filed under this chapter or any of its descendants."""
         subtree = Chapter.get_tree(self)
-        return Evidence.objects.filter(
-            quotes__references__chapter__in=subtree
-        ).distinct()
+        return Evidence.objects.filter(mentions__chapter__in=subtree).distinct()
 
 
 class ImportExportRun(models.Model):
