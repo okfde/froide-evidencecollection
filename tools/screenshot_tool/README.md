@@ -29,4 +29,6 @@ The first run downloads the EasyOCR detection/recognition models (cached in
   mosaic; prefer it when the point is to truly anonymise faces.
 - `--strength 3.0` — higher = blurrier.
 - `--pad 6` — pixels each text box is expanded so glyph edges stay crisp.
+- `--inpaint-pad`- pixels each text box is expanded to remove from background to prevent halos
+- `--feather` - amount to feather the text mask, see --strength
 - `--gpu` — use GPU if a CUDA build of torch is installed.

@@ -2,13 +2,12 @@
 """
 Anonymise social-media screenshots, fully locally (EasyOCR + OpenCV).
 
-  blur  Anonymise every *screenshot* in a folder: blur the whole image but
-        keep the detected text regions sharp/readable, then write the result
-        to an output folder.
+Anonymise every *screenshot* in a folder: blur the whole image but keep the
+detected text regions sharp/readable, then write the result to an output folder.
 
 Examples
 --------
-  python screenshot_tool.py blur --in screenshots/ --out blurred/
+  python screenshot_tool.py --in screenshots/ --out blurred/
 
 Notes
 -----
@@ -62,6 +61,13 @@ def get_reader(langs: list[str], use_gpu: bool):
 # --------------------------------------------------------------------------- #
 # Blur (anonymise screenshots, keep text sharp)
 # --------------------------------------------------------------------------- #
+def gaussian_blur(img: np.ndarray, strength: float) -> np.ndarray:
+    """Gaussian blur whose sigma scales with image size * strength."""
+    h, w = img.shape[:2]
+    sigma = max(1.0, (min(h, w) / 100.0) * strength)
+    return cv2.GaussianBlur(img, (0, 0), sigmaX=sigma, sigmaY=sigma)
+
+
 def blur_whole(img: np.ndarray, method: str, strength: float) -> np.ndarray:
     h, w = img.shape[:2]
     if method == "pixelate":
@@ -73,13 +79,11 @@ def blur_whole(img: np.ndarray, method: str, strength: float) -> np.ndarray:
             interpolation=cv2.INTER_LINEAR,
         )
         return cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
-    # gaussian: sigma scales with image size * strength
-    sigma = max(1.0, (min(h, w) / 100.0) * strength)
-    return cv2.GaussianBlur(img, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    return gaussian_blur(img, strength)
 
 
 def text_mask(img: np.ndarray, boxes: list, pad: int) -> np.ndarray:
-    """White (255) wherever text should stay sharp; black elsewhere."""
+    """Hard binary mask: 255 wherever text should stay sharp, 0 elsewhere."""
     mask = np.zeros(img.shape[:2], dtype=np.uint8)
     for bbox in boxes:
         pts = np.array(bbox, dtype=np.int32)
@@ -90,6 +94,36 @@ def text_mask(img: np.ndarray, boxes: list, pad: int) -> np.ndarray:
     return mask
 
 
+def combine(
+    img: np.ndarray,
+    blurred: np.ndarray,
+    text_region: np.ndarray,
+    feather: float,
+) -> np.ndarray:
+    alpha = text_region.astype(np.float32) / 255.0
+    if feather > 0:
+        alpha = gaussian_blur(alpha, feather)
+    alpha = alpha[:, :, None]
+    out = img * alpha + blurred * (1.0 - alpha)
+    return out.astype(img.dtype)
+
+
+def blur_background(
+    img: np.ndarray,
+    text_region: np.ndarray,
+    method: str,
+    strength: float,
+    inpaint_pad: int = 8,
+) -> np.ndarray:
+    if inpaint_pad > 0:
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (inpaint_pad, inpaint_pad))
+        inpaint_mask = cv2.dilate(text_region, kernel)
+    else:
+        inpaint_mask = text_region
+    inpainted_background = cv2.inpaint(img, inpaint_mask, 3, cv2.INPAINT_TELEA)
+    return blur_whole(inpainted_background, method, strength)
+
+
 def run_blur(
     in_dir: Path,
     out_dir: Path,
@@ -98,6 +132,8 @@ def run_blur(
     method: str,
     strength: float,
     pad: int,
+    inpaint_pad: int,
+    feather: int,
 ) -> None:
     reader = get_reader(langs, use_gpu)
     images = find_images(in_dir)
@@ -116,10 +152,9 @@ def run_blur(
             detections = []
 
         boxes = [bbox for bbox, _text, _conf in detections]
-        mask = text_mask(img, boxes, pad)
-        blurred = blur_whole(img, method, strength)
-        # keep sharp text where mask is white, blurred elsewhere
-        out = np.where(mask[:, :, None] == 255, img, blurred)
+        text_region = text_mask(img, boxes, pad)
+        blurred = blur_background(img, text_region, method, strength, inpaint_pad)
+        out = combine(img, blurred, text_region, feather)
 
         out_path = out_dir / path.name
         cv2.imwrite(str(out_path), out)
@@ -160,14 +195,28 @@ def main() -> None:
     p.add_argument(
         "--strength",
         type=float,
-        default=3.0,
-        help="blur strength; higher = blurrier (default: 3.0)",
+        default=2.5,
+        help="blur strength; higher = blurrier (default: 2.5)",
     )
     p.add_argument(
         "--pad",
         type=int,
-        default=6,
-        help="pixels to expand each text box so edges stay crisp (default: 6)",
+        default=4,
+        help="pixels to expand each text box so edges stay crisp (default: 4)",
+    )
+    p.add_argument(
+        "--inpaint-pad",
+        type=int,
+        default=20,
+        help="pixels to expand text region for inpainting; should be >= --pad (default: 20)",
+    )
+    p.add_argument(
+        "--feather",
+        type=float,
+        default=0.5,
+        help="soften mask edges so the text/background transition is gradual "
+        "instead of a hard cut; same scale as --strength, higher = softer "
+        "(default: 0.5)",
     )
 
     args = p.parse_args()
@@ -180,6 +229,8 @@ def main() -> None:
         args.method,
         args.strength,
         args.pad,
+        args.inpaint_pad,
+        args.feather,
     )
 
 
