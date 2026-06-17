@@ -33,15 +33,9 @@
             {% for f in facets %}
                 <li>
                     <button type="button"
-                            class="topic-facet-chip facet-w{{ f.weight }}{% if f.in_group %} is-in-group{% endif %}"
+                            class="topic-facet-chip facet-w{{ f.weight }}"
                             data-keyword="{{ f.lemma }}"
                             aria-pressed="false">
-                        {% if f.group_color %}
-                            <span class="topic-facet-chip__topic"
-                                  style="background:{{ f.group_color }}"
-                                  title="{{ f.group_label }}"
-                                  aria-hidden="true"></span>
-                        {% endif %}
                         {{ f.keyword }}<span class="topic-facet-chip__count">{{ f.count }}</span>
                     </button>
                 </li>

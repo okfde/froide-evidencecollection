@@ -33,6 +33,7 @@ from .models import (
     Role,
     SocialMediaAccount,
     SocialMediaPost,
+    Theme,
     Topic,
     VideoExcerpt,
 )
@@ -615,10 +616,22 @@ class CategoryAdmin(ReadOnlyAdmin):
 
 @admin.register(Chapter)
 class ChapterAdmin(ReadOnlyAdmin):
-    list_display = ["indented_label", "is_main_topic", "evidence_count"]
-    list_filter = ["is_main_topic", "depth"]
+    # `theme` is the bulk-assignment surface ("everything in chapter X belongs
+    # to theme Y"): editable straight from the changelist via list_editable, and
+    # kept writable on the change form too (the rest of the chapter is imported
+    # and stays read-only).
+    list_display = ["indented_label", "is_main_topic", "theme", "evidence_count"]
+    list_editable = ["theme"]
+    list_filter = ["is_main_topic", "depth", "theme"]
     search_fields = ["custom_label"]
+    autocomplete_fields = ["theme"]
     readonly_fields = ["subsumed_evidences"]
+
+    def get_readonly_fields(self, request, obj=None):
+        # Keep `theme` editable even on an existing chapter (ReadOnlyAdmin would
+        # otherwise lock every field outside DEBUG).
+        fields = super().get_readonly_fields(request, obj=obj)
+        return tuple(f for f in fields if f != "theme")
 
     def get_queryset(self, request):
         # Order by materialised path so the tree reads top-down in the list.
@@ -691,6 +704,22 @@ class EvidenceAdmin(ReadOnlyAdmin):
 class TopicAdmin(admin.ModelAdmin):
     list_display = ["label", "size", "keywords"]
     # search_fields = ["name"]
+
+
+@admin.register(Theme)
+class ThemeAdmin(admin.ModelAdmin):
+    # The curator surface for the topic cloud's single browse bar. `evidences`
+    # is the direct, chapter-free assignment; chapter-mapped evidence is added
+    # in ChapterAdmin. `order` drives the chip sort, the palette and the dot's
+    # dominant-theme tie-break, so it's editable inline.
+    list_display = ["label", "order", "evidence_count"]
+    list_editable = ["order"]
+    search_fields = ["label"]
+    filter_horizontal = ["evidences"]
+
+    @admin.display(description=_("evidences"))
+    def evidence_count(self, obj):
+        return obj.evidence_queryset().count()
 
 
 @admin.register(KeywordGroup)

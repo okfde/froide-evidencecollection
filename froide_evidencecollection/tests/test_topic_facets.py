@@ -1,5 +1,6 @@
-"""Tests for the keyword-facet behaviour of the topic cloud view:
-curator controls (enabled / custom_label) and the frequency-vs-keyness ranking.
+"""Tests for the topic cloud view's browse surfaces: the keyword facets
+(curator controls + frequency-vs-keyness ranking) and the `Theme` bar
+(membership union, dominant-theme dot colouring, palette).
 """
 
 from django.http import QueryDict
@@ -13,9 +14,9 @@ from froide_evidencecollection.models import (
     Evidence,
     EvidenceMention,
     Keyword,
-    KeywordGroup,
     SocialMediaAccount,
     SocialMediaPost,
+    Theme,
 )
 from froide_evidencecollection.views import EvidenceTopicCloudView
 
@@ -23,7 +24,7 @@ from froide_evidencecollection.views import EvidenceTopicCloudView
 def _make_evidence(ext_id, *, fitted=False):
     """A minimal social-media-backed piece of evidence (satisfies the
     has-source check constraint). ``fitted`` sets ``topic_fit_at`` so the
-    evidence counts toward the main-topic tree's coverage (which gates on it)."""
+    evidence counts toward the theme bar's coverage (which gates on it)."""
     account = SocialMediaAccount.objects.create(
         platform=SocialMediaAccount.Platform.TELEGRAM,
         username=f"u{ext_id}",
@@ -158,339 +159,273 @@ class TestSelectedEnabledKeywords:
         assert EvidenceTopicCloudView._selected_enabled_keywords(QueryDict()) == []
 
 
-class TestSelectedGroupIds:
-    def test_single_select_takes_first_valid_and_ignores_the_rest(self):
-        # Single-select: the first numeric value wins; any extra group params
-        # (and leading non-numeric junk) are ignored.
-        params = QueryDict(mutable=True)
-        params.setlist("group", ["x", "", "7", "3"])
-
-        assert EvidenceTopicCloudView._selected_group_ids(params) == [7]
-
-    def test_empty_when_nothing_selected(self):
-        assert EvidenceTopicCloudView._selected_group_ids(QueryDict()) == []
+def _map_chapter_to_theme(chapter, theme):
+    """Set the bulk Chapter→Theme mapping ('everything in chapter X belongs to
+    theme Y')."""
+    chapter.theme = theme
+    chapter.save()
 
 
-@pytest.mark.django_db
-class TestBuildGroups:
-    def setup_method(self):
-        self.view = EvidenceTopicCloudView()
-
-    def _params(self, groups=(), **kw):
-        q = QueryDict(mutable=True)
-        for k, v in kw.items():
-            q[k] = str(v)
-        if groups:
-            q.setlist("group", [str(g) for g in groups])
-        return q
-
-    def test_coverage_counts_distinct_evidence_and_excludes_disabled(self):
-        group = KeywordGroup.objects.create(label="Vaccination")
-        impfung = _kw("impfung", "Impfung", df=2, group=group)
-        vakzin = _kw("vakzin", "Vakzin", df=1, group=group)
-        hidden = _kw("booster", "Booster", df=1, enabled=False, group=group)
-        e1, e2 = _make_evidence(1), _make_evidence(2)
-        e1.keywords.add(impfung, vakzin, hidden)
-        e2.keywords.add(impfung, hidden)
-
-        selected_ids, options, lemmas = self.view._build_groups(self._params())
-
-        assert selected_ids == []
-        # 2 distinct evidence carry an *enabled* member (the disabled "booster"
-        # contributes nothing, even though it would otherwise add coverage).
-        assert options == [
-            {"id": group.id, "label": "Vaccination", "count": 2, "selected": False}
-        ]
-        assert lemmas == set()
-
-    def test_selection_marks_chip_and_returns_enabled_member_lemmas(self):
-        group = KeywordGroup.objects.create(label="Vaccination")
-        impfung = _kw("impfung", "Impfung", df=1, group=group)
-        _kw("booster", "Booster", df=1, enabled=False, group=group)
-        ev = _make_evidence(1)
-        ev.keywords.add(impfung)
-
-        selected_ids, options, lemmas = self.view._build_groups(
-            self._params(groups=[group.id])
-        )
-
-        assert selected_ids == [group.id]
-        assert options[0]["selected"] is True
-        assert lemmas == {"impfung"}  # disabled "booster" excluded
-
-    def test_single_select_honours_only_the_first_of_several_topics(self):
-        # Single-select: passing two topics keeps only the first; just that
-        # chip marks active and only its member lemmas are highlighted.
-        health = KeywordGroup.objects.create(label="Health")
-        school = KeywordGroup.objects.create(label="School")
-        impfung = _kw("impfung", "Impfung", df=1, group=health)
-        schule = _kw("schule", "Schule", df=1, group=school)
-        ev = _make_evidence(1)
-        ev.keywords.add(impfung, schule)
-
-        selected_ids, options, lemmas = self.view._build_groups(
-            self._params(groups=[health.id, school.id])
-        )
-
-        assert selected_ids == [health.id]
-        selected = {o["id"]: o["selected"] for o in options}
-        assert selected[health.id] is True
-        assert selected[school.id] is False
-        assert lemmas == {"impfung"}
-
-    def test_stale_selection_is_dropped(self):
-        # A group id that has no enabled, evidence-bearing keywords isn't a real
-        # option, so the selection is cleared rather than left dangling.
-        group = KeywordGroup.objects.create(label="Empty")
-        selected_ids, options, lemmas = self.view._build_groups(
-            self._params(groups=[group.id])
-        )
-        assert selected_ids == []
-        assert options == []
-
-    def test_build_facets_marks_group_members(self):
-        ev = _make_evidence(1)
-        member = _kw("impfung", "Impfung", df=1)
-        other = _kw("schule", "Schule", df=1)
-        ev.keywords.add(member, other)
-
-        facets = self.view._build_facets(
-            [ev], [], keyness=False, group_lemmas={"impfung"}
-        )
-
-        by_lemma = {f["lemma"]: f["in_group"] for f in facets}
-        assert by_lemma == {"impfung": True, "schule": False}
-
-
-@pytest.mark.django_db
-class TestDominantGroup:
-    def test_none_when_no_grouped_keyword(self):
-        ev = _make_evidence(1)
-        ev.keywords.add(_kw("frei", "Frei", df=1))  # ungrouped
-
-        assert EvidenceTopicCloudView._dominant_group(ev, n_docs=100) is None
-
-    def test_ungrouped_keywords_are_ignored(self):
-        group = KeywordGroup.objects.create(label="Health")
-        ev = _make_evidence(1)
-        ev.keywords.add(
-            _kw("impfung", "Impfung", df=10, group=group),
-            _kw("frei", "Frei", df=1),  # ungrouped, lower df — still ignored
-        )
-
-        assert EvidenceTopicCloudView._dominant_group(ev, n_docs=100) == group.id
-
-    def test_specificity_weight_beats_raw_count(self):
-        # Health contributes one *rare* keyword; Freedom two *common* ones.
-        # Raw count would pick Freedom (2 vs 1); the IDF-weighted vote picks
-        # Health, because the rare term is the sharper signal of belonging.
-        health = KeywordGroup.objects.create(label="Health")
-        freedom = KeywordGroup.objects.create(label="Freedom")
-        ev = _make_evidence(1)
-        ev.keywords.add(
-            _kw("impfpflicht", "Impfpflicht", df=40, group=health),
-            _kw("freiheit", "Freiheit", df=600, group=freedom),
-            _kw("grundrechte", "Grundrechte", df=500, group=freedom),
-        )
-
-        assert EvidenceTopicCloudView._dominant_group(ev, n_docs=2000) == health.id
-
-    def test_tie_breaks_on_lowest_group_id(self):
-        # Equal score and equal strongest-keyword weight → deterministic
-        # fallback to the lowest group id.
-        first = KeywordGroup.objects.create(label="First")
-        second = KeywordGroup.objects.create(label="Second")
-        ev = _make_evidence(1)
-        ev.keywords.add(
-            _kw("a", "A", df=5, group=first),
-            _kw("b", "B", df=5, group=second),
-        )
-
-        assert EvidenceTopicCloudView._dominant_group(ev, n_docs=100) == first.id
-
-
-class TestAssignGroupColors:
-    def setup_method(self):
-        self.view = EvidenceTopicCloudView()
-
-    def test_groups_get_palette_colours_in_coverage_order(self):
-        options = [
-            {"id": 7, "label": "Big"},
-            {"id": 3, "label": "Small"},
-        ]
-
-        color_by_group = self.view._assign_group_colors(options)
-
-        palette = EvidenceTopicCloudView.GROUP_PALETTE
-        assert color_by_group == {7: palette[0], 3: palette[1]}
-        # The colour is also attached to each option for the chip swatch.
-        assert options[0]["color"] == palette[0]
-        assert options[1]["color"] == palette[1]
-
-    def test_groups_beyond_palette_fall_back_to_neutral_ink(self):
-        palette_len = len(EvidenceTopicCloudView.GROUP_PALETTE)
-        options = [{"id": i, "label": f"G{i}"} for i in range(palette_len + 2)]
-
-        color_by_group = self.view._assign_group_colors(options)
-
-        # The overflow topics take the neutral ink, both on the option (for the
-        # swatch) and in the map (so the dot fill is consistent with the chip).
-        overflow = options[palette_len]
-        assert overflow["color"] == EvidenceTopicCloudView.DOT_COLOR
-        assert color_by_group[overflow["id"]] == EvidenceTopicCloudView.DOT_COLOR
-
-
-def _ids(nodes):
-    return [n["id"] for n in nodes]
-
-
-@pytest.mark.django_db
-class TestSelectedChapterId:
-    def test_single_select_takes_first_valid_and_ignores_the_rest(self):
+class TestSelectedThemeId:
+    def test_takes_first_valid_and_ignores_the_rest(self):
         # Single-select: the first numeric value wins; extra/junk values ignored.
         params = QueryDict(mutable=True)
-        params.setlist("chapter", ["x", "", "7", "3"])
+        params.setlist("theme", ["x", "", "7", "3"])
 
-        assert EvidenceTopicCloudView._selected_chapter_id(params) == 7
+        assert EvidenceTopicCloudView._selected_theme_id(params) == 7
 
     def test_none_when_nothing_selected(self):
-        assert EvidenceTopicCloudView._selected_chapter_id(QueryDict()) is None
+        assert EvidenceTopicCloudView._selected_theme_id(QueryDict()) is None
 
 
 @pytest.mark.django_db
-class TestBuildMainTopicTree:
+class TestChapterThemeMap:
+    """`Chapter.chapter_theme_map` resolves the mapping with inheritance."""
+
+    def test_descendant_inherits_nearest_themed_ancestor(self):
+        t = Theme.objects.create(label="T")
+        parent = _make_chapter("Parent")
+        _map_chapter_to_theme(parent, t)
+        child = _make_chapter("Child", parent=parent)
+        grandchild = _make_chapter("Grandchild", parent=child)
+
+        mapping = Chapter.chapter_theme_map()
+
+        # Every node in the subtree resolves to the ancestor's theme.
+        assert mapping[parent.id] == t.id
+        assert mapping[child.id] == t.id
+        assert mapping[grandchild.id] == t.id
+
+    def test_nearer_mapping_overrides_a_higher_one(self):
+        outer = Theme.objects.create(label="Outer")
+        inner = Theme.objects.create(label="Inner")
+        parent = _make_chapter("Parent")
+        _map_chapter_to_theme(parent, outer)
+        child = _make_chapter("Child", parent=parent)
+        _map_chapter_to_theme(child, inner)
+        grandchild = _make_chapter("Grandchild", parent=child)
+
+        mapping = Chapter.chapter_theme_map()
+
+        assert mapping[parent.id] == outer.id
+        # The nearer mapping on `child` wins for it and its descendants.
+        assert mapping[child.id] == inner.id
+        assert mapping[grandchild.id] == inner.id
+
+    def test_unmapped_chapters_are_omitted(self):
+        _make_chapter("Lonely")
+        assert Chapter.chapter_theme_map() == {}
+
+
+@pytest.mark.django_db
+class TestThemeEvidenceQueryset:
+    """`Theme.evidence_queryset` is the union of direct + chapter-mapped."""
+
+    def setup_method(self):
+        self.cat = Category.objects.create(name="C")
+
+    def test_unions_direct_and_chapter_subtree_without_double_counting(self):
+        theme = Theme.objects.create(label="T")
+        parent = _make_chapter("Parent")
+        _map_chapter_to_theme(parent, theme)
+        child = _make_chapter("Child", parent=parent)
+
+        e_direct = _make_evidence(1)
+        theme.evidences.add(e_direct)
+        e_chapter = _make_evidence(2)
+        _file_under(e_chapter, child, self.cat)  # inherited mapping
+        e_both = _make_evidence(3)
+        theme.evidences.add(e_both)
+        _file_under(e_both, parent, self.cat)
+        _make_evidence(4)  # unrelated, in no theme
+
+        members = set(theme.evidence_queryset().values_list("id", flat=True))
+
+        assert members == {e_direct.id, e_chapter.id, e_both.id}
+
+
+@pytest.mark.django_db
+class TestBuildThemes:
     def setup_method(self):
         self.view = EvidenceTopicCloudView()
         self.cat = Category.objects.create(name="C")
 
-    def _params(self, chapter=None):
+    def _params(self, theme=None):
         q = QueryDict(mutable=True)
-        if chapter is not None:
-            q["chapter"] = str(chapter)
+        if theme is not None:
+            q["theme"] = str(theme)
         return q
 
-    def test_only_main_topics_appear_and_counts_are_subtree_cumulative(self):
-        # Tree: Health (main) → Vaccines (not main) → Boosters (main).
-        # e1 filed at Health, e2 under Boosters. Health subsumes both (2);
-        # Boosters subsumes only e2 (1). The non-main "Vaccines" never appears.
-        health = _make_chapter("Health", is_main_topic=True)
-        vaccines = _make_chapter("Vaccines", parent=health)
-        boosters = _make_chapter("Boosters", is_main_topic=True, parent=vaccines)
-        e1, e2 = _make_evidence(1, fitted=True), _make_evidence(2, fitted=True)
-        _file_under(e1, health, self.cat)
-        _file_under(e2, boosters, self.cat)
+    def test_count_unions_direct_and_chapter_and_gates_on_fitted(self):
+        theme = Theme.objects.create(label="Health", order=0)
+        chapter = _make_chapter("Health chapter")
+        _map_chapter_to_theme(chapter, theme)
+        e_direct = _make_evidence(1, fitted=True)
+        theme.evidences.add(e_direct)
+        e_chapter = _make_evidence(2, fitted=True)
+        _file_under(e_chapter, chapter, self.cat)
+        # An unfitted chapter evidence is not in the cloud's universe → uncounted.
+        _file_under(_make_evidence(3, fitted=False), chapter, self.cat)
 
-        selected, nodes = self.view._build_main_topic_tree(self._params())
+        selected, options = self.view._build_themes(self._params())
 
         assert selected is None
-        by_id = {n["id"]: n for n in nodes}
-        assert set(by_id) == {health.id, boosters.id}
-        assert by_id[health.id]["count"] == 2
-        assert by_id[boosters.id]["count"] == 1
-        # Boosters is re-parented under Health (the non-main "Vaccines" collapsed),
-        # so it is indented one level deeper and links back to Health.
-        assert by_id[health.id]["depth"] == 0
-        assert by_id[health.id]["parent_id"] is None
-        assert by_id[boosters.id]["depth"] == 1
-        assert by_id[boosters.id]["parent_id"] == health.id
+        assert options == [
+            {"id": theme.id, "label": "Health", "count": 2, "selected": False}
+        ]
 
-    def test_distinct_evidence_not_double_counted(self):
-        root = _make_chapter("Topic", is_main_topic=True)
-        child = _make_chapter("Sub", parent=root)
-        e1 = _make_evidence(1, fitted=True)
-        # The same evidence filed twice (at the node and under a descendant)
-        # must count once.
-        _file_under(e1, root, self.cat)
-        _file_under(e1, child, self.cat)
+    def test_evidence_in_both_paths_counted_once(self):
+        theme = Theme.objects.create(label="T", order=0)
+        chapter = _make_chapter("Ch")
+        _map_chapter_to_theme(chapter, theme)
+        e = _make_evidence(1, fitted=True)
+        theme.evidences.add(e)
+        _file_under(e, chapter, self.cat)
 
-        _, nodes = self.view._build_main_topic_tree(self._params())
+        _, options = self.view._build_themes(self._params())
 
-        assert [n["count"] for n in nodes] == [1]
+        assert options[0]["count"] == 1
 
-    def test_unfitted_evidence_is_excluded(self):
-        root = _make_chapter("Topic", is_main_topic=True)
-        _file_under(_make_evidence(1, fitted=False), root, self.cat)
+    def test_listed_in_curator_order(self):
+        # `Theme.order` (not coverage) fixes the chip order.
+        b = Theme.objects.create(label="B", order=1)
+        a = Theme.objects.create(label="A", order=0)
+        for i, t in enumerate((a, b)):
+            t.evidences.add(_make_evidence(i, fitted=True))
 
-        _, nodes = self.view._build_main_topic_tree(self._params())
+        _, options = self.view._build_themes(self._params())
 
-        # No fitted evidence subsumed → the node isn't offered at all.
-        assert nodes == []
+        assert [o["id"] for o in options] == [a.id, b.id]
 
-    def test_merges_separate_branches_to_their_own_roots(self):
-        # Two main topics with no main-topic ancestor are both condensed-tree
-        # roots; a non-main root in between is collapsed away.
-        bucket = _make_chapter("Bucket")  # not a main topic
-        a = _make_chapter("A", is_main_topic=True, parent=bucket)
-        b = _make_chapter("B", is_main_topic=True, parent=bucket)
-        ea, eb = _make_evidence(1, fitted=True), _make_evidence(2, fitted=True)
-        _file_under(ea, a, self.cat)
-        _file_under(eb, b, self.cat)
-
-        _, nodes = self.view._build_main_topic_tree(self._params())
-
-        # Both surface at depth 0 (their shared non-main parent is collapsed).
-        assert {n["id"] for n in nodes} == {a.id, b.id}
-        assert all(n["depth"] == 0 for n in nodes)
-
-    def test_siblings_ordered_by_coverage_then_label(self):
-        big = _make_chapter("Big", is_main_topic=True)
-        small = _make_chapter("Small", is_main_topic=True)
-        for i in range(2):
-            _file_under(_make_evidence(i, fitted=True), big, self.cat)
-        _file_under(_make_evidence(9, fitted=True), small, self.cat)
-
-        _, nodes = self.view._build_main_topic_tree(self._params())
-
-        assert _ids(nodes) == [big.id, small.id]
-
-    def test_selection_marks_node(self):
-        root = _make_chapter("Topic", is_main_topic=True)
-        _file_under(_make_evidence(1, fitted=True), root, self.cat)
-
-        selected, nodes = self.view._build_main_topic_tree(
-            self._params(chapter=root.id)
-        )
-
-        assert selected == root.id
-        assert nodes[0]["selected"] is True
+    def test_empty_theme_is_dropped(self):
+        Theme.objects.create(label="Empty", order=0)
+        _, options = self.view._build_themes(self._params())
+        assert options == []
 
     def test_stale_selection_is_dropped(self):
-        # A main-topic chapter that subsumes no evidence isn't a real option,
-        # so the selection is cleared rather than left dangling.
-        empty = _make_chapter("Empty", is_main_topic=True)
+        theme = Theme.objects.create(label="Empty", order=0)
+        selected, options = self.view._build_themes(self._params(theme=theme.id))
+        assert selected is None
+        assert options == []
 
-        selected, nodes = self.view._build_main_topic_tree(
-            self._params(chapter=empty.id)
+    def test_selection_marks_chip(self):
+        theme = Theme.objects.create(label="T", order=0)
+        theme.evidences.add(_make_evidence(1, fitted=True))
+
+        selected, options = self.view._build_themes(self._params(theme=theme.id))
+
+        assert selected == theme.id
+        assert options[0]["selected"] is True
+
+
+@pytest.mark.django_db
+class TestDominantTheme:
+    def setup_method(self):
+        self.cat = Category.objects.create(name="C")
+
+    def _maps(self):
+        return (
+            Chapter.chapter_theme_map(),
+            dict(Theme.objects.values_list("id", "order")),
         )
 
-        assert selected is None
-        assert nodes == []
+    def test_none_when_no_theme(self):
+        ev = _make_evidence(1)
+        assert EvidenceTopicCloudView._dominant_theme(ev, {}, {}) is None
 
-    def test_collapsed_by_default(self):
-        # With no selection the tree is closed: the root is visible but not
-        # expanded, and its child is hidden until the user opens it.
-        root = _make_chapter("Parent", is_main_topic=True)
-        child = _make_chapter("Child", is_main_topic=True, parent=root)
-        _file_under(_make_evidence(1, fitted=True), child, self.cat)
+    def test_direct_beats_chapter(self):
+        # Direct wins even though the chapter-derived theme has the lower order.
+        direct = Theme.objects.create(label="Direct", order=5)
+        chap_theme = Theme.objects.create(label="Chapter", order=0)
+        chapter = _make_chapter("Ch")
+        _map_chapter_to_theme(chapter, chap_theme)
+        ev = _make_evidence(1)
+        ev.themes.add(direct)
+        _file_under(ev, chapter, self.cat)
 
-        _, nodes = self.view._build_main_topic_tree(self._params())
+        tbc, order = self._maps()
+        assert EvidenceTopicCloudView._dominant_theme(ev, tbc, order) == direct.id
 
-        by_id = {n["id"]: n for n in nodes}
-        assert by_id[root.id]["visible"] is True
-        assert by_id[root.id]["has_children"] is True
-        assert by_id[root.id]["expanded"] is False
-        assert by_id[child.id]["visible"] is False
+    def test_direct_tie_breaks_on_lowest_order(self):
+        low = Theme.objects.create(label="Low", order=0)
+        high = Theme.objects.create(label="High", order=9)
+        ev = _make_evidence(1)
+        ev.themes.add(low, high)
 
-    def test_selected_path_is_expanded(self):
-        # Selecting a nested node opens the path to it: its ancestors are
-        # expanded and it becomes visible.
-        root = _make_chapter("Parent", is_main_topic=True)
-        child = _make_chapter("Child", is_main_topic=True, parent=root)
-        _file_under(_make_evidence(1, fitted=True), child, self.cat)
+        _, order = self._maps()
+        assert EvidenceTopicCloudView._dominant_theme(ev, {}, order) == low.id
 
-        _, nodes = self.view._build_main_topic_tree(self._params(chapter=child.id))
+    def test_chapter_derived_when_no_direct(self):
+        t = Theme.objects.create(label="T", order=0)
+        chapter = _make_chapter("Ch")
+        _map_chapter_to_theme(chapter, t)
+        ev = _make_evidence(1)
+        _file_under(ev, chapter, self.cat)
 
-        by_id = {n["id"]: n for n in nodes}
-        assert by_id[root.id]["expanded"] is True
-        assert by_id[child.id]["visible"] is True
-        assert by_id[child.id]["selected"] is True
+        tbc, order = self._maps()
+        assert EvidenceTopicCloudView._dominant_theme(ev, tbc, order) == t.id
+
+    def test_chapter_tie_breaks_on_lowest_order(self):
+        a = Theme.objects.create(label="A", order=0)
+        b = Theme.objects.create(label="B", order=9)
+        ca = _make_chapter("CA")
+        _map_chapter_to_theme(ca, a)
+        cb = _make_chapter("CB")
+        _map_chapter_to_theme(cb, b)
+        ev = _make_evidence(1)
+        _file_under(ev, ca, self.cat)
+        _file_under(ev, cb, self.cat)
+
+        tbc, order = self._maps()
+        assert EvidenceTopicCloudView._dominant_theme(ev, tbc, order) == a.id
+
+
+class TestAssignThemeColors:
+    def setup_method(self):
+        self.view = EvidenceTopicCloudView()
+
+    def test_themes_get_palette_colours_in_order(self):
+        options = [{"id": 7, "label": "First"}, {"id": 3, "label": "Second"}]
+
+        color_by_theme = self.view._assign_theme_colors(options)
+
+        palette = EvidenceTopicCloudView.GROUP_PALETTE
+        assert color_by_theme == {7: palette[0], 3: palette[1]}
+        # The colour is also attached to each option for the chip swatch.
+        assert options[0]["color"] == palette[0]
+        assert options[1]["color"] == palette[1]
+
+    def test_themes_beyond_palette_fall_back_to_neutral_ink(self):
+        palette_len = len(EvidenceTopicCloudView.GROUP_PALETTE)
+        options = [{"id": i, "label": f"T{i}"} for i in range(palette_len + 2)]
+
+        color_by_theme = self.view._assign_theme_colors(options)
+
+        overflow = options[palette_len]
+        assert overflow["color"] == EvidenceTopicCloudView.DOT_COLOR
+        assert color_by_theme[overflow["id"]] == EvidenceTopicCloudView.DOT_COLOR
+
+
+class TestDotFill:
+    """The selection lens: when a theme is selected, every visible dot takes
+    that theme's colour, overriding its own dominant-theme hue."""
+
+    def test_lens_colour_overrides_the_dominant_theme(self):
+        # Theme B selected (lens = its hue); the dot's own dominant theme is A.
+        # The lens wins, so the dot reads as one of "your B".
+        fill = EvidenceTopicCloudView._dot_fill(
+            lens_color="#bbb", dominant_theme_id=1, theme_color={1: "#aaa"}
+        )
+        assert fill == "#bbb"
+
+    def test_falls_back_to_dominant_theme_when_no_lens(self):
+        fill = EvidenceTopicCloudView._dot_fill(
+            lens_color=None, dominant_theme_id=1, theme_color={1: "#aaa"}
+        )
+        assert fill == "#aaa"
+
+    def test_neutral_ink_when_no_lens_and_no_theme(self):
+        fill = EvidenceTopicCloudView._dot_fill(
+            lens_color=None, dominant_theme_id=None, theme_color={}
+        )
+        assert fill == EvidenceTopicCloudView.DOT_COLOR

@@ -36,11 +36,11 @@ from .models import (
     EvidenceType,
     InstitutionalLevel,
     Keyword,
-    KeywordGroup,
     Organization,
     PoliticalPosition,
     Role,
     SocialMediaAccount,
+    Theme,
 )
 
 
@@ -565,13 +565,13 @@ class EvidenceTopicCloudView(TemplateView):
     The primary structure is a server-rendered, screen-reader-navigable
     outline listing the matching evidence. A small SVG scatter sits on top
     as a visual aid — ``aria-hidden`` because the list below carries the
-    same information in semantic form. Browsing is by keyword group and
-    keyword facet; the toolbar additionally filters by platform, date
-    range, actor, and free-text search.
+    same information in semantic form. Browsing is by ``Theme`` (the single
+    chip bar) and keyword facet; the toolbar additionally filters by
+    platform, date range, actor, and free-text search.
 
-    Dot *positions* still come from the BERTopic fit's 2D embedding
-    (``topic_x`` / ``topic_y``), but cluster assignments are no longer
-    surfaced: there is no per-topic colour, legend, or topic filter.
+    Dot *positions* still come from the fit's 2D embedding (``topic_x`` /
+    ``topic_y``); their *colour* is the evidence's dominant ``Theme`` (see
+    ``_dominant_theme``), the same hue carried by that theme's chip.
 
     Account-derived facets (platform, username, organization, actor) are
     sourced from each evidence's social-media-post source; evidence backed
@@ -595,12 +595,12 @@ class EvidenceTopicCloudView(TemplateView):
     # on-theme and holds contrast on the near-white canvas.
     DOT_COLOR = "#7a6e60"
 
-    # Categorical palette for dominant-group dot colouring. Mid-dark hues
+    # Categorical palette for dominant-theme dot colouring. Mid-dark hues
     # chosen to hold contrast on the near-white (#fafafa) canvas, stay
     # distinguishable from one another, and read apart from the neutral
-    # DOT_COLOR. Assigned in group-coverage order (see `_assign_group_colors`),
-    # which is stable across requests so a group keeps its colour as filters
-    # change. Groups beyond this length fall back to DOT_COLOR.
+    # DOT_COLOR. Assigned in curator `Theme.order` (see `_assign_theme_colors`),
+    # which is stable across requests so a theme keeps its colour as filters
+    # change. Themes beyond this length fall back to DOT_COLOR.
     GROUP_PALETTE = (
         "#4e79a7",  # blue
         "#f28e2b",  # orange
@@ -661,8 +661,7 @@ class EvidenceTopicCloudView(TemplateView):
     # disabled lemma in the URL is dropped and must not trigger keyness.
     NARROWING_PARAMS = (
         "q",
-        "group",
-        "chapter",
+        "theme",
         "platform",
         "posted_after",
         "posted_before",
@@ -728,29 +727,14 @@ class EvidenceTopicCloudView(TemplateView):
         return [kw for kw in selected if kw in enabled]
 
     @staticmethod
-    def _selected_group_ids(params):
-        """Selected topic = the first valid ``group`` query param (a KeywordGroup
-        pk), returned as a one-element list, or ``[]`` when none is set. The topic
-        bar is single-select: clicking a topic shows only the evidence that topic
-        *dominates*, so two selected topics has no meaning. Non-numeric values are
-        skipped; any extra ``group`` params are ignored. Kept list-typed so the
-        template / filter plumbing stays uniform with the (multi) keyword facets."""
-        for raw in params.getlist("group"):
-            raw = (raw or "").strip()
-            if raw.isdigit():
-                return [int(raw)]
-        return []
-
-    @staticmethod
-    def _selected_chapter_id(params):
-        """Selected main topic = the first valid ``chapter`` query param (a
-        Chapter pk), or ``None`` when none is set. The main-topic tree is
-        single-select drill-down: clicking a node narrows the cloud to the
-        evidence filed under that chapter or any of its descendants, so two
-        selected nodes has no meaning. Non-numeric values are skipped; any extra
-        ``chapter`` params are ignored. This is independent of the keyword-group
-        ``group`` topic bar — the two stack (AND)."""
-        for raw in params.getlist("chapter"):
+    def _selected_theme_id(params):
+        """Selected theme = the first valid ``theme`` query param (a ``Theme``
+        pk), or ``None`` when none is set. The theme bar is single-select:
+        clicking a theme narrows the cloud to that theme's evidence (and colours
+        every visible dot with the theme's hue), so two selected themes has no
+        meaning. Non-numeric values are skipped; any extra ``theme`` params are
+        ignored."""
+        for raw in params.getlist("theme"):
             raw = (raw or "").strip()
             if raw.isdigit():
                 return int(raw)
@@ -887,6 +871,18 @@ class EvidenceTopicCloudView(TemplateView):
                 "social_media_post__images",
                 "social_media_post__videos__excerpts",
                 Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
+                # Theme membership for the dot's dominant-theme colour: the
+                # directly assigned themes, and the mentions' chapters (the
+                # chapter-derived themes are resolved via `chapter_theme_map`).
+                # Only the chapter FK is needed off each mention, so keep it
+                # light.
+                "themes",
+                Prefetch(
+                    "mentions",
+                    queryset=EvidenceMention.objects.only(
+                        "id", "evidence_id", "chapter_id"
+                    ),
+                ),
             )
             .only(
                 "pk",
@@ -921,32 +917,24 @@ class EvidenceTopicCloudView(TemplateView):
                 | Q(description__icontains=q)
             ).distinct()
 
-        # Topic (keyword group): the broad entry point, single-select. Selecting
-        # a topic shows only the evidence that topic *dominates* (so every visible
-        # dot carries the topic's colour). That dominant test runs per-evidence in
-        # Python (`_dominant_group`, in get_context_data); here we just pre-narrow
-        # to evidence carrying ANY enabled keyword in the topic — a cheap DB
-        # superset of "dominated by it" (dominance requires at least one such
-        # keyword). distinct() because the M2M join can match through several
-        # members.
-        group_ids = self._selected_group_ids(params)
-        for gid in group_ids:
-            qs = qs.filter(keywords__group_id=gid, keywords__enabled=True)
-        if group_ids:
-            qs = qs.distinct()
-
-        # Main topic (report chapter): the hierarchical entry point, single-
-        # select. Selecting a main-topic node narrows to evidence filed under
-        # that chapter or any of its descendants (its subtree in the full chapter
-        # tree) — so a parent node matches a superset of its children, the
-        # "higher level → more evidence" behaviour of the tree. distinct()
-        # because the mention join can match through several mentions.
-        chapter_id = self._selected_chapter_id(params)
-        if chapter_id is not None:
-            chapter = Chapter.objects.filter(pk=chapter_id).first()
-            if chapter is not None:
-                subtree = Chapter.get_tree(chapter)
-                qs = qs.filter(mentions__chapter__in=subtree).distinct()
+        # Theme: the single broad entry point, single-select. A theme's evidence
+        # is the union of directly assigned evidence (the `themes` M2M) and
+        # everything filed under a chapter mapped to the theme or a descendant
+        # (resolved by `chapter_theme_map`). Both halves are a DB filter, so the
+        # narrowing happens here in one query — no per-evidence Python cut.
+        # distinct() because either join (the M2M or the mention→chapter path)
+        # can match a row several times.
+        theme_id = self._selected_theme_id(params)
+        if theme_id is not None:
+            themed_chapters = [
+                cid
+                for cid, tid in Chapter.chapter_theme_map().items()
+                if tid == theme_id
+            ]
+            theme_q = Q(themes__id=theme_id)
+            if themed_chapters:
+                theme_q |= Q(mentions__chapter__in=themed_chapters)
+            qs = qs.filter(theme_q).distinct()
 
         # Keyword facets: narrow to evidence whose text actually contains the
         # selected keyword lemma(s), via the Evidence↔Keyword index. Several
@@ -1018,244 +1006,123 @@ class EvidenceTopicCloudView(TemplateView):
             text = cut.rstrip() + "…"
         return text
 
-    def _build_groups(self, params):
-        """Keyword-group bar data.
+    def _build_themes(self, params):
+        """Theme bar data — one chip per theme.
 
-        Returns ``(selected_group_ids, group_options, group_lemmas)``:
-
-        * ``group_options`` — one entry per group that has enabled, evidence-
-          bearing keywords, as ``{id, label, count, selected}``, ordered by
-          evidence coverage (the OR-reach of the chip) so the biggest concepts
-          lead the empty state.
-        * ``group_lemmas`` — the enabled member lemmas of every selected topic
-          (union), for highlighting them in the facet row; empty when none is
-          selected.
-
-        Coverage is corpus-wide (not slice-relative): these chips are the fixed
-        entry points, so they shouldn't reshuffle as the user drills in.
+        Returns ``(selected_theme_id, theme_options)``, where each option is
+        ``{id, label, count, selected}``. ``count`` is the theme's full evidence
+        set (direct assignment ∪ chapter-mapped, restricted to fitted evidence,
+        which is the cloud's universe). Themes are listed in the curator's
+        explicit ``Theme.order`` (then label) — fixed entry points that don't
+        reshuffle as the user drills in — and that order also drives the palette
+        assignment (see ``_assign_theme_colors``). Empty themes are dropped.
         """
-        selected_group_ids = self._selected_group_ids(params)
+        selected_theme_id = self._selected_theme_id(params)
 
-        groups = (
-            KeywordGroup.objects.annotate(
-                count=Count(
-                    "keywords__evidences",
-                    filter=Q(keywords__enabled=True),
-                    distinct=True,
-                )
+        # chapter_id -> theme_id (with inheritance), inverted to theme -> chapters.
+        chapters_by_theme: dict[int, list[int]] = {}
+        for cid, tid in Chapter.chapter_theme_map().items():
+            chapters_by_theme.setdefault(tid, []).append(cid)
+
+        theme_options = []
+        for theme in Theme.objects.all():  # ordered by (order, label)
+            theme_q = Q(themes=theme)
+            chapter_ids = chapters_by_theme.get(theme.id)
+            if chapter_ids:
+                theme_q |= Q(mentions__chapter__in=chapter_ids)
+            count = (
+                Evidence.objects.filter(topic_fit_at__isnull=False)
+                .filter(theme_q)
+                .distinct()
+                .count()
             )
-            .filter(count__gt=0)
-            .order_by("-count", "label")
-        )
-        group_options = [
-            {
-                "id": g.id,
-                "label": g.label,
-                "count": g.count,
-                "selected": g.id in selected_group_ids,
-            }
-            for g in groups
-        ]
-        # Drop stale/empty selections so the highlight + chip state stay honest.
-        valid_ids = {o["id"] for o in group_options if o["selected"]}
-        selected_group_ids = [gid for gid in selected_group_ids if gid in valid_ids]
-
-        group_lemmas: set[str] = set()
-        if selected_group_ids:
-            group_lemmas = set(
-                Keyword.objects.filter(
-                    group_id__in=selected_group_ids, enabled=True
-                ).values_list("lemma", flat=True)
-            )
-        return selected_group_ids, group_options, group_lemmas
-
-    def _build_main_topic_tree(self, params):
-        """Hierarchical main-topic filter data, drawn from the chapter tree.
-
-        The report's chapters form a deep tree (``Chapter``), of which only the
-        nodes flagged ``is_main_topic`` name a thematic topic. This builds a
-        *condensed* tree of those main-topic nodes alone: each one hangs off its
-        nearest main-topic ancestor, collapsing the non-main intermediate
-        chapters between them (main topics aren't located at a uniform depth, so
-        the gaps are merged away). The result is a single pre-order-flattened
-        list ready for an indented render.
-
-        Coverage is cumulative and corpus-wide: a node's ``count`` is the number
-        of distinct topic-fitted evidence filed under that chapter *or any of its
-        descendants* (the same subtree the filter narrows to). A parent therefore
-        always subsumes its children — the higher the level, the more evidence
-        matches. Only nodes that subsume at least one evidence are kept; since a
-        parent's count is ≥ each child's, dropping the empties never orphans a
-        surviving child.
-
-        The tree is collapsed by default: only root nodes are ``visible``, and a
-        node is ``expanded`` (its children revealed) only along the path to the
-        selected node, so a drill-down keeps its context after the section is
-        re-rendered.
-
-        Returns ``(selected_chapter_id, nodes)`` where each node is
-        ``{id, parent_id, label, count, depth, guides, has_children, expanded,
-        visible, selected}`` (``guides`` is one entry per ancestor level, for
-        drawing the indentation rails), pre-order flattened with siblings ordered
-        by coverage (then label) so the biggest topics lead.
-        """
-        selected_chapter_id = self._selected_chapter_id(params)
-
-        chapters = list(
-            Chapter.objects.only("id", "path", "is_main_topic", "custom_label")
-        )
-        by_path = {c.path: c for c in chapters}
-        label_of = {c.id: c.custom_label for c in chapters}
-        steplen = Chapter.steplen
-
-        # For every chapter, the main-topic node ids on its root-to-leaf path,
-        # nearest first (including itself when it is a main topic). Walking the
-        # materialised path upward in fixed ``steplen`` chunks yields the
-        # ancestors; this is the backbone for both the condensed parent links and
-        # the cumulative coverage tally.
-        main_chain: dict[int, list[int]] = {}
-        for c in chapters:
-            chain = []
-            path = c.path
-            while path:
-                node = by_path.get(path)
-                if node is not None and node.is_main_topic:
-                    chain.append(node.id)
-                path = path[:-steplen]  # step to the parent path
-            main_chain[c.id] = chain
-
-        # Distinct topic-fitted evidence per main-topic node, in one pass over the
-        # mention↔chapter pairs: a mention at chapter ``c`` counts toward every
-        # main-topic node on ``c``'s path, so subtree subsumption falls out for
-        # free (and a node inherits all its descendants' evidence).
-        coverage: dict[int, set[int]] = defaultdict(set)
-        pairs = EvidenceMention.objects.filter(
-            evidence__topic_fit_at__isnull=False, chapter__isnull=False
-        ).values_list("evidence_id", "chapter_id")
-        for ev_id, ch_id in pairs:
-            for mt_id in main_chain.get(ch_id, ()):
-                coverage[mt_id].add(ev_id)
-        counts = {mt_id: len(ev_ids) for mt_id, ev_ids in coverage.items()}
-
-        # Condensed parent links among the evidence-bearing main-topic nodes:
-        # a node's parent is the second entry of its chain (the first being
-        # itself); a node with no main-topic ancestor is a root.
-        children: dict[int, list[int]] = defaultdict(list)
-        roots: list[int] = []
-        for c in chapters:
-            if not c.is_main_topic or counts.get(c.id, 0) == 0:
+            if count == 0:
                 continue
-            chain = main_chain[c.id]
-            parent_id = chain[1] if len(chain) > 1 else None
-            if parent_id is None:
-                roots.append(c.id)
-            else:
-                children[parent_id].append(c.id)
-
-        # Drop a stale/empty selection so the active state stays honest.
-        if selected_chapter_id is not None and counts.get(selected_chapter_id, 0) == 0:
-            selected_chapter_id = None
-
-        # Collapsed by default: expand only the selected node and its ancestors
-        # (its whole main-chain), so the drilled-into path stays open and the
-        # selected node's children are revealed; everything else starts closed.
-        expanded_ids: set[int] = set()
-        if selected_chapter_id is not None:
-            expanded_ids = set(main_chain.get(selected_chapter_id, ()))
-
-        # Pre-order flatten, siblings by coverage then label. Each node carries
-        # its depth (indentation rails), parent id and child/expanded/visible
-        # flags (collapse state) for the template + client toggle.
-        nodes: list[dict] = []
-
-        def _walk(node_id, depth, parent_id, parent_visible, parent_expanded):
-            visible = depth == 0 or (parent_visible and parent_expanded)
-            expanded = node_id in expanded_ids
-            nodes.append(
+            theme_options.append(
                 {
-                    "id": node_id,
-                    "parent_id": parent_id,
-                    "label": label_of.get(node_id, ""),
-                    "count": counts.get(node_id, 0),
-                    "depth": depth,
-                    # One guide cell per ancestor level, so the template can draw
-                    # a vertical connector rail at each level of indentation.
-                    "guides": list(range(depth)),
-                    "has_children": bool(children[node_id]),
-                    "expanded": expanded,
-                    "visible": visible,
-                    "selected": node_id == selected_chapter_id,
+                    "id": theme.id,
+                    "label": theme.label,
+                    "count": count,
+                    "selected": theme.id == selected_theme_id,
                 }
             )
-            for kid in sorted(
-                children[node_id], key=lambda cid: (-counts[cid], label_of[cid])
-            ):
-                _walk(kid, depth + 1, node_id, visible, expanded)
 
-        for root_id in sorted(roots, key=lambda cid: (-counts[cid], label_of[cid])):
-            _walk(root_id, 0, None, True, True)
+        # Drop a stale/empty selection so the chip state stays honest.
+        if selected_theme_id is not None and not any(
+            o["selected"] for o in theme_options
+        ):
+            selected_theme_id = None
+        return selected_theme_id, theme_options
 
-        return selected_chapter_id, nodes
+    def _assign_theme_colors(self, theme_options):
+        """Give each theme its identity colour — used on its chip and its dots.
 
-    def _assign_group_colors(self, group_options):
-        """Give each topic its identity colour — used everywhere the topic
-        appears: its chip, its keywords' parent tag, and its dots.
+        ``theme_options`` arrives from ``_build_themes`` in the curator's
+        explicit ``Theme.order``, so the first ``len(GROUP_PALETTE)`` themes get
+        a palette hue and the rest fall back to the neutral ``DOT_COLOR``. The
+        order is curator-fixed, so the mapping is stable across requests — a
+        theme keeps its colour as the user filters.
 
-        ``group_options`` arrives from ``_build_groups`` already ordered by
-        corpus coverage, so the first ``len(GROUP_PALETTE)`` topics (the biggest
-        concepts) get a palette hue and the long tail falls back to the neutral
-        ``DOT_COLOR``. Coverage is corpus-wide, so the mapping is stable across
-        requests — a topic keeps its colour as the user filters.
-
-        Mutates each option with a ``color`` key and returns ``color_by_group``
+        Mutates each option with a ``color`` key and returns ``color_by_theme``
         (id → colour) for the dot fill.
         """
-        color_by_group = {}
-        for i, opt in enumerate(group_options):
+        color_by_theme = {}
+        for i, opt in enumerate(theme_options):
             color = (
                 self.GROUP_PALETTE[i] if i < len(self.GROUP_PALETTE) else self.DOT_COLOR
             )
             opt["color"] = color
-            color_by_group[opt["id"]] = color
-        return color_by_group
+            color_by_theme[opt["id"]] = color
+        return color_by_theme
 
     @staticmethod
-    def _dominant_group(evidence, n_docs):
-        """Pick the group that best explains this evidence's keywords.
+    def _dominant_theme(evidence, theme_by_chapter, theme_order):
+        """Pick the one theme that colours this evidence's dot.
 
-        Each enabled, grouped keyword votes for its group with an IDF weight
-        ``log(N / df)`` — a rare (low-df) keyword is a sharper signal of
-        belonging than a near-ubiquitous one, so a synonym-heavy group can't
-        win on size alone. The group with the greatest summed weight wins;
-        ties break on the single strongest keyword, then lowest group id, so
-        the result is deterministic. It reads only the evidence's own
-        (enabled-prefetched) keywords and their cached ``df``, so it is
-        filter-independent: a dot keeps its colour as the set narrows.
+        An evidence can belong to several themes (directly and/or via the
+        chapters it's filed under). Precedence: a **directly assigned** theme
+        beats a **chapter-derived** one (the curator's explicit, evidence-level
+        pick is the stronger signal); within a tier the theme with the lowest
+        ``Theme.order`` wins, then the lowest id, so the choice is deterministic
+        and curator-controlled.
 
-        Returns the winning group id, or ``None`` when the evidence carries no
-        grouped keyword.
+        Reads only the evidence's own prefetched ``themes`` and ``mentions`` (the
+        latter mapped through ``theme_by_chapter``), so it is filter-independent:
+        a dot keeps its colour as the set narrows. Returns a theme id, or
+        ``None`` when the evidence belongs to no theme.
         """
-        scores: dict[int, float] = {}  # group_id -> summed IDF weight
-        best_w: dict[int, float] = {}  # group_id -> strongest single weight
-        for kw in evidence.keywords.all():
-            if kw.group_id is None:
-                continue
-            w = math.log(n_docs / max(kw.df, 1)) if n_docs else 1.0
-            scores[kw.group_id] = scores.get(kw.group_id, 0.0) + w
-            if w > best_w.get(kw.group_id, 0.0):
-                best_w[kw.group_id] = w
-        if not scores:
-            return None
-        return max(scores, key=lambda g: (scores[g], best_w[g], -g))
+
+        def _rank(tid):
+            return (theme_order.get(tid, 1 << 30), tid)
+
+        direct = [t.id for t in evidence.themes.all()]
+        if direct:
+            return min(direct, key=_rank)
+        chapter_themes = [
+            theme_by_chapter[m.chapter_id]
+            for m in evidence.mentions.all()
+            if m.chapter_id in theme_by_chapter
+        ]
+        if chapter_themes:
+            return min(chapter_themes, key=_rank)
+        return None
+
+    @classmethod
+    def _dot_fill(cls, lens_color, dominant_theme_id, theme_color):
+        """The fill colour for one dot. When a theme is selected, ``lens_color``
+        is that theme's hue and every visible dot takes it (the set was already
+        narrowed to the theme, so the cloud reads as "these are your {theme}").
+        With no theme selected (``lens_color`` is None) each dot falls back to
+        its own dominant theme's hue, then the neutral ink."""
+        if lens_color is not None:
+            return lens_color
+        return theme_color.get(dominant_theme_id, cls.DOT_COLOR)
 
     def _build_facets(
         self,
         evidences,
         selected_lemmas,
         keyness,
-        group_lemmas=(),
-        group_label=None,
-        group_color=None,
     ):
         """Keyword facets over the *currently filtered* evidence set.
 
@@ -1287,7 +1154,6 @@ class EvidenceTopicCloudView(TemplateView):
         counts: dict[str, int] = {}
         labels: dict[str, str] = {}
         dfs: dict[str, int] = {}
-        groups: dict[str, int | None] = {}  # lemma -> parent topic id
         # Total keyword incidences in the slice — the n_i normaliser for the
         # log-odds prior. Counts every occurrence, including selected keywords,
         # so it reflects the slice's full keyword mass.
@@ -1304,7 +1170,6 @@ class EvidenceTopicCloudView(TemplateView):
                 counts[kw.lemma] = counts.get(kw.lemma, 0) + 1
                 labels[kw.lemma] = kw.display_label
                 dfs[kw.lemma] = kw.df
-                groups[kw.lemma] = kw.group_id
 
         if keyness:
             # a0 = total corpus keyword mass (sum of every enabled keyword's df);
@@ -1329,24 +1194,12 @@ class EvidenceTopicCloudView(TemplateView):
         else:
             score = {lemma: float(n) for lemma, n in counts.items()}
 
-        group_lemmas = set(group_lemmas)
-        group_label = group_label or {}
-        group_color = group_color or {}
         facets = [
             {
                 "lemma": lemma,
                 "keyword": labels[lemma],
                 "count": counts[lemma],
                 "score": score[lemma],
-                # Member of a currently selected topic → highlighted in the
-                # facet row as one of "this topic's own words".
-                "in_group": lemma in group_lemmas,
-                # Parent topic, so a keyword is never shown divorced from the
-                # broader topic it belongs to. Colour ties it to the topic bar
-                # (and the dot of the same hue); blank for ungrouped keywords.
-                "group_id": groups.get(lemma),
-                "group_label": group_label.get(groups.get(lemma), ""),
-                "group_color": group_color.get(groups.get(lemma), ""),
             }
             for lemma in counts
         ]
@@ -1440,45 +1293,32 @@ class EvidenceTopicCloudView(TemplateView):
             )
         _mark("bounds_agg")
 
-        # Topic bar: the broad entry points (a chip per topic), sorted by
-        # evidence coverage so the biggest concepts lead the empty state. The
-        # selected topics' member lemmas are highlighted in the facet row. Built
-        # here (ahead of the circle loop) because the dominant-group dot colouring
-        # keys off the same coverage order.
-        selected_group_ids, group_options, group_lemmas = self._build_groups(
-            self.request.GET
+        # Theme bar: a chip per theme, in the curator's explicit `Theme.order`
+        # (which also fixes the palette assignment below). The actual narrowing
+        # to a selected theme's evidence already happened in `_filter_qs` (a DB
+        # filter), so there is no per-evidence Python cut here.
+        selected_theme_id, theme_options = self._build_themes(self.request.GET)
+        # Theme identity colours: the first themes (by order) get a palette
+        # colour, the rest the neutral ink. The same map tints the chips and the
+        # dots.
+        theme_color = self._assign_theme_colors(theme_options)
+        # Resolution maps for the dot's dominant theme: chapter_id → theme_id
+        # (with inheritance) and theme_id → order (the tie-breaker). Built once
+        # here and reused for every dot.
+        theme_by_chapter = Chapter.chapter_theme_map()
+        theme_order = dict(Theme.objects.values_list("id", "order"))
+        _mark("theme colours")
+
+        # Cloud points — keep dotted only if we have coordinates. Colouring is a
+        # lens: when a theme is selected, every visible dot belongs to it (the
+        # set was already narrowed to that theme), so they all take the selected
+        # theme's colour — the cloud reads as "these are your {theme}". With no
+        # theme selected, each dot falls back to its own dominant theme's hue.
+        lens_color = (
+            theme_color.get(selected_theme_id, self.DOT_COLOR)
+            if selected_theme_id is not None
+            else None
         )
-        # Topic identity colours: the biggest topics get a palette colour, the
-        # rest the neutral ink. The same map tints the chips, the dots, and each
-        # keyword facet's parent tag. `n_docs` is the corpus size (denominator
-        # for the IDF weights `_dominant_group` uses); one cheap count, matching
-        # the basis of each keyword's cached `df`.
-        group_color = self._assign_group_colors(group_options)
-        group_label = {o["id"]: o["label"] for o in group_options}
-        n_docs = Evidence.objects.filter(topic__isnull=False).count()
-        _mark("topic colours")
-
-        # Main-topic bar: a hierarchical, single-select filter over the report's
-        # `is_main_topic` chapters (condensed so each node hangs off its nearest
-        # main-topic ancestor). Independent of the keyword-group topic bar — they
-        # stack (AND). Coverage is corpus-wide and cumulative, so the order/counts
-        # don't reshuffle as the user drills in.
-        selected_chapter_id, main_topics = self._build_main_topic_tree(self.request.GET)
-        _mark(f"main topics ({len(main_topics)})")
-
-        # Topic narrowing is by *dominant* group, not mere keyword containment:
-        # a selected topic keeps only the evidence it actually dominates, so every
-        # dot left in the cloud (and every row in the outline / actor tally / facet
-        # cloud, all built over `evidences` below) carries that topic's colour. The
-        # DB pre-filter in `_filter_qs` already trimmed to a keyword-containing
-        # superset; this is the exact, per-evidence cut. Single-select → one id.
-        if selected_group_ids:
-            gid = selected_group_ids[0]
-            evidences = [e for e in evidences if self._dominant_group(e, n_docs) == gid]
-            _mark(f"dominant-group filter ({len(evidences)})")
-
-        # Cloud points — keep dotted only if we have coordinates. Each dot is
-        # tinted by its dominant keyword group (neutral when ungrouped).
         plottable = [
             e for e in evidences if e.topic_x is not None and e.topic_y is not None
         ]
@@ -1498,16 +1338,16 @@ class EvidenceTopicCloudView(TemplateView):
             actor_id = account.actor_id if account and account.actor_id else ""
             pub_date = ev.source.publication_date if ev.source else None
             posted_on = pub_date.isoformat() if pub_date else ""
-            # Tint by dominant keyword group; `data-group` carries the id so a
-            # later group-highlight interaction can key off it client-side.
-            group_id = self._dominant_group(ev, n_docs)
-            fill = group_color.get(group_id, self.DOT_COLOR)
+            # `data-theme` carries the dot's own dominant theme (for a later
+            # client-side highlight); the fill applies the selection lens.
+            theme_id = self._dominant_theme(ev, theme_by_chapter, theme_order)
+            fill = self._dot_fill(lens_color, theme_id, theme_color)
             circle_parts.append(
                 f'<circle data-href="{esc(ev.get_absolute_url())}"'
                 f' data-platform="{esc(platform)}"'
                 f' data-username="{esc(username)}"'
                 f' data-actor="{actor_id}"'
-                f' data-group="{group_id if group_id is not None else ""}"'
+                f' data-theme="{theme_id if theme_id is not None else ""}"'
                 f' data-posted-on="{posted_on}"'
                 f' data-snippet="{esc(self._snippet(ev))}"'
                 f' cx="{pt["cx"]}" cy="{pt["cy"]}"'
@@ -1586,14 +1426,11 @@ class EvidenceTopicCloudView(TemplateView):
         facets = self._build_facets(
             evidences,
             selected_keywords,
-            # An enabled keyword selection (or a group) narrows the set too, so
+            # An enabled keyword selection (or a theme) narrows the set too, so
             # it also turns on keyness — but only once disabled/unknown lemmas
             # are dropped.
             keyness=self._has_active_filter(self.request.GET)
             or bool(selected_keywords),
-            group_lemmas=group_lemmas,
-            group_label=group_label,
-            group_color=group_color,
         )
         kw_label_by_lemma = {
             kw.lemma: kw.display_label
@@ -1675,10 +1512,8 @@ class EvidenceTopicCloudView(TemplateView):
                 "evidence_count": len(evidences),
                 "truncated": truncated,
                 "max_evidence": self.MAX_EVIDENCE,
-                "keyword_groups": group_options,
-                "selected_group_ids": selected_group_ids,
-                "main_topics": main_topics,
-                "selected_chapter_id": selected_chapter_id,
+                "themes": theme_options,
+                "selected_theme_id": selected_theme_id,
                 "facets": facets,
                 "selected_keywords": selected_keywords,
                 "selected_facets": selected_facets,
@@ -1705,8 +1540,7 @@ class EvidenceTopicCloudView(TemplateView):
                     (self.request.GET.get(p) or "").strip()
                     for p in (
                         "q",
-                        "group",
-                        "chapter",
+                        "theme",
                         "keyword",
                         "platform",
                         "posted_after",

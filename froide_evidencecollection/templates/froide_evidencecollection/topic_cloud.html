@@ -37,19 +37,12 @@
                     <span id="tf-keywords">
                         {% for kw in selected_keywords %}<input type="hidden" name="keyword" value="{{ kw }}">{% endfor %}
                     </span>
-                    {# Selected topic (single-select), managed by the topic bar     #}
-                    {# below: at most one hidden input, narrowing the cloud to the   #}
-                    {# dots that topic dominates. Lives in the form so it rides      #}
-                    {# every filter submit.                                          #}
-                    <span id="tf-groups">
-                        {% for gid in selected_group_ids %}<input type="hidden" name="group" value="{{ gid }}">{% endfor %}
-                    </span>
-                    {# Selected main-topic chapter (single-select), managed by the   #}
-                    {# main-topic tree below: at most one hidden input, narrowing the #}
-                    {# cloud to evidence under that chapter's subtree. Independent of #}
-                    {# the keyword-group `group` select — the two stack (AND).        #}
-                    <span id="tf-chapters">
-                        {% if selected_chapter_id %}<input type="hidden" name="chapter" value="{{ selected_chapter_id }}">{% endif %}
+                    {# Selected theme (single-select), managed by the theme bar      #}
+                    {# below: at most one hidden input, narrowing the cloud to that  #}
+                    {# theme's evidence. Lives in the form so it rides every filter  #}
+                    {# submit.                                                        #}
+                    <span id="tf-themes">
+                        {% if selected_theme_id %}<input type="hidden" name="theme" value="{{ selected_theme_id }}">{% endif %}
                     </span>
                     <div class="topic-filter-field topic-filter-field--search">
                         <label for="tf-q" class="topic-filter-label">{% trans "Search" %}</label>
@@ -218,18 +211,16 @@
                     </div>
                 </form>
             </div>
-            {# ── Topic bar + keyword facet cloud ──────────────────────── #}
-            {# Topics: broad entry points, single-select; each chip carries its  #}
-            {# identity colour (so the bar doubles as the dot colour key) and    #}
-            {# selecting one narrows the cloud to the dots that topic dominates  #}
-            {# — all one colour. Keywords: each chip is one word, tagged with    #}
-            {# its parent topic's colour so it is never seen apart from its       #}
-            {# broader topic; several keywords AND together, narrowing to         #}
-            {# evidence containing them. Both live outside #topic-cloud-results   #}
-            {# are re-rendered on every filter change (JS swaps them from the      #}
-            {# partial response) so counts and the co-occurring set stay current.  #}
-            <div id="topic-groups-host">{% include "froide_evidencecollection/_topic_groups.html" %}</div>
-            <div id="topic-chapters-host">{% include "froide_evidencecollection/_topic_chapters.html" %}</div>
+            {# ── Theme bar + keyword facet cloud ──────────────────────── #}
+            {# Themes: the single browse axis, single-select; each chip carries  #}
+            {# its identity colour (so the bar doubles as the dot colour key)    #}
+            {# and selecting one narrows the cloud to that theme's evidence —    #}
+            {# all one colour. Keywords: each chip is one word; several AND       #}
+            {# together, narrowing to evidence containing them. Both live outside #}
+            {# #topic-cloud-results and are re-rendered on every filter change    #}
+            {# (JS swaps them from the partial response) so counts and the        #}
+            {# co-occurring set stay current.                                     #}
+            <div id="topic-groups-host">{% include "froide_evidencecollection/_topic_themes.html" %}</div>
             <div id="topic-facets-host">{% include "froide_evidencecollection/_topic_facets.html" %}</div>
         </div>
         {# /.topic-cloud-filters #}
@@ -786,9 +777,16 @@
     .topic-facet-chip.is-active .topic-facet-chip__topic {
         box-shadow: 0 0 0 1px rgba(255, 255, 255, .5);
     }
-    /* Topic bar: the broad entry points above the keyword facets. Each chip
-       carries its topic's identity colour (via the inline --topic-color), so
-       the bar doubles as the dot colour key. */
+    /* Theme bar: the single browse axis above the keyword facets. Each chip
+       carries its theme's identity colour (via the inline --topic-color), so
+       the bar doubles as the dot colour key. Framed like the keyword-facet and
+       actor panels so the three browse surfaces read as a set. */
+    .topic-groups {
+        border: 1px solid #e7e2db;
+        border-radius: .5rem;
+        padding: .5rem .75rem;
+        background: #fcfbf9;
+    }
     .topic-groups__head { margin-bottom: .35rem; }
     .topic-groups__title {
         font-size: .8rem;
@@ -846,110 +844,6 @@
         margin-left: .4em;
     }
     .topic-group-chip.is-active .topic-group-chip__count { opacity: .85; }
-    /* ── Main-topic tree (report chapters) ──────────────────────────────
-       A hierarchical, single-select filter rendered as a plain indented
-       category tree (no surrounding frame, no chip pills). It is collapsed by
-       default: each parent node carries a disclosure chevron, and only the path
-       to a selected node starts expanded. Each row is prefixed by one guide cell
-       per ancestor level, each drawing a vertical connector rail that runs the
-       full row height so consecutive rows form a continuous line down the tree.
-       The selected node gets a left accent bar rather than a filled background,
-       so the tree stays light. The panel is framed like the other filters
-       (keyword facets, actors). */
-    .topic-chapters {
-        border: 1px solid #e7e2db;
-        border-radius: .5rem;
-        padding: .5rem .75rem;
-        background: #fcfbf9;
-    }
-    .topic-chapters__head { margin-bottom: .2rem; }
-    .topic-chapters__title {
-        font-size: .8rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .03em;
-        color: #6b5d4f;
-    }
-    .topic-chapters__tree {
-        display: flex;
-        flex-direction: column;
-        gap: .02rem;
-    }
-    .topic-chapter-row { display: flex; align-items: stretch; }
-    .topic-chapter-row.is-hidden { display: none; }
-    /* One fixed-width cell per ancestor level, each carrying a centred vertical
-       rail so consecutive rows form a continuous line down each tree level. */
-    .topic-chapter-guide {
-        flex: 0 0 16px;
-        position: relative;
-    }
-    .topic-chapter-guide::before {
-        content: "";
-        position: absolute;
-        left: 7px;
-        top: 0;
-        bottom: 0;
-        border-left: 1px solid #d8cdbd;
-    }
-    /* Disclosure chevron: a right-pointing triangle that rotates to point down
-       when its node is expanded. Leaves render an empty same-width spacer so
-       every label aligns regardless of whether the node has children. */
-    .topic-chapter-toggle {
-        flex: 0 0 16px;
-        align-self: stretch;
-        position: relative;
-        border: 0;
-        background: none;
-        padding: 0;
-        cursor: pointer;
-    }
-    .topic-chapter-toggle--leaf { cursor: default; }
-    .topic-chapter-toggle:not(.topic-chapter-toggle--leaf)::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        margin: auto;
-        width: 0;
-        height: 0;
-        border-left: 5px solid #8a7d6c;
-        border-top: 4px solid transparent;
-        border-bottom: 4px solid transparent;
-        transition: transform .12s ease;
-    }
-    .topic-chapter-toggle.is-expanded::before { transform: rotate(90deg); }
-    .topic-chapter-toggle:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 1px; border-radius: .2rem; }
-    .topic-chapter-node {
-        position: relative;
-        display: flex;
-        align-items: baseline;
-        gap: .5em;
-        flex: 1 1 auto;
-        text-align: left;
-        border: 0;
-        border-left: 2px solid transparent;
-        background: none;
-        cursor: pointer;
-        padding: .12rem .4rem;
-        border-radius: .2rem;
-        color: #4a3f33;
-        font-size: .9rem;
-        line-height: 1.45;
-        transition: background .12s, color .12s;
-    }
-    .topic-chapter-node:hover { background: #f1ece5; }
-    .topic-chapter-node:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 1px; }
-    .topic-chapter-node.is-active {
-        color: #6b4f2c;
-        font-weight: 600;
-        background: #f3ece2;
-        border-left-color: #6b4f2c;
-    }
-    .topic-chapter-node__count {
-        font-size: .75em;
-        opacity: .5;
-        font-variant-numeric: tabular-nums;
-    }
-    .topic-chapter-node.is-active .topic-chapter-node__count { opacity: .7; }
     /* ── "Actors in view" side panel ──────────────────────────────────── */
     .topic-actors {
         border: 1px solid #e7e2db;
@@ -1781,19 +1675,6 @@
             else if (!existing && incoming) host.appendChild(incoming);
         }
 
-        // The main-topic tree narrows on every filter change too (the counts and
-        // the active node), so swap it wholesale from the partial response just
-        // like the group bar.
-        function updateChaptersHost(fresh) {
-            var host = document.getElementById('topic-chapters-host');
-            if (!host) return;
-            var existing = host.querySelector('.topic-chapters');
-            var incoming = fresh ? fresh.querySelector('.topic-chapters') : null;
-            if (existing && incoming) existing.replaceWith(incoming);
-            else if (existing && !incoming) existing.remove();
-            else if (!existing && incoming) host.appendChild(incoming);
-        }
-
         // The "Actors in view" panel is recomputed over the filtered set on
         // every change, so swap it wholesale from the partial response like the
         // facet/group bars.
@@ -1891,6 +1772,17 @@
             Object.keys(newByHref).forEach(function (href) {
                 var existing = oldByHref[href];
                 if (existing) {
+                    // A kept dot keeps its DOM node (so its position is stable),
+                    // but its colour can change between requests — most visibly
+                    // the theme lens, which re-tints every visible dot to the
+                    // selected theme. Copy the incoming fill / dominant-theme so
+                    // the recolour actually takes (fill has no CSS transition, so
+                    // it switches instantly).
+                    existing.setAttribute('fill', newByHref[href].getAttribute('fill'));
+                    var dataTheme = newByHref[href].getAttribute('data-theme');
+                    if (dataTheme !== null) {
+                        existing.setAttribute('data-theme', dataTheme);
+                    }
                     // A previously-fading-out circle came back before its
                     // removal timer fired — cancel the removal and fade
                     // it back up to its target opacity.
@@ -1980,11 +1872,10 @@
             var fresh = tmp.querySelector('#topic-cloud-results');
             if (!fresh) return;
             applyUpdate(fresh);
-            // The group bar, facet cloud and actor panel live outside
+            // The theme bar, facet cloud and actor panel live outside
             // #topic-cloud-results, so swap them explicitly from the partial
             // response, then re-assert the actor highlight over the new dots.
             updateGroupsHost(tmp);
-            updateChaptersHost(tmp);
             updateFacetsHost(tmp);
             updateActorsHost(tmp);
             syncActorHighlight();
@@ -2052,19 +1943,18 @@
             });
         }
 
-        // Topic bar → the hidden #tf-groups input (the single selected topic).
-        // Single-select: clicking a chip selects only that topic, narrowing the
-        // cloud to the dots it *dominates* (so every visible dot takes the topic's
-        // colour); clicking the active chip again clears it. The topic selection
-        // is independent of the keyword facets — they stack. The facet row then
-        // highlights the selected topic's members. Delegated on the stable host
-        // because updateGroupsHost replaces the bar wholesale.
-        var groupsBox = document.getElementById('tf-groups');
+        // Theme bar → the hidden #tf-themes input (the single selected theme).
+        // Single-select: clicking a chip selects only that theme, narrowing the
+        // cloud to its evidence (so every visible dot takes the theme's colour);
+        // clicking the active chip again clears it. The theme selection is
+        // independent of the keyword facets — they stack. Delegated on the stable
+        // host because updateGroupsHost replaces the bar wholesale.
+        var groupsBox = document.getElementById('tf-themes');
         var groupsHost = document.getElementById('topic-groups-host');
         function selectedGroups() {
             if (!groupsBox) return [];
             return Array.prototype.map.call(
-                groupsBox.querySelectorAll('input[name="group"]'),
+                groupsBox.querySelectorAll('input[name="theme"]'),
                 function (i) { return i.value; }
             );
         }
@@ -2074,7 +1964,7 @@
             values.forEach(function (v) {
                 var inp = document.createElement('input');
                 inp.type = 'hidden';
-                inp.name = 'group';
+                inp.name = 'theme';
                 inp.value = v;
                 groupsBox.appendChild(inp);
             });
@@ -2084,109 +1974,13 @@
             groupsHost.addEventListener('click', function (ev) {
                 var chip = ev.target.closest('.topic-group-chip');
                 if (!chip) return;
-                var gid = chip.getAttribute('data-group') || '';
+                var gid = chip.getAttribute('data-theme') || '';
                 if (!gid) return;
-                // Single-select: re-clicking the active topic clears it, any
-                // other click replaces the selection with just that topic.
+                // Single-select: re-clicking the active theme clears it, any
+                // other click replaces the selection with just that theme.
                 var current = selectedGroups();
                 var active = current.length === 1 && current[0] === gid;
                 setGroups(active ? [] : [gid]);
-            });
-        }
-
-        // Main-topic tree → the hidden #tf-chapters input (the single selected
-        // chapter). Single-select drill-down: clicking a node narrows the cloud
-        // to evidence under that chapter's subtree; clicking the active node
-        // again clears it. Independent of the keyword facets and the topic bar —
-        // all three stack. Delegated on the stable host because
-        // updateChaptersHost replaces the tree wholesale.
-        var chaptersBox = document.getElementById('tf-chapters');
-        var chaptersHost = document.getElementById('topic-chapters-host');
-        function selectedChapters() {
-            if (!chaptersBox) return [];
-            return Array.prototype.map.call(
-                chaptersBox.querySelectorAll('input[name="chapter"]'),
-                function (i) { return i.value; }
-            );
-        }
-        function setChapters(values) {
-            if (!chaptersBox) return;
-            chaptersBox.innerHTML = '';
-            values.forEach(function (v) {
-                var inp = document.createElement('input');
-                inp.type = 'hidden';
-                inp.name = 'chapter';
-                inp.value = v;
-                chaptersBox.appendChild(inp);
-            });
-            form.requestSubmit();
-        }
-
-        // ── Collapsible tree (client-side) ──────────────────────────────
-        // The tree is a flat list of rows linked by data-node-id / data-parent-id
-        // and starts collapsed (the server unhides only the path to a selected
-        // node). The chevron toggles a node's direct children in/out; collapsing
-        // also hides every descendant so a reopened branch starts tidy. This is
-        // purely DOM state — no request — so it stays snappy and independent of
-        // the filter selection.
-        function chapterRowEls() {
-            return chaptersHost
-                ? chaptersHost.querySelectorAll('.topic-chapter-row')
-                : [];
-        }
-        function directChildRows(id) {
-            var out = [];
-            Array.prototype.forEach.call(chapterRowEls(), function (row) {
-                if (row.getAttribute('data-parent-id') === id) out.push(row);
-            });
-            return out;
-        }
-        function setToggleExpanded(toggle, expanded) {
-            toggle.classList.toggle('is-expanded', expanded);
-            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-        }
-        function collapseDescendants(row) {
-            directChildRows(row.getAttribute('data-node-id')).forEach(function (child) {
-                child.classList.add('is-hidden');
-                var t = child.querySelector('.topic-chapter-toggle');
-                if (t && t.classList.contains('is-expanded')) {
-                    setToggleExpanded(t, false);
-                }
-                collapseDescendants(child);
-            });
-        }
-        function toggleChapterNode(toggle) {
-            var row = toggle.closest('.topic-chapter-row');
-            if (!row) return;
-            if (toggle.classList.contains('is-expanded')) {
-                setToggleExpanded(toggle, false);
-                collapseDescendants(row);
-            } else {
-                setToggleExpanded(toggle, true);
-                directChildRows(row.getAttribute('data-node-id')).forEach(
-                    function (child) { child.classList.remove('is-hidden'); }
-                );
-            }
-        }
-
-        if (chaptersHost && chaptersBox) {
-            chaptersHost.addEventListener('click', function (ev) {
-                // Chevron → expand/collapse (no filter change). The leaf spacer
-                // shares the class but carries the --leaf modifier, so skip it.
-                var toggle = ev.target.closest('.topic-chapter-toggle');
-                if (toggle && !toggle.classList.contains('topic-chapter-toggle--leaf')) {
-                    toggleChapterNode(toggle);
-                    return;
-                }
-                var node = ev.target.closest('.topic-chapter-node');
-                if (!node) return;
-                var cid = node.getAttribute('data-chapter') || '';
-                if (!cid) return;
-                // Single-select: re-clicking the active node clears it, any
-                // other click replaces the selection with just that chapter.
-                var current = selectedChapters();
-                var active = current.length === 1 && current[0] === cid;
-                setChapters(active ? [] : [cid]);
             });
         }
 
@@ -2220,11 +2014,10 @@
                 form.querySelectorAll('input').forEach(function (i) {
                     if (i.type === 'search' || i.type === 'date' || i.type === 'text') i.value = '';
                 });
-                // Clear the keyword facets + topics inline (no dispatch — we
+                // Clear the keyword facets + theme inline (no dispatch — we
                 // re-submit once below). form.reset() leaves hidden inputs as-is.
                 if (keywordsBox) keywordsBox.innerHTML = '';
                 if (groupsBox) groupsBox.innerHTML = '';
-                if (chaptersBox) chaptersBox.innerHTML = '';
                 if (actorCombobox) actorCombobox.reset();
                 if (yearSlider) yearSlider.reset();
                 updateResetVisibility();
