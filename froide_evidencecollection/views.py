@@ -311,43 +311,61 @@ class ActorDetailView(DetailView):
         actor = self.object
 
         # "Originated by this actor" vs. "Related" — the two plain M2M fields
-        # on Evidence (`originators` / `related_actors`).
+        # on Evidence (`originators` / `related_actors`). The actor profile
+        # lists each piece by date / platform / theme(s) / keywords, so the
+        # rows carry `themes` and `keywords` on top of the shared card prefetch.
+        list_prefetch = (*EVIDENCE_CARD_PREFETCH_RELATED, "themes", "keywords")
         originated = (
             Evidence.objects.filter(originators=actor)
             .select_related(*EVIDENCE_CARD_SELECT_RELATED)
-            .prefetch_related(*EVIDENCE_CARD_PREFETCH_RELATED)
+            .prefetch_related(*list_prefetch)
             .order_by("-pk")
             .distinct()
         )
         related = (
             Evidence.objects.filter(related_actors=actor)
             .select_related(*EVIDENCE_CARD_SELECT_RELATED)
-            .prefetch_related(*EVIDENCE_CARD_PREFETCH_RELATED)
+            .prefetch_related(*list_prefetch)
             .order_by("-pk")
             .distinct()
         )
-        context["originated_evidence"] = originated[:ACTOR_PROFILE_EVIDENCE_LIMIT]
+        context["originated_evidence"] = self._with_full_themes(
+            originated[:ACTOR_PROFILE_EVIDENCE_LIMIT]
+        )
         context["originated_total"] = originated.count()
-        context["related_evidence"] = related[:ACTOR_PROFILE_EVIDENCE_LIMIT]
+        context["related_evidence"] = self._with_full_themes(
+            related[:ACTOR_PROFILE_EVIDENCE_LIMIT]
+        )
         context["related_total"] = related.count()
         context["evidence_limit"] = ACTOR_PROFILE_EVIDENCE_LIMIT
 
-        # `select_related("…__actor")` carries the reverse-OneToOne so the
-        # counterparty's actor.pk is available for the profile link without
-        # a per-row extra SELECT.
-        if actor.person_id is not None:
-            context["affiliations"] = actor.person.affiliations.select_related(
-                "organization",
-                "organization__institutional_level",
-                "organization__actor",
-                "role",
-            ).order_by("-end_date", "-start_date")
-        elif actor.organization_id is not None:
-            context["members"] = actor.organization.affiliations.select_related(
-                "person", "person__actor", "role"
-            ).order_by("-end_date", "-start_date")
-
         return context
+
+    @staticmethod
+    def _with_full_themes(evidence_iterable):
+        """Attach each evidence's *full* theme set as ``full_themes``.
+
+        A piece belongs to a theme either directly (the ``themes`` M2M) or via a
+        chapter it's filed under that maps to the theme or a descendant (resolved
+        through ``Chapter.chapter_theme_map``) — the same union
+        ``Theme.evidence_queryset`` builds in the other direction. Reads only the
+        prefetched ``themes`` and ``mentions``, deduplicates, and orders by
+        ``Theme.order`` so the chips read in the curator's order.
+        """
+        theme_by_chapter = Chapter.chapter_theme_map()
+        themes_by_id = {t.id: t for t in Theme.objects.all()}
+        evidence_list = list(evidence_iterable)
+        for evidence in evidence_list:
+            ids = {t.id for t in evidence.themes.all()}
+            for mention in evidence.mentions.all():
+                theme_id = theme_by_chapter.get(mention.chapter_id)
+                if theme_id is not None:
+                    ids.add(theme_id)
+            evidence.full_themes = sorted(
+                (themes_by_id[i] for i in ids if i in themes_by_id),
+                key=lambda t: (t.order, t.id),
+            )
+        return evidence_list
 
 
 class EvidenceListView(BaseSearchView):
