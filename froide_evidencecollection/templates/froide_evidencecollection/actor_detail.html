@@ -1,0 +1,200 @@
+{% extends "froide_evidencecollection/base.html" %}
+{% load i18n %}
+{% load evidence_tags %}
+{% block app_body %}
+    <style>
+    .actor-detail { font-size: 1.0625rem; }
+
+    /* Section heading + hairline divider, mirroring the evidence detail page
+       so the two views read as one family. */
+    .detail-section { padding-top: 1.75rem; margin-top: 1.75rem; border-top: 1px solid #e7e7e7; }
+    .detail-heading {
+        font-size: .82rem; letter-spacing: .07em; text-transform: uppercase;
+        font-weight: 600; color: #6c757d; margin-bottom: 1rem;
+    }
+
+    /* Person / organisation glyph sitting before the name. */
+    .actor-avatar {
+        flex: 0 0 auto;
+        width: 3.25rem; height: 3.25rem;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%; font-size: 1.5rem; line-height: 1;
+    }
+    .actor-evidence-table th {
+        font-size: .82rem; letter-spacing: .04em; text-transform: uppercase;
+        font-weight: 600; color: #6c757d;
+    }
+    </style>
+    <div class="container actor-detail my-4" style="max-width: 1080px;">
+        {# ── Identity header (the one anchoring card) ─────────────────── #}
+        <article class="card border-0 shadow-sm overflow-hidden">
+            <div class="card-body p-3 p-md-4">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="actor-avatar"
+                              aria-hidden="true"
+                              style="background-color: {{ actor|palette_color }}1f;
+                                     color: {{ actor|palette_color }}">
+                            {% if actor.organization %}
+                                🏛
+                            {% else %}
+                                👤
+                            {% endif %}
+                        </span>
+                        <div>
+                            <span class="text-uppercase text-muted small fw-semibold d-block">
+                                {% if actor.person %}
+                                    {% if actor.person.status %}· {{ actor.person.status }}{% endif %}
+                                {% elif actor.organization %}
+                                    {% if actor.organization.status %}· {{ actor.organization.status }}{% endif %}
+                                {% endif %}
+                            </span>
+                            <h1 class="h3 mb-0">{{ actor.name }}</h1>
+                            {% if actor.organization %}
+                                {% with regions=actor.organization.regions.all %}
+                                    {% if regions or actor.organization.special_regions %}
+                                        <p class="text-muted mb-0 mt-1">
+                                            <span aria-hidden="true">📍</span>
+                                            {% for region in regions %}
+                                                {{ region }}
+                                                {% if not forloop.last %},{% endif %}
+                                            {% endfor %}
+                                            {% if regions and actor.organization.special_regions %},{% endif %}
+                                            {{ actor.organization.special_regions|join:", " }}
+                                        </p>
+                                    {% endif %}
+                                {% endwith %}
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        {% if request.user.is_staff %}
+                            <a href="{% url 'admin:froide_evidencecollection_actor_change' actor.pk %}"
+                               class="btn btn-sm btn-outline-secondary">
+                                <i class="fa fa-pencil"></i> {% trans "Edit in admin" %}
+                            </a>
+                        {% endif %}
+                        {# Export is not wired up yet; the button mirrors the #}
+                        {# evidence detail view so the affordance is in place. #}
+                        <a href="#"
+                           class="btn btn-sm btn-outline-secondary disabled"
+                           aria-disabled="true">
+                            <i class="fa fa-file-pdf-o"></i> {% trans "Export as PDF" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </article>
+        <div class="px-1 px-md-2">
+            {# ── Identity details ─────────────────────────────────────── #}
+            {% if actor.person.title or actor.person.also_known_as or actor.organization.institutional_level or actor.organization.also_known_as %}
+                <section class="detail-section">
+                    <h2 class="detail-heading">{% trans "Details" %}</h2>
+                    <dl class="row mb-0">
+                        {% if actor.person %}
+                            {% if actor.person.title %}
+                                <dt class="col-sm-3">{% trans "Title" %}</dt>
+                                <dd class="col-sm-9 mb-1">
+                                    {{ actor.person.title }}
+                                </dd>
+                            {% endif %}
+                            {% if actor.person.also_known_as %}
+                                <dt class="col-sm-3">{% trans "Also known as" %}</dt>
+                                <dd class="col-sm-9 mb-1">
+                                    {{ actor.person.also_known_as|join:", " }}
+                                </dd>
+                            {% endif %}
+                        {% elif actor.organization %}
+                            {% if actor.organization.institutional_level %}
+                                <dt class="col-sm-3">{% trans "Institutional level" %}</dt>
+                                <dd class="col-sm-9 mb-1">
+                                    {{ actor.organization.institutional_level }}
+                                </dd>
+                            {% endif %}
+                            {% if actor.organization.also_known_as %}
+                                <dt class="col-sm-3">{% trans "Also known as" %}</dt>
+                                <dd class="col-sm-9 mb-1">
+                                    {{ actor.organization.also_known_as|join:", " }}
+                                </dd>
+                            {% endif %}
+                        {% endif %}
+                    </dl>
+                    {% if actor.person.wikidata_url or actor.person.aw_url or actor.organization.wikidata_url %}
+                        <div class="mt-2 d-flex flex-wrap gap-3 small">
+                            {% if actor.person.wikidata_url %}
+                                <a href="{{ actor.person.wikidata_url }}" target="_blank" rel="noopener">Wikidata</a>
+                            {% endif %}
+                            {% if actor.person.aw_url %}
+                                <a href="{{ actor.person.aw_url }}" target="_blank" rel="noopener">abgeordnetenwatch.de</a>
+                            {% endif %}
+                            {% if actor.organization.wikidata_url %}
+                                <a href="{{ actor.organization.wikidata_url }}"
+                                   target="_blank"
+                                   rel="noopener">Wikidata</a>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </section>
+            {% endif %}
+            {# ── Social media accounts ────────────────────────────────── #}
+            {% if actor.social_media_accounts.all %}
+                <section class="detail-section">
+                    <h2 class="detail-heading">{% trans "Social media" %}</h2>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for account in actor.social_media_accounts.all %}
+                            <a {% if account.profile_url %}href="{{ account.profile_url }}" target="_blank" rel="noopener"{% endif %}
+                               class="d-inline-flex align-items-baseline gap-2 border rounded p-2 text-decoration-none">
+                                <span class="fw-semibold">{{ account.get_platform_display }}</span>
+                                <span>@{{ account.username }}</span>
+                                {% if account.follower_count %}
+                                    <span class="text-muted small">· {{ account.follower_count }} {% trans "followers" %}</span>
+                                {% endif %}
+                            </a>
+                        {% endfor %}
+                    </div>
+                </section>
+            {% endif %}
+            {# ── Evidence as originator ───────────────────────────────── #}
+            <section class="detail-section">
+                <div class="d-flex flex-wrap justify-content-between align-items-baseline mb-3 gap-2">
+                    <h2 class="detail-heading mb-0">{% trans "Evidence — as originator" %}</h2>
+                    <span class="text-muted small">
+                        {% blocktrans count counter=originated_total %}{{ counter }} total{% plural %}{{ counter }} total{% endblocktrans %}
+                    </span>
+                </div>
+                {% if originated_evidence %}
+                    {% include "froide_evidencecollection/_actor_evidence_list.html" with evidence_list=originated_evidence %}
+                    {% if originated_total > evidence_limit %}
+                        <div class="mt-3">
+                            <a href="{% url 'evidencecollection:evidence-topic-cloud' %}?actor={{ actor.pk }}"
+                               class="btn btn-sm btn-outline-primary">
+                                {% blocktrans with name=actor.name %}View all evidence originated by {{ name }} →{% endblocktrans %}
+                            </a>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <p class="text-muted mb-0">{% trans "No evidence yet." %}</p>
+                {% endif %}
+            </section>
+            {# ── Evidence as related actor ────────────────────────────── #}
+            <section class="detail-section">
+                <div class="d-flex flex-wrap justify-content-between align-items-baseline mb-3 gap-2">
+                    <h2 class="detail-heading mb-0">{% trans "Evidence — as related actor" %}</h2>
+                    <span class="text-muted small">
+                        {% blocktrans count counter=related_total %}{{ counter }} total{% plural %}{{ counter }} total{% endblocktrans %}
+                    </span>
+                </div>
+                {% if related_evidence %}
+                    {% include "froide_evidencecollection/_actor_evidence_list.html" with evidence_list=related_evidence %}
+                    {% if related_total > evidence_limit %}
+                        <p class="text-muted small mt-3">
+                            {% blocktrans with shown=evidence_limit total=related_total %}Showing the first {{ shown }} of {{ total }}. A related-actor filter in the topics view will come next.{% endblocktrans %}
+                        </p>
+                    {% endif %}
+                {% else %}
+                    <p class="text-muted mb-0">{% trans "No evidence yet." %}</p>
+                {% endif %}
+            </section>
+        </div>
+    </div>
+{% endblock app_body %}

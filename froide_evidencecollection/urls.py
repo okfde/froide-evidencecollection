@@ -1,18 +1,33 @@
 from django.urls import path
+from django.utils.translation import pgettext_lazy
 
 from .views import (
+    ActorDetailView,
     EvidenceDetailExportView,
     EvidenceDetailView,
     EvidenceExportView,
-    EvidenceListView,
+    EvidenceTopicCloudView,
 )
 
 urlpatterns = [
-    path("", EvidenceListView.as_view(), name="evidence-list"),
-    path("export/", EvidenceExportView.as_view(), name="evidence-export"),
-    path("<int:pk>/", EvidenceDetailView.as_view(), name="evidence-detail"),
+    path("", EvidenceTopicCloudView.as_view(), name="evidence-topic-cloud"),
     path(
-        "<int:pk>/export/",
+        pgettext_lazy("url part", "export/"),
+        EvidenceExportView.as_view(),
+        name="evidence-export",
+    ),
+    path(
+        pgettext_lazy("url part", "actor/<int:pk>/"),
+        ActorDetailView.as_view(),
+        name="actor-detail",
+    ),
+    path(
+        pgettext_lazy("url part", "evidence/<slug:slug>/"),
+        EvidenceDetailView.as_view(),
+        name="evidence-detail",
+    ),
+    path(
+        pgettext_lazy("url part", "evidence/<slug:slug>/export/"),
         EvidenceDetailExportView.as_view(),
         name="evidence-detail-export",
     ),

@@ -1,0 +1,27 @@
+{% load i18n %}
+{# Theme bar: the single browse axis (a chip per `Theme`). Each chip carries  #}
+{# the theme's identity colour as a swatch, so the bar doubles as the colour  #}
+{# key for the dots. Single-select: selecting a theme narrows the cloud to    #}
+{# that theme's evidence, so every visible dot shares the chip's colour.       #}
+{# Reuses the existing `.topic-group*` styling; wrapped in `.topic-groups` so  #}
+{# the JS swap can replace it wholesale.                                       #}
+{% if themes %}
+    <section class="topic-groups mb-2" aria-label="{% trans 'Browse by theme' %}">
+        <div class="topic-groups__head">
+            <span class="topic-groups__title">{% trans "Browse by theme" %}</span>
+        </div>
+        <ul class="topic-groups__cloud list-unstyled mb-0">
+            {% for t in themes %}
+                <li>
+                    <button type="button"
+                            class="topic-group-chip{% if t.selected %} is-active{% endif %}"
+                            data-theme="{{ t.id }}"
+                            style="--topic-color: {{ t.color }}"
+                            aria-pressed="{% if t.selected %}true{% else %}false{% endif %}">
+                        <span class="topic-group-chip__swatch" aria-hidden="true"></span>{{ t.label }}<span class="topic-group-chip__count">{{ t.count }}</span>
+                    </button>
+                </li>
+            {% endfor %}
+        </ul>
+    </section>
+{% endif %}

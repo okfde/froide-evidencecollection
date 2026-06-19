@@ -1,0 +1,28 @@
+{% load i18n %}
+{# Actors present in the current filtered evidence set, tallied over the      #}
+{# visible cloud and sorted by post count. Clicking a name highlights that    #}
+{# actor's dots in the scatter (it does not filter). Swapped wholesale on     #}
+{# every filter change, like the keyword facets — hence the stable            #}
+{# `.topic-actors` wrapper the JS swap replaces.                              #}
+{% if actors_in_view %}
+    <section class="topic-actors" aria-label="{% trans 'Actors in view' %}">
+        <div class="topic-actors__head">
+            <span class="topic-actors__title">{% trans "Actors in view" %}</span>
+            <span class="topic-actors__count">{{ actors_in_view|length }}</span>
+        </div>
+        <ul class="topic-actors__list list-unstyled mb-0">
+            {% for a in actors_in_view %}
+                <li>
+                    <button type="button"
+                            class="topic-actor-row"
+                            data-actor-id="{{ a.pk }}"
+                            aria-pressed="false"
+                            title="{{ a.name }}">
+                        <span class="topic-actor-row__name">{{ a.name }}</span>
+                        <span class="topic-actor-row__count">{{ a.count }}</span>
+                    </button>
+                </li>
+            {% endfor %}
+        </ul>
+    </section>
+{% endif %}

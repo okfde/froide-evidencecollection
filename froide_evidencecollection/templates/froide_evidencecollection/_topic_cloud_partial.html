@@ -1,0 +1,7 @@
+{# HTMX response wrapper: results block + theme bar + keyword facets, so the   #}
+{# swap updates the theme bar and the narrowed facet cloud even though they    #}
+{# live outside #topic-cloud-results.                                          #}
+{% include "froide_evidencecollection/_topic_cloud_results.html" %}
+{% include "froide_evidencecollection/_topic_themes.html" %}
+{% include "froide_evidencecollection/_topic_facets.html" %}
+{% include "froide_evidencecollection/_topic_actors.html" %}
