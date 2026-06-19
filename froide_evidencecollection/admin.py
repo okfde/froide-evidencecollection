@@ -19,6 +19,7 @@ from .models import (
     Organization,
     Parliament,
     Person,
+    RedactionRule,
     Role,
     SocialMediaAccount,
     SocialMediaPost,
@@ -172,6 +173,20 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
             return _("(no file)")
         style = "max-height: 240px; max-width: 320px;"
         return format_html('<img src="{}" style="{}" />', obj.screenshot.url, style)
+
+
+@admin.register(RedactionRule)
+class RedactionRuleAdmin(admin.ModelAdmin):
+    list_display = ["pattern", "placeholder", "is_regex", "enabled", "scope"]
+    list_filter = ["enabled", "is_regex"]
+    search_fields = ["pattern", "placeholder"]
+    autocomplete_fields = ["posts"]
+
+    @admin.display(description=_("scope"))
+    def scope(self, obj):
+        # A rule with no posts is global; otherwise it is scoped to a count.
+        count = obj.posts.count()
+        return _("global") if count == 0 else _("%(n)d post(s)") % {"n": count}
 
 
 @admin.register(Actor)

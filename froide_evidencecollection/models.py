@@ -1,3 +1,5 @@
+import logging
+import re
 import textwrap
 import uuid
 from dataclasses import dataclass, replace
@@ -5,7 +7,7 @@ from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models.signals import post_delete
+from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
@@ -16,6 +18,8 @@ from django.utils.translation import pgettext_lazy
 from froide.georegion.models import GeoRegion
 from froide_evidencecollection.storage import OverwriteStorage, post_screenshot_path
 from froide_evidencecollection.utils import make_evidence_slug, to_dict
+
+logger = logging.getLogger(__name__)
 
 
 class TrackableModel(models.Model):
@@ -726,14 +730,14 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
     def full_text(self) -> str:
         # Own searchable text only; used for the short `display_text` summary,
         # so it stays cheap (no redistribution recursion / extra queries).
-        # NOTE: redaction is wired in by the RedactionRule commit, which wraps
-        # this in `apply_redactions(text, post=self)`.
+        # Redacted (global + this post's scoped rules) so the summary never
+        # leaks a masked term.
         text = "\n\n".join(
             s.text
             for s in self.text_segments(include_redistributed=False)
             if s.for_search
         )
-        return text
+        return apply_redactions(text, post=self)
 
     @property
     def display_text(self) -> str:
@@ -771,6 +775,148 @@ def _delete_post_screenshot_file(sender, instance, **kwargs):
     # because the row is already gone.
     if instance.screenshot:
         instance.screenshot.delete(save=False)
+
+
+# Redaction: read-time term→placeholder substitution over assembled text. The
+# raw imported text is never mutated, so changing a rule only requires
+# re-deriving downstream artifacts (search index, topic fit), never a data
+# migration. Global rules (no `posts`) apply to every post; scoped rules apply
+# only to the posts they list. The enabled global rules compile to a single
+# callable cached at module level and invalidated by signals on `RedactionRule`
+# (see below); per-post scoped rules are few and applied directly.
+_GLOBAL_REDACTOR = None  # compiled callable for enabled global rules; None = stale
+
+
+def _compile_redaction_rules(rules) -> "callable":
+    """Compile RedactionRules into one callable applying each in turn.
+
+    Literal patterns match whole-word and case-insensitively; regex patterns are
+    used verbatim. An invalid regex is skipped (logged) rather than breaking the
+    whole pass. Rules are applied sequentially — correct even when a regex rule
+    carries its own capture groups, and cheap at this corpus size.
+    """
+    compiled = []
+    for rule in rules:
+        rx = rule.compiled_pattern()
+        if rx is not None:
+            compiled.append((rx, rule.placeholder))
+
+    def apply(text: str) -> str:
+        if not text:
+            return text
+        for rx, placeholder in compiled:
+            text = rx.sub(placeholder, text)
+        return text
+
+    return apply
+
+
+def _get_global_redactor() -> "callable":
+    global _GLOBAL_REDACTOR
+    if _GLOBAL_REDACTOR is None:
+        rules = RedactionRule.objects.filter(enabled=True, posts__isnull=True)
+        _GLOBAL_REDACTOR = _compile_redaction_rules(rules)
+    return _GLOBAL_REDACTOR
+
+
+def invalidate_global_redactor(*args, **kwargs):
+    global _GLOBAL_REDACTOR
+    _GLOBAL_REDACTOR = None
+
+
+def apply_redactions(text: str, post=None) -> str:
+    """Mask redacted terms in `text`: global rules, then `post`'s scoped rules.
+
+    Applied at display time and when assembling `search_text` / `topic_text`, so
+    the masked form is what reaches the page, the search index and the topic
+    fit. Changing rules requires a re-index / topic re-fit to take effect on
+    already-derived artifacts.
+    """
+    if not text:
+        return text
+    text = _get_global_redactor()(text)
+    if post is not None:
+        for rule in post.redaction_rules.all():
+            if rule.enabled:
+                text = rule.apply(text)
+    return text
+
+
+class RedactionRule(models.Model):
+    """A term→placeholder substitution masking sensitive text (slurs, names).
+
+    Applied read-time over assembled text — display, `search_text` and
+    `topic_text` — by `apply_redactions`, so the raw imported text is never
+    mutated. A rule is *global* when it lists no `posts` (applied to every post,
+    for terms that are always sensitive) or *scoped* to the `posts` it lists
+    (the context-dependent cases, shareable across several posts). The masked
+    form is frozen into the search index / topic fit when those are derived, so
+    editing a rule requires a re-index / topic re-fit to take effect there.
+    """
+
+    pattern = models.CharField(
+        max_length=255,
+        verbose_name=_("pattern"),
+        help_text=_("Literal term (matched whole-word) or, if marked, a regex."),
+    )
+    is_regex = models.BooleanField(default=False, verbose_name=_("is regex"))
+    placeholder = models.CharField(
+        max_length=100,
+        verbose_name=_("placeholder"),
+        help_text=_("Replacement shown in place of the term, e.g. “[N-Wort]”."),
+    )
+    enabled = models.BooleanField(default=True, verbose_name=_("enabled"))
+    posts = models.ManyToManyField(
+        SocialMediaPost,
+        blank=True,
+        related_name="redaction_rules",
+        verbose_name=_("posts"),
+        help_text=_("Leave empty for a global rule; otherwise scope to these posts."),
+    )
+
+    class Meta:
+        verbose_name = _("redaction rule")
+        verbose_name_plural = _("redaction rules")
+        ordering = ["pattern"]
+
+    def __str__(self):
+        return f"{self.pattern} → {self.placeholder}"
+
+    def compiled_pattern(self):
+        # Compiled regex for this rule, or None when the pattern is empty or an
+        # invalid regex (logged, skipped — one bad rule must not break the pass).
+        if not self.pattern:
+            return None
+        pattern = (
+            self.pattern if self.is_regex else r"\b" + re.escape(self.pattern) + r"\b"
+        )
+        try:
+            return re.compile(pattern, re.IGNORECASE)
+        except re.error:
+            logger.warning("Invalid redaction regex %r; skipping.", self.pattern)
+            return None
+
+    def apply(self, text: str) -> str:
+        if not text:
+            return text
+        rx = self.compiled_pattern()
+        return rx.sub(self.placeholder, text) if rx is not None else text
+
+
+@receiver(post_save, sender=RedactionRule)
+@receiver(post_delete, sender=RedactionRule)
+def _invalidate_redactor_on_change(sender, **kwargs):
+    # Drop the cached global redactor so the next render/index recompiles. A
+    # rule change only affects already-derived search/topic artifacts after a
+    # re-index / topic re-fit.
+    invalidate_global_redactor()
+
+
+@receiver(m2m_changed, sender=RedactionRule.posts.through)
+def _invalidate_redactor_on_scope_change(sender, **kwargs):
+    # Adding/removing posts can flip a rule between global and scoped, so the
+    # global set may have changed — invalidate the cache.
+    invalidate_global_redactor()
 
 
 class Evidence(TrackableModel):
