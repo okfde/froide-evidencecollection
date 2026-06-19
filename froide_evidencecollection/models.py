@@ -401,6 +401,108 @@ class Affiliation(SyncableModel):
         return None
 
 
+class PoliticalPosition(TrackableModel):
+    """A political mandate, parliamentary role, or party office held by a person.
+
+    Imported from the partner JSON dump's per-person ``functions`` list. Unlike
+    `Affiliation` (person↔organization, synced with NocoDB / abgeordnetenwatch),
+    this is curated data with its own provenance: a separate source URL for the
+    start and the end date, and the Bundesland (`region`) the position is
+    anchored in. That region is meaningful even for a federal mandate — it is the
+    state a Bundestag member was elected from.
+
+    `organization` is an optional link to the party Verband behind a party
+    position; it is nullable and only ever points at an Organization that already
+    exists (the importer matches but never creates one, so unmatched Verbände
+    stay null rather than becoming stubs).
+
+    Source dates are month-precision ("YYYY-MM"): `start_date` is stored as the
+    first day of the month and `end_date` as the last, while display is
+    month-only (see `start_date_display` / `end_date_display`).
+    """
+
+    class Type(models.TextChoices):
+        MANDATE = "mandate", _("Mandate")
+        PARLIAMENT = "parliament", _("Parliament")
+        PARTY = "party", _("Party")
+
+    person = models.ForeignKey(
+        Person,
+        on_delete=models.CASCADE,
+        related_name="political_positions",
+        verbose_name=_("person"),
+    )
+    type = models.CharField(max_length=10, choices=Type.choices, verbose_name=_("type"))
+    role = models.ForeignKey(
+        Role,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        verbose_name=_("role"),
+    )
+    label = models.CharField(max_length=255, verbose_name=_("label"))
+    institutional_level = models.ForeignKey(
+        "InstitutionalLevel",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        verbose_name=_("institutional level"),
+    )
+    region = models.ForeignKey(
+        GeoRegion,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        verbose_name=_("region"),
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="political_positions",
+        verbose_name=_("organization"),
+    )
+    start_date = models.DateField(blank=True, null=True, verbose_name=_("start date"))
+    end_date = models.DateField(blank=True, null=True, verbose_name=_("end date"))
+    start_source_url = models.URLField(
+        max_length=500,
+        null=True,
+        blank=True,
+        default="",
+        verbose_name=_("start date source URL"),
+    )
+    end_source_url = models.URLField(
+        max_length=500,
+        null=True,
+        blank=True,
+        default="",
+        verbose_name=_("end date source URL"),
+    )
+    comment = models.TextField(blank=True, default="", verbose_name=_("comment"))
+
+    class Meta:
+        verbose_name = _("political position")
+        verbose_name_plural = _("political positions")
+
+    def __str__(self):
+        return f"{self.person} - {self.label}"
+
+    @staticmethod
+    def _format_month(value):
+        # Month-precision display ("YYYY/MM"); the stored day (1st / last of
+        # month) is an artifact of using a DateField and is not shown.
+        return value.strftime("%Y/%m") if value else ""
+
+    @property
+    def start_date_display(self):
+        return self._format_month(self.start_date)
+
+    @property
+    def end_date_display(self):
+        return self._format_month(self.end_date)
+
+
 class SocialMediaAccount(models.Model):
     class Platform(models.TextChoices):
         FACEBOOK = "facebook", _("Facebook")
