@@ -252,7 +252,11 @@ class JSONImporter:
             target = self._resolve_target(entry, actor_index, ambiguous)
             if target is None:
                 continue
-            actor = self._get_or_create_actor(target)
+            # Ensure the Actor exists (referenced by functions and available for
+            # curators), but don't link scraped accounts to it: the dump groups
+            # posts by scrape target, yet a scraped account can no longer be
+            # assumed to belong to that actor.
+            self._get_or_create_actor(target)
             if isinstance(target, Person):
                 self._import_functions(target, entry)
             for platform, items in (entry.get("social_media") or {}).items():
@@ -261,7 +265,7 @@ class JSONImporter:
                     continue
 
                 for item in items:
-                    self._import_item(actor, platform, item)
+                    self._import_item(platform, item)
 
         self._resolve_replies()
 
@@ -535,14 +539,14 @@ class JSONImporter:
     # ------------------------------------------------------------------
     # Per-item import
     # ------------------------------------------------------------------
-    def _import_item(self, actor, platform, item):
+    def _import_item(self, platform, item):
         account_data = item["account"]
         platform_post_id = str(item["platform_post_id"])
         posted_at = _parse_dt(item.get("created_at"))
         edited_at = _parse_dt(item.get("edited_at"))
         collected_at = _parse_dt(item.get("collected_at"))
 
-        account = self._upsert_account(actor, platform, account_data, collected_at)
+        account = self._upsert_account(platform, account_data, collected_at)
 
         if self.dry_run:
             return
@@ -615,7 +619,8 @@ class JSONImporter:
         post = evidence.social_media_post
         if post is None or not post.account_id:
             return
-        # Stub accounts have no linked Actor.
+        # The import never links accounts to actors, so this only fires for
+        # accounts a curator has linked manually.
         actor = post.account.actor
         if actor is not None:
             evidence.originators.add(actor)
@@ -794,7 +799,7 @@ class JSONImporter:
     # ------------------------------------------------------------------
     # Account upsert + profile freshness
     # ------------------------------------------------------------------
-    def _upsert_account(self, actor, platform, account_data, collected_at):
+    def _upsert_account(self, platform, account_data, collected_at):
         self.stats.reset_instance(SocialMediaAccount)
         platform_value = PLATFORM_MAP[platform]
         platform_user_id = str(account_data["platform_user_id"])
@@ -804,12 +809,14 @@ class JSONImporter:
         ).first()
         created = account is None
 
+        # Accounts are never linked to an Actor by the import: the dump groups
+        # posts by scrape target, but a scraped account can't be assumed to
+        # belong to that actor. Any actor link is left for manual curation.
         if created:
             account = SocialMediaAccount(
                 platform=platform_value,
                 platform_user_id=platform_user_id,
                 username=username,
-                actor=actor,
             )
             old_data = {}
         else:
@@ -817,25 +824,9 @@ class JSONImporter:
 
         update = False
 
-        # An account first seen via a reference is created as an orphan stub
-        # (actor=None). Adopt it the first time it shows up as a real post.
-        if not created and actor is not None:
-            if account.actor_id is None:
-                account.actor = actor
-                update = True
-            elif account.actor_id != actor.id:
-                logger.warning(
-                    "Account %s/%s already linked to actor #%s, not #%s",
-                    platform,
-                    platform_user_id,
-                    account.actor_id,
-                    actor.id,
-                )
-
-        # Profile fields are written on first sight (including stub adoption,
-        # and platforms like telegram/youtube that carry no collected_at) and
-        # otherwise refreshed unless this dump is strictly older than what we
-        # already stored.
+        # Profile fields are written on first sight (including platforms like
+        # telegram/youtube that carry no collected_at) and otherwise refreshed
+        # unless this dump is strictly older than what we already stored.
         should_refresh = not (
             collected_at is not None
             and account.collected_at is not None

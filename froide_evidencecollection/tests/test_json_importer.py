@@ -83,7 +83,8 @@ class TestJSONImporter:
         account = SocialMediaAccount.objects.get()
         assert account.platform == SocialMediaAccount.Platform.TELEGRAM
         assert account.username == "example_user"
-        assert account.actor.person == person
+        # Accounts are never linked to an Actor by the import.
+        assert account.actor is None
         # Full account profile is persisted on creation.
         assert account.platform_user_id == "123"
         assert account.display_name == "Example"
@@ -448,7 +449,10 @@ class TestJSONImporter:
         JSONImporter(path).run()
 
         account = SocialMediaAccount.objects.get()
-        assert account.actor.organization == org
+        # The label resolves to the org (its Actor is created), but the account
+        # is not linked to it.
+        assert account.actor is None
+        assert Actor.objects.get().organization == org
         assert Evidence.objects.count() == 1
 
     @pytest.mark.django_db
@@ -471,7 +475,8 @@ class TestJSONImporter:
 
         JSONImporter(path).run()
 
-        assert SocialMediaPost.objects.get().account.actor.organization == org
+        assert SocialMediaPost.objects.get().account.actor is None
+        assert Actor.objects.get().organization == org
 
     @pytest.mark.django_db
     def test_ambiguous_label_is_skipped(self, db, tmp_path):
@@ -654,7 +659,8 @@ class TestJSONImporter:
         # Same row is reused (keyed on platform_user_id), not duplicated.
         assert SocialMediaAccount.objects.filter(platform_user_id="987").count() == 1
         stub.refresh_from_db()
-        assert stub.actor == person.actor
+        # The account is still not linked to an actor (the import never links).
+        assert stub.actor is None
         # The full profile from the main post is backfilled onto the stub.
         assert stub.username == "somebody"
         assert stub.display_name == "Somebody Real"
@@ -784,7 +790,7 @@ class TestJSONImporter:
         assert leaf_b.subsumed_evidences().count() == 1
 
     @pytest.mark.django_db
-    def test_seeds_originator_from_account_actor(self, person, tmp_path):
+    def test_seeds_originator_from_manually_linked_account(self, person, tmp_path):
         path = _write_dump(
             tmp_path,
             {
@@ -796,7 +802,17 @@ class TestJSONImporter:
         )
         JSONImporter(path).run()
 
+        # The import never links accounts to actors, so no originator is seeded.
         evidence = Evidence.objects.get()
+        assert list(evidence.originators.all()) == []
+
+        # Once a curator links the account, a re-run seeds the originator.
+        account = SocialMediaAccount.objects.get()
+        account.actor = person.actor
+        account.save()
+        JSONImporter(path).run()
+
+        evidence.refresh_from_db()
         assert list(evidence.originators.all()) == [person.actor]
 
     @pytest.mark.django_db
