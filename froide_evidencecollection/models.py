@@ -15,9 +15,16 @@ from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import pgettext_lazy
 
+from treebeard.mp_tree import MP_Node
+
 from froide.georegion.models import GeoRegion
 from froide_evidencecollection.storage import OverwriteStorage, post_screenshot_path
-from froide_evidencecollection.utils import make_evidence_slug, to_dict
+from froide_evidencecollection.utils import (
+    EVIDENCE_SLUG_LENGTH,
+    compute_hash,
+    make_evidence_slug,
+    to_dict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -988,7 +995,76 @@ class Keyword(models.Model):
         return self.custom_label or self.label
 
 
+# Topic-modelling assembly order. The embedding model truncates to a fixed
+# token window, so whatever leads the text dominates the topic signal — lead
+# with the highest-signal fields (body / document text, then transcription)
+# and let lower-signal ones (title, caption) trail where they get truncated
+# away first. Redistributed segments always trail a piece's own content.
+_TOPIC_KIND_PRIORITY = {
+    "citation": 0,
+    "body": 0,
+    "extracted_text": 0,
+    "transcription": 1,
+    "description": 2,
+    "title": 2,
+    "caption": 3,
+}
+
+
+def _topic_sort_key(seg: "TextSegment") -> tuple[int, int]:
+    redistributed = seg.is_redistributed
+    base = seg.kind.split(":", 1)[1] if redistributed else seg.kind
+    return (1 if redistributed else 0, _TOPIC_KIND_PRIORITY.get(base, 4))
+
+
+# URLs are noise to the embedding model and waste the (truncated) token budget
+# on ~10-20 subword tokens of gibberish each, so they're dropped from the topic
+# input only (search/display keep them). Matches http(s):// and bare www. URLs;
+# leaves domain-like words without a scheme alone to avoid false positives.
+_TOPIC_URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+
+# @mentions and #hashtags are normalised, not removed: in this actor-tracking
+# domain the handle/tag is usually topical (`@john_doe`, `#fun`).
+# We strip just the leading marker and split underscores, so `@john_doe`
+# → `john doe` and `#fun` → `fun` — the plain-word form the embedding model
+# saw in pretraining and a clean c-TF-IDF keyword. Dropping the `#` also unifies
+# `#fun` with plain "fun" in body text.
+_TOPIC_TAG_RE = re.compile(r"(?<!\w)[@#](\w+)")
+
+# Residual web/social artifacts that survive URL stripping and tag
+# normalisation: the `&amp;` entity leak and retweet/cross-post markers. Matched
+# as standalone tokens only (`\b…\b`), so words containing them — "amplitude",
+# "wert" — are untouched. Numbers are intentionally NOT removed here: they carry
+# semantic signal for the document embedding (e.g. "50 Prozent", "Artikel 3").
+# They're kept out of the keyword vocabulary downstream in `fit_keywords`
+# instead, so the embedding sees them but they never become a facet.
+_TOPIC_ARTIFACT_RE = re.compile(r"\b(?:amp|rt|via)\b", re.IGNORECASE)
+
+
+def _strip_tag_marker(match: "re.Match") -> str:
+    return match.group(1).replace("_", " ")
+
+
+def _clean_topic_text(text: str) -> str:
+    # URLs first, so a handle embedded in a URL path is removed with the URL
+    # rather than being half-normalised by the tag pass.
+    text = _TOPIC_URL_RE.sub(" ", text)
+    text = _TOPIC_TAG_RE.sub(_strip_tag_marker, text)
+    # Then drop the content-free web/social artifact tokens.
+    text = _TOPIC_ARTIFACT_RE.sub(" ", text)
+    # Collapse only the horizontal whitespace the substitutions leave behind;
+    # the `\n\n` separators between text segments are load-bearing, so newlines
+    # are preserved.
+    return re.sub(r"[^\S\n]+", " ", text).strip()
+
+
 class Evidence(TrackableModel):
+    # Stable public identifier used in the evidence URL (see `make_evidence_slug`).
+    # Derived from the source and set once in `save()`; never changed afterwards,
+    # because partners derive the same value to link into our data.
+    slug = models.SlugField(
+        max_length=EVIDENCE_SLUG_LENGTH, unique=True, verbose_name=_("slug")
+    )
     citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
     description = models.TextField(
         blank=True, default="", verbose_name=_("description")
@@ -1005,75 +1081,428 @@ class Evidence(TrackableModel):
         blank=True,
         verbose_name=_("collections"),
     )
+    social_media_post = models.OneToOneField(
+        "SocialMediaPost",
+        on_delete=models.PROTECT,
+        related_name="evidence",
+        verbose_name=_("social media post"),
+    )
     originators = models.ManyToManyField(
-        Actor, verbose_name=_("originators"), related_name="originated_evidence"
+        Actor,
+        related_name="originated_evidence",
+        verbose_name=_("originators"),
     )
     related_actors = models.ManyToManyField(
-        Actor, verbose_name=_("related actors"), related_name="related_evidence"
-    )
-    event_date = models.DateField(null=True, blank=True, verbose_name=_("event date"))
-    publishing_date = models.DateField(
-        null=True, blank=True, verbose_name=_("publishing date")
+        Actor,
+        related_name="related_evidence",
+        verbose_name=_("related actors"),
     )
     documentation_date = models.DateField(
         null=True, blank=True, verbose_name=_("documentation date")
     )
-    reference_url = models.URLField(
-        max_length=500, blank=True, default="", verbose_name=_("reference (URL)")
+
+    # Populated by the `fit_keywords` management command, which embeds
+    # `topic_text` (the assembled source text). topic_x/topic_y are the
+    # per-evidence 2D UMAP coordinates used by the cloud view; topic_fit_at is
+    # the "is fitted" gate (null = not yet fitted, or no usable text).
+    topic_x = models.FloatField(null=True, blank=True, verbose_name=_("topic x"))
+    topic_y = models.FloatField(null=True, blank=True, verbose_name=_("topic y"))
+    topic_fit_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("topic fitted at")
     )
-    reference_info = models.TextField(
-        blank=True, default="", verbose_name=_("reference (additional information)")
-    )
-    primary_source_url = models.URLField(
-        max_length=500, blank=True, default="", verbose_name=_("primary source URL")
-    )
-    primary_source_info = models.TextField(
+    # Populated by `fit_keywords` alongside the coords: the content keywords
+    # whose lemma actually occurs in this evidence's text. Drives the
+    # keyword-facet browse surface of the topic cloud — an evidence-level signal
+    # (the word is really in the text).
+    keywords = models.ManyToManyField(
+        "Keyword",
         blank=True,
-        default="",
-        verbose_name=_("primary source (additional information)"),
-    )
-    attribution_justification = models.TextField(
-        blank=True, default="", verbose_name=_("attribution justification")
-    )
-    attribution_evidence = models.ManyToManyField(
-        "Evidence", blank=True, verbose_name=_("attribution evidence")
-    )
-    attribution_problems = models.ManyToManyField(
-        "AttributionProblem", blank=True, verbose_name=_("attribution problems")
-    )
-    comment = models.TextField(blank=True, default="", verbose_name=_("comment"))
-    legal_assessment = models.PositiveIntegerField(
-        choices=[
-            (1, "⭐"),
-            (2, "⭐⭐"),
-            (3, "⭐⭐⭐"),
-            (4, "⭐⭐⭐⭐"),
-            (5, "⭐⭐⭐⭐⭐"),
-        ],
-        null=True,
-        blank=True,
-        verbose_name=_("legal assessment"),
+        related_name="evidences",
+        verbose_name=_("keywords"),
     )
 
     class Meta:
         verbose_name = _("piece of evidence")
         verbose_name_plural = _("pieces of evidence")
 
+    def compute_slug(self) -> str:
+        return self.source.compute_slug()
+
+    def save(self, *args, **kwargs):
+        # Derive the public slug once, on first save. Never recompute it: the
+        # value is a frozen contract partners derive to link into our data.
+        if not self.slug and self.source is not None:
+            self.slug = self.compute_slug()
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.pk} - {self.title}"
+        return f"{self.slug} - {self.title}"
+
+    @property
+    def source(self) -> "EvidenceSource | None":
+        # Returns None when no source is attached yet (e.g. a fresh, unsaved
+        # instance), so callers can branch on `source is not None` without
+        # tripping RelatedObjectDoesNotExist on the required FK.
+        if self.social_media_post_id is None:
+            return None
+        return self.social_media_post
+
+    @property
+    def url(self) -> str:
+        source = self.source
+        return source.url if source is not None else ""
+
+    @property
+    def url_hash(self) -> str:
+        url = self.url
+        return compute_hash(url) if url else ""
 
     @cached_property
-    def title(self):
-        return textwrap.shorten(
-            self.citation or self.description, width=50, placeholder="..."
+    def title(self) -> str:
+        source = self.source
+        return source.display_text if source is not None else ""
+
+    def _video_transcript_segments(self) -> list["TextSegment"]:
+        # Transcript text for a video post; non-video posts contribute none.
+        # Prefer the curated, time-coded per-mention `raw_transcript` excerpts
+        # (each labelled with its category/footnote); if the post has a video
+        # but no mention carries a transcript, fall back to the post's full
+        # `transcription`. Either way the transcript is searched and
+        # topic-modelled — the post's own caption/title still ride along via
+        # `_own_text_segments`, but its (often promotional) `description` does
+        # not for a video. Reads prefetched `mentions`.
+        source = self.source
+        if source is None or not source.is_video:
+            return []
+        segments = []
+        for mention in self.mentions.all():
+            text = (mention.raw_transcript or "").strip()
+            if not text:
+                continue
+            attribution = str(mention.category)
+            if mention.footnote:
+                attribution = f"{attribution} · {mention.footnote}"
+            segments.append(
+                TextSegment(
+                    "transcription", _("Transcription"), text, attribution=attribution
+                )
+            )
+        if segments:
+            return segments
+        full = (source.transcription or "").strip()
+        if full:
+            return [TextSegment("transcription", _("Transcription"), full)]
+        return []
+
+    @property
+    def text_segments(self) -> list["TextSegment"]:
+        # The source's own labelled text plus, for a video post, its transcript
+        # (curated per-mention excerpts or the full-transcription fallback).
+        # Single definition behind the detail view, search index and topic
+        # modelling. Redaction rules are applied here — the one chokepoint — so
+        # masked terms never reach display, search or topics.
+        source = self.source
+        if source is None:
+            return []
+        segments = list(source.text_segments())
+        segments.extend(self._video_transcript_segments())
+        return [
+            replace(seg, text=apply_redactions(seg.text, post=source))
+            for seg in segments
+        ]
+
+    @property
+    def search_text(self) -> str:
+        # Concatenation of the searchable segments, in source order; fed to
+        # Elasticsearch. Order is irrelevant to ES (it tokenises everything).
+        return "\n\n".join(s.text for s in self.text_segments if s.for_search)
+
+    @property
+    def topic_text(self) -> str:
+        # Input to BERTopic. Distinct from `search_text`: only `for_topics`
+        # segments, reordered (`_topic_sort_key`) so the highest-signal fields
+        # lead — because the embedding model truncates to a fixed token window,
+        # so trailing text is dropped before it influences the topic. Stable
+        # sort keeps each source's internal order within a priority tier.
+        # `_clean_topic_text` strips URLs and normalises @mentions / #hashtags
+        # to plain words (noise + wasted token budget).
+        segments = sorted(
+            (s for s in self.text_segments if s.for_topics), key=_topic_sort_key
         )
+        text = "\n\n".join(s.text for s in segments)
+        return _clean_topic_text(text)
 
     @cached_property
     def domain(self) -> str:
-        return urlparse(self.reference_url).netloc
+        return urlparse(self.url).netloc
+
+    @cached_property
+    def categories(self):
+        return Category.objects.filter(mentions__evidence=self).distinct()
+
+    @cached_property
+    def originator_actors(self):
+        # Reads from the `originators` prefetch (one query for the whole page)
+        # rather than firing a fresh SELECT per card. Falls back to a query if
+        # the caller did not prefetch.
+        return list(self.originators.all())
+
+    @cached_property
+    def categories_distinct(self):
+        # Same intent as `categories` but reads from prefetched `mentions`
+        # rather than issuing a fresh query, so a page of N evidence cards
+        # costs one prefetch instead of N SELECTs.
+        seen = {}
+        for mention in self.mentions.all():
+            if mention.category_id not in seen:
+                seen[mention.category_id] = mention.category
+        return list(seen.values())
+
+    ATTACHMENT_KIND_ORDER = ("image", "video", "audio", "pdf", "other")
+
+    @cached_property
+    def attachments_by_kind(self):
+        # Group attachments by media kind for the card chip row. Reads from
+        # the prefetched manager so a result page does not fan out to N
+        # extra queries.
+        counts = {}
+        for att in self.attachments.all():
+            counts[att.kind] = counts.get(att.kind, 0) + 1
+        return [(k, counts[k]) for k in self.ATTACHMENT_KIND_ORDER if k in counts]
+
+    @cached_property
+    def categories_with_footnotes(self):
+        # Like `categories_distinct` but pairs each category with the footnote
+        # references it appears under (deduped, sorted). Reads from prefetched
+        # `mentions`, so it costs nothing per row beyond the prefetch.
+        by_pk = {}
+        for mention in self.mentions.all():
+            entry = by_pk.setdefault(mention.category_id, (mention.category, []))
+            if mention.footnote:
+                entry[1].append(mention.footnote)
+        return [
+            (cat, sorted(set(footnotes)))
+            for cat, footnotes in sorted(
+                by_pk.values(), key=lambda e: e[0].name.lower()
+            )
+        ]
 
     def get_absolute_url(self):
-        return reverse("evidencecollection:evidence-detail", kwargs={"pk": self.pk})
+        return reverse("evidencecollection:evidence-detail", kwargs={"slug": self.slug})
+
+
+class Category(models.Model):
+    name = models.CharField(max_length=255, unique=True, verbose_name=_("name"))
+
+    class Meta:
+        verbose_name = _("category")
+        verbose_name_plural = _("categories")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class EvidenceMention(models.Model):
+    evidence = models.ForeignKey(
+        Evidence,
+        on_delete=models.CASCADE,
+        related_name="mentions",
+        verbose_name=_("evidence"),
+    )
+    category = models.ForeignKey(
+        "Category",
+        on_delete=models.CASCADE,
+        related_name="mentions",
+        verbose_name=_("category"),
+    )
+    footnote = models.CharField(
+        max_length=255, blank=True, default="", verbose_name=_("footnote")
+    )
+    chapter_structure = models.JSONField(
+        default=list, verbose_name=_("chapter structure")
+    )
+    chapter = models.ForeignKey(
+        "Chapter",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="mentions",
+        verbose_name=_("chapter"),
+    )
+    # The curator's relevant quote for this footnote (= source `fliesstext`).
+    # Currently often not usable, so it is kept but NOT wired into
+    # display/search/topics; revisit later.
+    citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
+    # Video-excerpt fields (= source `video_timestamp`), set only for mentions of
+    # a video post. `start`/`end` locate the excerpt in the video; `raw_transcript`
+    # is the verbatim auto-transcript of that window and is the searched /
+    # topic-modelled text for a video (see `Evidence._video_transcript_segments`).
+    start = models.DurationField(null=True, blank=True, verbose_name=_("start"))
+    end = models.DurationField(null=True, blank=True, verbose_name=_("end"))
+    raw_transcript = models.TextField(
+        blank=True, default="", verbose_name=_("raw transcript")
+    )
+
+    class Meta:
+        verbose_name = _("evidence mention")
+        verbose_name_plural = _("evidence mentions")
+        ordering = ["footnote"]
+
+    def __str__(self):
+        return f"{self.evidence} — {self.category} ({self.footnote})"
+
+    def exclude_from_serialization(self):
+        return ["id"]
+
+
+class Chapter(MP_Node):
+    """A node in the chapter hierarchy of the underlying report.
+
+    The tree is materialised during the JSON import from the
+    ``chapter_sturcrue`` field of each evidence mention, where every entry is a
+    root-to-leaf list of chapter labels. A node's identity is the full path of
+    labels leading to it, so the same label under different parents yields
+    distinct nodes.
+
+    ``is_main_topic`` marks the node whose label appears as the mention's
+    ``topic`` (i.e. the chapter that names the thematic topic an evidence is
+    filed under).
+    """
+
+    custom_label = models.CharField(max_length=255, verbose_name=_("label"))
+    is_main_topic = models.BooleanField(default=False, verbose_name=_("is main topic"))
+    # Curator-set bulk rule "everything in this chapter belongs to theme Y".
+    # Descendants inherit the nearest themed ancestor (see `chapter_theme_map`),
+    # so setting it on a high node themes the whole sub-report. SET_NULL so
+    # deleting a theme just un-maps its chapters.
+    theme = models.ForeignKey(
+        "Theme",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="chapters",
+        verbose_name=_("theme"),
+    )
+
+    node_order_by = ["custom_label"]
+
+    class Meta:
+        verbose_name = _("chapter")
+        verbose_name_plural = _("chapters")
+
+    def __str__(self):
+        return self.custom_label
+
+    @classmethod
+    def get_or_create_from_path(cls, labels):
+        """Return the leaf node for ``labels``, creating missing nodes.
+
+        ``labels`` is an ordered list of chapter labels from root to leaf.
+        Returns ``None`` when no non-empty label is given.
+        """
+        node = None
+        for label in labels:
+            label = (label or "").strip()
+            if not label:
+                continue
+            if node is None:
+                child = cls.objects.filter(depth=1, custom_label=label).first()
+                if child is None:
+                    child = cls.add_root(custom_label=label)
+            else:
+                child = node.get_children().filter(custom_label=label).first()
+                if child is None:
+                    # Reload to keep treebeard's child counters in sync before
+                    # appending a new child on a possibly stale instance.
+                    node.refresh_from_db()
+                    child = node.add_child(custom_label=label)
+            node = child
+        return node
+
+    def subsumed_evidences(self):
+        """Evidences filed under this chapter or any of its descendants."""
+        subtree = Chapter.get_tree(self)
+        return Evidence.objects.filter(mentions__chapter__in=subtree).distinct()
+
+    @classmethod
+    def chapter_theme_map(cls):
+        """Map ``chapter_id -> theme_id`` with inheritance.
+
+        ``Chapter.theme`` is set on individual nodes; this propagates each
+        mapping down to descendants that have no nearer themed ancestor, so a
+        theme set high in the tree covers its whole subtree. Walks the
+        materialised path of every chapter upward in fixed ``steplen`` chunks
+        (the same backbone the topic-cloud view used for the main-topic tree)
+        and takes the nearest ancestor that carries a ``theme``. Chapters with
+        no themed ancestor are omitted.
+        """
+        chapters = list(cls.objects.only("id", "path", "theme_id"))
+        by_path = {c.path: c for c in chapters}
+        steplen = cls.steplen
+        resolved = {}
+        for c in chapters:
+            path = c.path
+            while path:
+                node = by_path.get(path)
+                if node is not None and node.theme_id is not None:
+                    resolved[c.id] = node.theme_id
+                    break
+                path = path[:-steplen]  # step to the parent path
+        return resolved
+
+
+class Theme(models.Model):
+    """A curated thematic topic, defined *extensionally* by its evidence.
+
+    This is the single browse axis of the topic cloud (one chip per theme). A
+    theme's evidence set is the union of:
+
+    * ``evidences`` — pieces of evidence a curator assigned directly, and
+    * every evidence filed under a ``Chapter`` mapped to this theme *or any of
+      its descendants* (see ``Chapter.theme`` and ``Chapter.chapter_theme_map``).
+
+    Keywords are **not** stored per theme: the facet cloud derives them from the
+    theme's member evidence at query time ("assign evidence, keywords follow").
+
+    ``order`` is the curator's explicit priority. It drives both the chip sort
+    *and* the categorical palette assignment (which themes get a distinct dot
+    colour vs. fall back to the neutral ink), and it is the final tie-breaker
+    when picking an evidence's dominant theme for its dot colour.
+    """
+
+    label = models.CharField(max_length=100, verbose_name=_("label"))
+    description = models.TextField(
+        blank=True, default="", verbose_name=_("description")
+    )
+    order = models.PositiveIntegerField(default=0, verbose_name=_("order"))
+    evidences = models.ManyToManyField(
+        "Evidence",
+        blank=True,
+        related_name="themes",
+        verbose_name=_("directly assigned evidence"),
+    )
+
+    class Meta:
+        verbose_name = _("theme")
+        verbose_name_plural = _("themes")
+        ordering = ["order", "label"]
+
+    def __str__(self):
+        return self.label
+
+    def evidence_queryset(self):
+        """The theme's full evidence set: the union of directly assigned
+        evidence and everything filed under a chapter mapped to this theme (or
+        a descendant). Single source of truth for membership; the cloud view
+        builds the same union in bulk for all themes at once."""
+        chapter_ids = [
+            cid for cid, tid in Chapter.chapter_theme_map().items() if tid == self.id
+        ]
+        q = models.Q(themes=self)
+        if chapter_ids:
+            q |= models.Q(mentions__chapter__in=chapter_ids)
+        return Evidence.objects.filter(q).distinct()
 
 
 class Collection(models.Model):
@@ -1116,6 +1545,21 @@ class Attachment(TrackableModel):
 
     def __str__(self):
         return f"{self.evidence} - {self.file.name}"
+
+    @cached_property
+    def kind(self):
+        # Bucket the mimetype into the same media kinds the UI uses for
+        # icons and gating decisions.
+        mt = (self.mimetype or "").lower()
+        if mt.startswith("image/"):
+            return "image"
+        if mt.startswith("video/"):
+            return "video"
+        if mt.startswith("audio/"):
+            return "audio"
+        if mt == "application/pdf":
+            return "pdf"
+        return "other"
 
     def exclude_from_serialization(self):
         return super().exclude_from_serialization() + ["file"]
@@ -1220,13 +1664,28 @@ class Parliament(models.Model):
         # Match the parliament name as a whole word between word boundaries
         # in the organization name. Hyphen - is explicitely allowed as part of
         # the word to avoid "Sachsen" matching in "Sachsen-Anhalt".
+        #
+        # `also_known_as` is searched too: when an org has been renamed to the
+        # dump's scheme (e.g. "AfD-Fraktion im Bundestag" -> "Bundestagsfraktion")
+        # the parliament wording survives only in the retained alias, so matching
+        # aliases keeps this resolving exactly as it did before the rename.
         regex = f"([^\\w-]|^){self.name}([^\\w-]|$)"
+        pattern = re.compile(regex)
 
-        candidates = Organization.objects.filter(organization_name__regex=regex)
+        candidates = {
+            org.pk: org
+            for org in Organization.objects.filter(organization_name__regex=regex)
+        }
+        for org in Organization.objects.exclude(also_known_as=[]):
+            if org.pk not in candidates and any(
+                pattern.search(alias) for alias in org.also_known_as
+            ):
+                candidates[org.pk] = org
+        candidates = list(candidates.values())
 
-        if candidates.count() == 1:
-            return candidates.first()
-        elif candidates.count() > 1:
+        if len(candidates) == 1:
+            return candidates[0]
+        elif len(candidates) > 1:
             cand_str = ", ".join(str(c) for c in candidates)
             msg = f"Multiple matching fractions found for parliament {self.name}: {cand_str}"
             raise ValueError(msg)

@@ -1,10 +1,12 @@
 import json
+import re
 
 from django import forms
 from django.conf import settings
 from django.contrib import admin
 from django.db.models import F, Q
-from django.utils.html import format_html
+from django.urls import reverse
+from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
@@ -12,9 +14,13 @@ from .models import (
     Actor,
     Affiliation,
     Attachment,
+    Category,
+    Chapter,
     Election,
     Evidence,
+    EvidenceMention,
     ImportExportRun,
+    Keyword,
     LegislativePeriod,
     Organization,
     Parliament,
@@ -23,6 +29,7 @@ from .models import (
     Role,
     SocialMediaAccount,
     SocialMediaPost,
+    Theme,
 )
 from .utils import selectable_regions
 
@@ -426,29 +433,316 @@ class AttachmentInline(admin.TabularInline):
     extra = 0
 
 
+class EvidenceMentionInline(admin.TabularInline):
+    model = EvidenceMention
+    extra = 0
+    fields = [
+        "category",
+        "footnote",
+        "chapter",
+        "chapter_structure",
+        "citation",
+        "start",
+        "end",
+        "raw_transcript",
+    ]
+    readonly_fields = fields
+
+
+class CategoryMentionInline(admin.TabularInline):
+    model = EvidenceMention
+    fk_name = "category"
+    extra = 0
+    fields = [
+        "evidence",
+        "footnote",
+        "chapter",
+        "chapter_structure",
+        "citation",
+        "start",
+        "end",
+        "raw_transcript",
+    ]
+    readonly_fields = fields
+
+
+@admin.register(Category)
+class CategoryAdmin(ReadOnlyAdmin):
+    inlines = [CategoryMentionInline]
+    list_display = ["name"]
+    search_fields = ["name"]
+
+
+@admin.register(Chapter)
+class ChapterAdmin(ReadOnlyAdmin):
+    # `theme` is the bulk-assignment surface ("everything in chapter X belongs
+    # to theme Y"): editable straight from the changelist via list_editable, and
+    # kept writable on the change form too (the rest of the chapter is imported
+    # and stays read-only).
+    list_display = ["indented_label", "is_main_topic", "theme", "evidence_count"]
+    list_editable = ["theme"]
+    list_filter = ["is_main_topic", "depth", "theme"]
+    search_fields = ["custom_label"]
+    autocomplete_fields = ["theme"]
+    readonly_fields = ["subsumed_evidences"]
+
+    def get_readonly_fields(self, request, obj=None):
+        # Keep `theme` editable even on an existing chapter (ReadOnlyAdmin would
+        # otherwise lock every field outside DEBUG).
+        fields = super().get_readonly_fields(request, obj=obj)
+        return tuple(f for f in fields if f != "theme")
+
+    def get_queryset(self, request):
+        # Order by materialised path so the tree reads top-down in the list.
+        return super().get_queryset(request).order_by("path")
+
+    def indented_label(self, obj):
+        indent = (obj.depth - 1) * 2
+        return format_html(
+            '<span style="padding-left:{}em">{}</span>',
+            indent,
+            obj.custom_label,
+        )
+
+    indented_label.short_description = _("label")
+
+    def evidence_count(self, obj):
+        return obj.subsumed_evidences().count()
+
+    evidence_count.short_description = _("subsumed evidences")
+
+    def subsumed_evidences(self, obj):
+        if obj is None or obj.pk is None:
+            return _("None")
+        evidences = obj.subsumed_evidences().order_by("pk")
+        if not evidences:
+            return _("None")
+        return format_html_join(
+            mark_safe("<br>"),
+            '<a href="{}">{}</a>',
+            (
+                (
+                    reverse(
+                        "admin:froide_evidencecollection_evidence_change",
+                        args=[evidence.pk],
+                    ),
+                    str(evidence),
+                )
+                for evidence in evidences
+            ),
+        )
+
+    subsumed_evidences.short_description = _("subsumed evidences")
+
+
 @admin.register(Evidence)
 class EvidenceAdmin(ReadOnlyAdmin):
-    inlines = [AttachmentInline]
+    inlines = [
+        AttachmentInline,
+        EvidenceMentionInline,
+    ]
     list_display = [
-        "id",
+        "slug",
         "title",
         "evidence_type",
         "originator_list",
     ]
-    filter_horizontal = [
-        "collections",
-        "originators",
-        "related_actors",
-        "attribution_evidence",
-        "attribution_problems",
-    ]
-    list_filter = ["collections", "evidence_type", "legal_assessment", "originators"]
+    filter_horizontal = ["collections"]
+    list_filter = ["collections", "evidence_type"]
     search_fields = ["citation", "description"]
 
     def originator_list(self, obj):
         return ", ".join([originator.name for originator in obj.originators.all()])
 
     originator_list.short_description = _("originators")
+
+
+@admin.register(Theme)
+class ThemeAdmin(admin.ModelAdmin):
+    # The curator surface for the topic cloud's single browse bar. `evidences`
+    # is the direct, chapter-free assignment; chapter-mapped evidence is added
+    # in ChapterAdmin. `order` drives the chip sort, the palette and the dot's
+    # dominant-theme tie-break, so it's editable inline.
+    list_display = ["label", "order", "evidence_count"]
+    list_editable = ["order"]
+    search_fields = ["label"]
+    filter_horizontal = ["evidences"]
+
+    @admin.display(description=_("evidences"))
+    def evidence_count(self, obj):
+        return obj.evidence_queryset().count()
+
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _surface_form_pattern(forms):
+    """Compile a case-insensitive, whole-word pattern over `forms` (a keyword's
+    surface variants), longest first so a multi-word form wins over its parts.
+    Returns None when there's nothing to match."""
+    forms = sorted({f.strip() for f in forms if f and f.strip()}, key=len, reverse=True)
+    if not forms:
+        return None
+    # (?<!\w)…(?!\w) is a Unicode-aware word boundary (German umlauts/ß count as
+    # word chars), so a form isn't highlighted inside a longer word.
+    return re.compile(
+        r"(?<!\w)(?:" + "|".join(re.escape(f) for f in forms) + r")(?!\w)",
+        re.IGNORECASE,
+    )
+
+
+def _matching_snippets(text, pattern, context=60, limit=5):
+    """Up to `limit` safe-HTML snippets of `text` around each match of
+    `pattern`, the matched span wrapped in <mark>. Surrounding whitespace is
+    collapsed so multi-line source text reads as a single line."""
+    snippets = []
+    for match in pattern.finditer(text):
+        start = max(0, match.start() - context)
+        end = min(len(text), match.end() + context)
+        snippets.append(
+            format_html(
+                "{}{}<mark>{}</mark>{}{}",
+                "…" if start > 0 else "",
+                _WHITESPACE_RE.sub(" ", text[start : match.start()]),
+                _WHITESPACE_RE.sub(" ", match.group(0)),
+                _WHITESPACE_RE.sub(" ", text[match.end() : end]),
+                "…" if end < len(text) else "",
+            )
+        )
+        if len(snippets) >= limit:
+            break
+    return snippets
+
+
+@admin.register(Keyword)
+class KeywordAdmin(admin.ModelAdmin):
+    # custom_label / enabled are curator-editable straight from the changelist
+    # for fast bulk curation; the derived fields are read-only since the fit
+    # overwrites them.
+    list_display = [
+        "display_label",
+        "lemma",
+        "custom_label",
+        "enabled",
+        "df",
+        "fit_at",
+    ]
+    list_editable = ["custom_label", "enabled"]
+    list_filter = ["enabled"]
+    search_fields = ["label", "custom_label", "lemma"]
+    readonly_fields = [
+        "lemma",
+        "label",
+        "surface_forms",
+        "df",
+        "fit_at",
+        "related_evidence",
+    ]
+    ordering = ["-df", "label"]
+
+    # Cap the related-evidence listing on the change form: the matching-snippet
+    # extraction reads each evidence's assembled text (a few queries per row),
+    # so an unbounded list would be slow for a high-df keyword.
+    RELATED_EVIDENCE_LIMIT = 50
+    # Snippets shown per evidence, across all its labelled text chunks.
+    SNIPPETS_PER_EVIDENCE = 5
+
+    @staticmethod
+    def _labelled_chunks(ev):
+        """Yield ``(label, text)`` for each named piece of an evidence's text,
+        so a snippet can name where it came from. Citation/description are the
+        evidence's own fields; the rest are the source's labelled segments
+        (title, post text, transcript, …), tagged with the redistribution
+        attribution when present."""
+        if ev.citation:
+            yield _("Citation"), ev.citation
+        if ev.description:
+            yield _("Description"), ev.description
+        for seg in ev.text_segments:
+            label = seg.label
+            if getattr(seg, "attribution", ""):
+                label = format_html("{} · {}", seg.label, seg.attribution)
+            yield label, seg.text
+
+    @admin.display(description=_("related evidence (matches in text)"))
+    def related_evidence(self, obj):
+        if obj is None or obj.pk is None:
+            return "—"
+
+        # Match the keyword's recorded surface forms; fall back to the lemma if
+        # a row somehow has none. These are the variants that actually occurred
+        # in the corpus, extracted from each evidence's `topic_text`.
+        pattern = _surface_form_pattern(
+            obj.surface_forms or {}
+        ) or _surface_form_pattern([obj.lemma])
+
+        total = obj.evidences.count()
+        evidences = obj.evidences.select_related(
+            "social_media_post__account",
+        ).prefetch_related(
+            "mentions__category",
+        )[: self.RELATED_EVIDENCE_LIMIT]
+
+        items = []
+        for ev in evidences:
+            # Match within each labelled chunk separately, so every snippet can
+            # be prefixed with the name of the text it came from.
+            snippet_items = []
+            for label, chunk_text in self._labelled_chunks(ev):
+                if not pattern or len(snippet_items) >= self.SNIPPETS_PER_EVIDENCE:
+                    break
+                remaining = self.SNIPPETS_PER_EVIDENCE - len(snippet_items)
+                for snip in _matching_snippets(chunk_text, pattern, limit=remaining):
+                    snippet_items.append(
+                        format_html(
+                            '<li><span style="color:#555;font-weight:600;">'
+                            "{}:</span> {}</li>",
+                            label,
+                            snip,
+                        )
+                    )
+            url = reverse(
+                "admin:froide_evidencecollection_evidence_change", args=[ev.pk]
+            )
+            if snippet_items:
+                body = format_html(
+                    '<ul style="margin:.25rem 0 .5rem 1rem;">{}</ul>',
+                    format_html_join("", "{}", ((s,) for s in snippet_items)),
+                )
+            else:
+                body = format_html(
+                    '<p style="margin:.25rem 0 .5rem 1rem;color:#777;">{}</p>',
+                    _("Linked, but no literal surface-form match in the text."),
+                )
+            items.append(
+                format_html(
+                    '<li style="margin-bottom:.75rem;"><a href="{}">{}</a>{}</li>',
+                    url,
+                    str(ev),
+                    body,
+                )
+            )
+
+        if not items:
+            return _("No related evidence.")
+
+        header = (
+            format_html(
+                "<p>{}</p>",
+                _("Showing %(shown)d of %(total)d (matches highlighted).")
+                % {"shown": len(items), "total": total},
+            )
+            if total > len(items)
+            else format_html(
+                "<p>{}</p>",
+                _("%(total)d related (matches highlighted).") % {"total": total},
+            )
+        )
+        return format_html(
+            '{}<ul style="list-style:none;padding-left:0;">{}</ul>',
+            header,
+            format_html_join("", "{}", ((i,) for i in items)),
+        )
 
 
 @admin.register(ImportExportRun)
