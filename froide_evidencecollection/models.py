@@ -1701,11 +1701,13 @@ class ImportExportRun(models.Model):
     NOCODB = "NC"
     ABGEORDNETENWATCH = "AW"
     WIKIDATA = "WD"
+    JSON = "JS"
     DATA_ENDPOINTS = {
         FROIDE_EVIDENCECOLLECTION: _("Froide EvidenceCollection"),
         NOCODB: _("NocoDB"),
         ABGEORDNETENWATCH: _("abgeordnetenwatch.de"),
         WIKIDATA: _("Wikidata"),
+        JSON: _("JSON dump"),
     }
 
     operation = models.CharField(
