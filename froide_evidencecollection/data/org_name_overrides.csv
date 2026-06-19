@@ -1,0 +1,42 @@
+# Manual organization-name overrides for the JSON-dump import.
+#
+# Only exceptions that the normalization auto-match CANNOT resolve belong here.
+# Mechanical matches (e.g. "AfD-Landesverband Sachsen" -> "Landesverband Sachsen")
+# are derived in code and must NOT be listed.
+#
+# current_name   = exact organization_name currently in the DB
+# canonical_name = the name it should be renamed to, in the dump's scheme (old
+#                  name is kept as alias). Usually a dump label, but may be a
+#                  name with no dump entry — orphan orgs are aligned for
+#                  consistency the same way.
+# note           = why (for human reviewers)
+current_name,canonical_name,note
+AfD-Fraktion im Landtag Baden-Württemberg,Landtagsfraktion Baden-Württemberg,Fraktion scheme differs
+AfD-Fraktion im Landtag Bayern,Landtagsfraktion Bayern,Fraktion scheme differs
+AfD-Fraktion im Landtag Brandenburg,Landtagsfraktion Brandenburg,Fraktion scheme differs
+AfD-Fraktion im Landtag Mecklenburg-Vorpommern,Landtagsfraktion Mecklenburg-Vorpommern,Fraktion scheme differs
+AfD-Fraktion im Landtag Niedersachsen,Landtagsfraktion Niedersachsen,Fraktion scheme differs
+AfD-Fraktion im Landtag Nordrhein-Westfalen (NRW),Landtagsfraktion Nordrhein-Westfalen,Fraktion scheme differs
+AfD-Fraktion im Landtag Rheinland-Pfalz,Landtagsfraktion Rheinland-Pfalz,Fraktion scheme differs
+AfD-Fraktion im Landtag Saarland,Landtagsfraktion Saarland,Fraktion scheme differs
+AfD-Fraktion im Landtag Sachsen,Landtagsfraktion Sachsen,Fraktion scheme differs
+AfD-Fraktion im Landtag Sachsen-Anhalt,Landtagsfraktion Sachsen-Anhalt,Fraktion scheme differs
+AfD-Fraktion im Landtag Schleswig-Holstein,Landtagsfraktion Schleswig-Holstein,Fraktion scheme differs
+AfD-Fraktion im Landtag Thüringen,Landtagsfraktion Thüringen,Fraktion scheme differs
+AfD-Fraktion im Abgeordnetenhaus Berlin,Landtagsfraktion Berlin,Berlin parliament is the Abgeordnetenhaus
+AfD-Fraktion in der Bürgerschaft Hamburg,Landtagsfraktion Hamburg,Hamburg parliament is the Bürgerschaft
+AfD-Fraktion im Bundestag,Bundestagsfraktion,Fraktion scheme differs
+AfD-Delegation im EU-Parlament,EU-Fraktion,EU delegation labelled as Fraktion in dump
+AfD-Ortsverband Karlsruhe,Kreisverband Karlsruhe,Confirmed same org; Kreisverband is the correct level
+Junge Alternative Schleswig-Holstein,Jugendorganisation Schleswig-Holstein (JA),
+# Orphans: no entry in the dump, aligned to the dump scheme for consistency.
+AfD-Bundesschiedsgericht,Bundesschiedsgericht,no dump entry; drop party prefix
+AfD-Bundesvorstand,Bundesvorstand,no dump entry; drop party prefix (kept distinct from Bundesverband)
+AfD-Fraktion im Landtag Hessen,Landtagsfraktion Hessen,no dump entry; Fraktion scheme
+AfD-Fraktion in der Bürgerschaft Bremen,Landtagsfraktion Bremen,no dump entry; Fraktion scheme
+AfD-Kreisverband Barnim,Kreisverband Barnim,no dump entry; drop party prefix
+AfD-Kreisverband Kyffhäuser-Sömmerda-Weimar,Kreisverband Kyffhäuser-Sömmerda-Weimar,no dump entry; kept distinct from Kreisverband Kyffhäuser
+AfD-Kreisverband Main-Tauber,Kreisverband Main-Tauber,no dump entry; drop party prefix
+AfD-Kreisverband Ostfriesland,Kreisverband Ostfriesland,no dump entry; drop party prefix
+AfD-Landesverband Mecklenburg-Vorpommern,Landesverband Mecklenburg-Vorpommern,no dump entry; drop party prefix
+AfD-Stadtverband Gera,Stadtverband Gera,no dump entry; drop party prefix

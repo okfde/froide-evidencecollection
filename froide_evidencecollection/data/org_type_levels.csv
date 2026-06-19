@@ -1,0 +1,25 @@
+# Institutional level for organizations CREATED from the JSON dump.
+#
+# kind  = "prefix" (matches the leading type token of the org label) or
+#         "exact" (matches the full org label; checked before prefixes)
+# key   = the prefix or exact label to match
+# level = InstitutionalLevel.name to assign (get_or_create'd if new).
+#         Use the literal REVIEW to mark an undecided type: the command will
+#         NOT create orgs of that type and will list them in its report.
+# note  = rationale for human reviewers
+kind,key,level,note
+prefix,Landesverband,AfD-Landesverbände,
+prefix,Landtagsfraktion,AfD-Landesverbände,Land-level parliament group
+prefix,Kreisverband,AfD-Kreisverbände,
+prefix,Kreistagsfraktion,AfD-Kreisverbände,Kreis-level parliament group
+prefix,Ortsverband,AfD-Kreisverbände,local chapter grouped with Kreis
+prefix,Stadtrat,AfD-Kreisverbände,municipal mandate
+prefix,Bundesverband,AfD-Bundespartei,
+prefix,Bundestagsfraktion,AfD-Bundespartei,
+prefix,EU-Fraktion,AfD-Europafraktion,
+prefix,Bezirksverband,AfD-Kreisverbände,
+prefix,Jugendorganisation,Jugendorganisation,
+exact,AG Russlanddeutsche,AfD-Landesverbände,part of Landesverband NRW
+exact,Pankower Abgeordnete,AfD-Kreisverbände,Berlin district mandates
+exact,AfD Express,Umfeld,media outlet
+exact,Deutschland Kurier,Umfeld,media outlet
