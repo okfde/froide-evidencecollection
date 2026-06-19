@@ -40,8 +40,9 @@ class EvidenceDocument(DSLDocument):
 
     platform = fields.KeywordField()
 
-    # Concatenated source text (post body, transcription, redistributed
-    # content, document text, …), assembled by Evidence.search_text.
+    # Concatenated source text (post body/title/description, video transcript,
+    # redistributed content, …), assembled by Evidence.search_text with
+    # redaction rules already applied.
     content = _make_text_field()
 
     # Originator affiliation metadata, resolved against the source's posted_at
@@ -64,16 +65,12 @@ class EvidenceDocument(DSLDocument):
             .prefetch_related(
                 "originators__person__affiliations__organization__institutional_level",
                 "originators__person__affiliations__role",
+                # `search_text` reads each evidence's mentions (the per-mention
+                # `raw_transcript` for a video post) and the post's own fields;
+                # prefetch the mentions so indexing doesn't fan out per row. The
+                # redistribution chain is walked via the select_related posts
+                # below — those carry their own text, no media relations.
                 "mentions__category",
-                # `search_text` walks each post's media and the redistribution
-                # chain it recurses into; prefetch both so indexing doesn't
-                # fan out to per-row queries.
-                "social_media_post__images",
-                "social_media_post__videos__excerpts",
-                "social_media_post__redistributes__images",
-                "social_media_post__redistributes__videos__excerpts",
-                "social_media_post__redistributes__redistributes__images",
-                "social_media_post__redistributes__redistributes__videos__excerpts",
             )
             .select_related(
                 "evidence_type",

@@ -41,6 +41,7 @@ from .models import (
     Role,
     SocialMediaAccount,
     Theme,
+    apply_redactions,
 )
 
 
@@ -258,9 +259,6 @@ class EvidenceDetailView(EvidenceMixin, DetailView):
             Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
             "mentions__category",
             "attachments",
-            "social_media_post__images",
-            "social_media_post__videos__excerpts",
-            "social_media_post__screenshots",
         )
 
     def get_breadcrumbs(self, context):
@@ -283,8 +281,6 @@ EVIDENCE_CARD_PREFETCH_RELATED = (
     "originators__organization__institutional_level",
     "mentions__category",
     "attachments",
-    "social_media_post__images",
-    "social_media_post__videos__excerpts",
 )
 
 ACTOR_PROFILE_EVIDENCE_LIMIT = 20
@@ -868,26 +864,23 @@ class EvidenceTopicCloudView(TemplateView):
 
     def _filter_qs(self):
         # `.only()` is load-bearing: SocialMediaPost has wide JSONFields
-        # (`raw`, `user_snapshot`, `reactions`) that would otherwise be
-        # fetched + deserialized for every joined row, and they're not used
-        # here. The account fields are pulled via select_related so the SR
-        # outline reads them without an N+1. ``topic_fit_at__isnull=False`` is
-        # the "is fitted" gate — only fitted evidence has the embedding coords
-        # the cloud plots; the cluster itself is no longer surfaced (and the
-        # keyword fit no longer sets the `topic` FK at all).
+        # (`user_snapshot`, `reactions`) that would otherwise be fetched +
+        # deserialized for every joined row, and they're not used here. The
+        # account fields are pulled via select_related so the SR outline reads
+        # them without an N+1. ``topic_fit_at__isnull=False`` is the "is fitted"
+        # gate — only fitted evidence has the embedding coords the cloud plots;
+        # the cluster itself is no longer surfaced (and the keyword fit no longer
+        # sets the `topic` FK at all).
         # Account-derived facets traverse the `social_media_post` source.
         qs = (
             Evidence.objects.filter(topic_fit_at__isnull=False)
             .select_related(
                 "social_media_post__account__actor",
             )
-            # Media is a reverse FK (to-many), so it can't ride select_related;
-            # prefetch it for `_snippet`'s transcription read. `keywords` is the
-            # facet index, read in-memory by `_build_facets`; prefetch only the
-            # enabled ones so curator-disabled keywords never reach the view.
+            # `keywords` is the facet index, read in-memory by `_build_facets`;
+            # prefetch only the enabled ones so curator-disabled keywords never
+            # reach the view.
             .prefetch_related(
-                "social_media_post__images",
-                "social_media_post__videos__excerpts",
                 Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
                 # Theme membership for the dot's dominant-theme colour: the
                 # directly assigned themes, and the mentions' chapters (the
@@ -912,6 +905,7 @@ class EvidenceTopicCloudView(TemplateView):
                 "social_media_post__url",
                 "social_media_post__title",
                 "social_media_post__text",
+                "social_media_post__transcription",
                 "social_media_post__posted_at",
                 "social_media_post__account__platform",
                 "social_media_post__account__username",
@@ -923,14 +917,13 @@ class EvidenceTopicCloudView(TemplateView):
         params = self.request.GET
         q = (params.get("q") or "").strip()
         if q:
-            # The media join (a to-many) can multiply rows, so de-dupe.
+            # The mentions join (a to-many) can multiply rows, so de-dupe.
             qs = qs.filter(
                 Q(social_media_post__title__icontains=q)
                 | Q(social_media_post__text__icontains=q)
-                | Q(social_media_post__images__content_text__icontains=q)
-                | Q(social_media_post__images__content_text_override__icontains=q)
-                | Q(social_media_post__videos__excerpts__text__icontains=q)
-                | Q(social_media_post__videos__excerpts__text_override__icontains=q)
+                | Q(social_media_post__description__icontains=q)
+                | Q(social_media_post__transcription__icontains=q)
+                | Q(mentions__raw_transcript__icontains=q)
                 | Q(citation__icontains=q)
                 | Q(description__icontains=q)
             ).distinct()
@@ -996,27 +989,16 @@ class EvidenceTopicCloudView(TemplateView):
     def _snippet(cls, evidence):
         # Source text for the outline. Reads the post's own fields directly
         # rather than `search_text` so it stays within the prefetched columns
-        # and doesn't recurse into redistributed posts.
-        # Media text is read from the prefetched `images` / `videos__excerpts`
-        # relations: an image's on-screen text plus each video excerpt's text.
+        # and doesn't recurse into redistributed posts. For a video post the
+        # full `transcription` stands in for the per-mention transcript excerpts
+        # (the cheap, query-free read). Only global redaction is applied here
+        # (cached, no per-post query) to keep the outline cheap.
         post = evidence.social_media_post
         if post is not None:
-            media_bits = [
-                img.resolved_content_text
-                for img in post.images.all()
-                if img.resolved_content_text
-            ]
-            media_bits += [
-                excerpt.resolved_text
-                for video in post.videos.all()
-                for excerpt in video.excerpts.all()
-                if excerpt.resolved_text
-            ]
-            media_text = " ".join(media_bits)
-            raw_parts = (post.title, post.text, media_text)
+            raw_parts = (post.title, post.text, post.transcription)
         else:
             raw_parts = (evidence.description,)
-        parts = [p.strip() for p in raw_parts if p and p.strip()]
+        parts = [apply_redactions(p.strip()) for p in raw_parts if p and p.strip()]
         text = " — ".join(parts)
         if len(text) > cls.SNIPPET_CHARS:
             head = text[: cls.SNIPPET_CHARS]

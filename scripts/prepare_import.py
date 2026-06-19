@@ -567,6 +567,7 @@ PLATFORM_CONFIG: dict[str, dict] = {
         "keep": {
             "channel",
             "title",
+            "description",
             "transcription",
             "viewCount",
             "likeCount",
@@ -576,7 +577,10 @@ PLATFORM_CONFIG: dict[str, dict] = {
         "rename": {
             "id": "platform_post_id",
             "publishedTime": "created_at",
-            "description": "text",
+            # The YouTube video description is often promotional boilerplate /
+            # links and is rarely about the video's content, so it stays in
+            # `description` (low topic priority) rather than the primary `text`
+            # body — the title + transcript carry the content.
         },
         "discard": {
             "errorId",

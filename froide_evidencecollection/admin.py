@@ -27,15 +27,12 @@ from .models import (
     Parliament,
     Person,
     PoliticalPosition,
-    PostImage,
-    PostScreenshot,
-    PostVideo,
+    RedactionRule,
     Role,
     SocialMediaAccount,
     SocialMediaPost,
     Theme,
     Topic,
-    VideoExcerpt,
 )
 from .utils import selectable_regions
 
@@ -155,91 +152,8 @@ class SocialMediaAccountAdmin(ReadOnlyAdmin):
         return obj.redistributed_count
 
 
-class PostImageInline(admin.TabularInline):
-    model = PostImage
-    extra = 0
-    fields = [
-        "preview",
-        "image",
-        "source_path",
-        "description",
-        "is_related_to_text",
-        "content_text",
-        "content_text_override",
-    ]
-    # Everything is import-owned and read-only except `content_text_override`,
-    # the curator's correction of the imported `content_text` (preserved across
-    # re-imports). This is the one editable field on the otherwise read-only
-    # post admin.
-    readonly_fields = [f for f in fields if f != "content_text_override"]
-
-    @admin.display(description=_("preview"))
-    def preview(self, obj):
-        # Render the image inline so editors can view it on the post page.
-        if not obj.image:
-            return _("(no file)")
-        style = "max-height: 240px; max-width: 320px;"
-        return format_html('<img src="{}" style="{}" />', obj.image.url, style)
-
-
-class PostVideoInline(admin.TabularInline):
-    model = PostVideo
-    extra = 0
-    fields = [
-        "transcript_file",
-        "source_path",
-        "description",
-        "excerpts_summary",
-    ]
-    # Fully import-owned. Excerpt text (and its curator override) lives on the
-    # related VideoExcerpt rows — edited via their own admin, since Django can't
-    # nest an inline within an inline; here they're shown read-only for context.
-    # No media preview: a video carries no binary file (not imported).
-    readonly_fields = fields
-
-    @admin.display(description=_("excerpts"))
-    def excerpts_summary(self, obj):
-        if obj.pk is None:
-            return ""
-        excerpts = obj.excerpts.all()
-        if not excerpts:
-            return _("(no excerpts)")
-        return format_html_join(
-            mark_safe("<br>"),
-            "{}. {}",
-            ((e.order, e.resolved_text) for e in excerpts),
-        )
-
-
-@admin.register(VideoExcerpt)
-class VideoExcerptAdmin(ReadOnlyAdmin):
-    list_display = ["video", "order", "resolved_text"]
-    fields = ["video", "order", "start", "end", "text", "text_override"]
-    # `text` is import-owned; `text_override` is the curator's correction
-    # (preserved across re-imports), the one editable field here.
-    readonly_fields = [f for f in fields if f != "text_override"]
-
-
-class PostScreenshotInline(admin.TabularInline):
-    model = PostScreenshot
-    extra = 0
-    fields = ["preview", "image", "source_path", "description"]
-    # A screenshot is a fully import-owned archival file (provenance); nothing
-    # here is curator-editable.
-    readonly_fields = fields
-
-    @admin.display(description=_("preview"))
-    def preview(self, obj):
-        # Render the screenshot inline so editors can view it on the post page.
-        if not obj.image:
-            return _("(no file)")
-        style = "max-height: 240px; max-width: 320px;"
-        return format_html('<img src="{}" style="{}" />', obj.image.url, style)
-
-
 @admin.register(SocialMediaPost)
 class SocialMediaPostAdmin(ReadOnlyAdmin):
-    inlines = [PostImageInline, PostVideoInline, PostScreenshotInline]
     list_display = [
         "platform_post_id",
         "account",
@@ -251,7 +165,7 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
         "redistributes",
     ]
     list_filter = ["account__platform"]
-    search_fields = ["platform_post_id", "url", "text", "title", "caption"]
+    search_fields = ["platform_post_id", "url", "text", "title", "transcription"]
     readonly_fields = [
         "evidence",
         "account",
@@ -262,7 +176,12 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
         "text",
         "title",
         "description",
-        "caption",
+        "transcription",
+        "screenshot_preview",
+        "screenshot_source_path",
+        "image_source_path",
+        "image_description",
+        "video_source_path",
         "view_count",
         "like_count",
         "comment_count",
@@ -271,8 +190,30 @@ class SocialMediaPostAdmin(ReadOnlyAdmin):
         "reply_to",
         "redistributes",
         "user_snapshot",
-        "raw",
     ]
+
+    @admin.display(description=_("screenshot"))
+    def screenshot_preview(self, obj):
+        # Render the archival screenshot inline so editors can view it on the
+        # post page. The only file-backed post media.
+        if not obj.screenshot:
+            return _("(no file)")
+        style = "max-height: 240px; max-width: 320px;"
+        return format_html('<img src="{}" style="{}" />', obj.screenshot.url, style)
+
+
+@admin.register(RedactionRule)
+class RedactionRuleAdmin(admin.ModelAdmin):
+    list_display = ["pattern", "placeholder", "is_regex", "enabled", "scope"]
+    list_filter = ["enabled", "is_regex"]
+    search_fields = ["pattern", "placeholder"]
+    autocomplete_fields = ["posts"]
+
+    @admin.display(description=_("scope"))
+    def scope(self, obj):
+        # A rule with no posts is global; otherwise it is scoped to a count.
+        count = obj.posts.count()
+        return _("global") if count == 0 else _("%(n)d post(s)") % {"n": count}
 
 
 class AffiliationInline(admin.TabularInline):
@@ -595,7 +536,16 @@ class AttachmentInline(admin.TabularInline):
 class EvidenceMentionInline(admin.TabularInline):
     model = EvidenceMention
     extra = 0
-    fields = ["category", "footnote", "chapter", "chapter_structure", "citation"]
+    fields = [
+        "category",
+        "footnote",
+        "chapter",
+        "chapter_structure",
+        "citation",
+        "start",
+        "end",
+        "raw_transcript",
+    ]
     readonly_fields = fields
 
 
@@ -603,7 +553,16 @@ class CategoryMentionInline(admin.TabularInline):
     model = EvidenceMention
     fk_name = "category"
     extra = 0
-    fields = ["evidence", "footnote", "chapter", "chapter_structure", "citation"]
+    fields = [
+        "evidence",
+        "footnote",
+        "chapter",
+        "chapter_structure",
+        "citation",
+        "start",
+        "end",
+        "raw_transcript",
+    ]
     readonly_fields = fields
 
 
@@ -841,8 +800,6 @@ class KeywordAdmin(admin.ModelAdmin):
         evidences = obj.evidences.select_related(
             "social_media_post__account",
         ).prefetch_related(
-            "social_media_post__images",
-            "social_media_post__videos__excerpts",
             "mentions__category",
         )[: self.RELATED_EVIDENCE_LIMIT]
 

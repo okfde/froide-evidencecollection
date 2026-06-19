@@ -1,3 +1,4 @@
+import logging
 import re
 import textwrap
 import uuid
@@ -6,7 +7,7 @@ from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models.signals import post_delete
+from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
@@ -17,13 +18,15 @@ from django.utils.translation import pgettext_lazy
 from treebeard.mp_tree import MP_Node
 
 from froide.georegion.models import GeoRegion
-from froide_evidencecollection.storage import OverwriteStorage, post_media_path
+from froide_evidencecollection.storage import OverwriteStorage, post_screenshot_path
 from froide_evidencecollection.utils import (
     EVIDENCE_SLUG_LENGTH,
     compute_hash,
     make_evidence_slug,
     to_dict,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TrackableModel(models.Model):
@@ -702,6 +705,71 @@ def _clean_topic_text(text: str) -> str:
     return re.sub(r"[^\S\n]+", " ", text).strip()
 
 
+# Redaction: read-time term→placeholder substitution over assembled text. The
+# raw imported text is never mutated, so changing a rule only requires
+# re-deriving downstream artifacts (search index, topic fit), never a data
+# migration. Global rules (no `posts`) apply to every post; scoped rules apply
+# only to the posts they list. The enabled global rules compile to a single
+# callable cached at module level and invalidated by signals on `RedactionRule`
+# (see below); per-post scoped rules are few and applied directly.
+_GLOBAL_REDACTOR = None  # compiled callable for enabled global rules; None = stale
+
+
+def _compile_redaction_rules(rules) -> "callable":
+    """Compile RedactionRules into one callable applying each in turn.
+
+    Literal patterns match whole-word and case-insensitively; regex patterns are
+    used verbatim. An invalid regex is skipped (logged) rather than breaking the
+    whole pass. Rules are applied sequentially — correct even when a regex rule
+    carries its own capture groups, and cheap at this corpus size.
+    """
+    compiled = []
+    for rule in rules:
+        rx = rule.compiled_pattern()
+        if rx is not None:
+            compiled.append((rx, rule.placeholder))
+
+    def apply(text: str) -> str:
+        if not text:
+            return text
+        for rx, placeholder in compiled:
+            text = rx.sub(placeholder, text)
+        return text
+
+    return apply
+
+
+def _get_global_redactor() -> "callable":
+    global _GLOBAL_REDACTOR
+    if _GLOBAL_REDACTOR is None:
+        rules = RedactionRule.objects.filter(enabled=True, posts__isnull=True)
+        _GLOBAL_REDACTOR = _compile_redaction_rules(rules)
+    return _GLOBAL_REDACTOR
+
+
+def invalidate_global_redactor(*args, **kwargs):
+    global _GLOBAL_REDACTOR
+    _GLOBAL_REDACTOR = None
+
+
+def apply_redactions(text: str, post=None) -> str:
+    """Mask redacted terms in `text`: global rules, then `post`'s scoped rules.
+
+    Applied at display time and when assembling `search_text` / `topic_text`, so
+    the masked form is what reaches the page, the search index and the topic
+    fit. Changing rules requires a re-index / topic re-fit to take effect on
+    already-derived artifacts.
+    """
+    if not text:
+        return text
+    text = _get_global_redactor()(text)
+    if post is not None:
+        for rule in post.redaction_rules.all():
+            if rule.enabled:
+                text = rule.apply(text)
+    return text
+
+
 @dataclass(frozen=True)
 class TextSegment:
     """One labelled piece of textual content belonging to an evidence source.
@@ -891,36 +959,54 @@ class Evidence(TrackableModel):
         source = self.source
         return source.display_text if source is not None else ""
 
-    def _mention_text_segments(self) -> list["TextSegment"]:
-        # The per-mention citation quotes (`EvidenceMention.citation`): the
-        # curated, category-relevant text the evidence was filed under. These
-        # are the searched / topic-modelled text (`for_search`/`for_topics`),
-        # standing in for the raw video-excerpt transcripts (which are now
-        # display-only). Each is labelled with its category and footnote for the
-        # detail view. Reads prefetched `mentions` (ordered by footnote),
-        # skipping mentions that carry no citation.
+    def _video_transcript_segments(self) -> list["TextSegment"]:
+        # Transcript text for a video post; non-video posts contribute none.
+        # Prefer the curated, time-coded per-mention `raw_transcript` excerpts
+        # (each labelled with its category/footnote); if the post has a video
+        # but no mention carries a transcript, fall back to the post's full
+        # `transcription`. Either way the transcript is searched and
+        # topic-modelled — the post's own caption/title still ride along via
+        # `_own_text_segments`, but its (often promotional) `description` does
+        # not for a video. Reads prefetched `mentions`.
+        source = self.source
+        if source is None or not source.is_video:
+            return []
         segments = []
         for mention in self.mentions.all():
-            text = (mention.citation or "").strip()
+            text = (mention.raw_transcript or "").strip()
             if not text:
                 continue
             attribution = str(mention.category)
             if mention.footnote:
                 attribution = f"{attribution} · {mention.footnote}"
             segments.append(
-                TextSegment("citation", _("Citation"), text, attribution=attribution)
+                TextSegment(
+                    "transcription", _("Transcription"), text, attribution=attribution
+                )
             )
-        return segments
+        if segments:
+            return segments
+        full = (source.transcription or "").strip()
+        if full:
+            return [TextSegment("transcription", _("Transcription"), full)]
+        return []
 
     @property
     def text_segments(self) -> list["TextSegment"]:
-        # The source's labelled text followed by the evidence's own per-mention
-        # citations. Single definition behind the detail view, search index and
-        # topic modelling.
+        # The source's own labelled text plus, for a video post, its transcript
+        # (curated per-mention excerpts or the full-transcription fallback).
+        # Single definition behind the detail view, search index and topic
+        # modelling. Redaction rules are applied here — the one chokepoint — so
+        # masked terms never reach display, search or topics.
         source = self.source
-        segments = list(source.text_segments()) if source is not None else []
-        segments.extend(self._mention_text_segments())
-        return segments
+        if source is None:
+            return []
+        segments = list(source.text_segments())
+        segments.extend(self._video_transcript_segments())
+        return [
+            replace(seg, text=apply_redactions(seg.text, post=source))
+            for seg in segments
+        ]
 
     @property
     def search_text(self) -> str:
@@ -1207,7 +1293,55 @@ class Keyword(models.Model):
         return self.custom_label or self.label
 
 
-class SocialMediaPost(EvidenceSource, models.Model):
+class PostMediaMixin(models.Model):
+    """Media tracking for a `SocialMediaPost`.
+
+    A post has at most one image and at most one video, so media no longer needs
+    its own tables: the screenshot is stored as a file (the only file-backed
+    post media — an archival capture of the post for provenance), while the
+    content image and video are merely *tracked* by their import source path
+    (the binaries are not stored, matching that they were never rendered
+    publicly). `image_description` is the image's alt text; the video's full
+    `transcription` is kept verbatim as a display/backup copy and is searched /
+    topic-modelled only as the fallback when no `EvidenceMention.raw_transcript`
+    excerpt exists (see `Evidence._video_transcript_segments`).
+    """
+
+    screenshot = models.ImageField(
+        null=True,
+        blank=True,
+        max_length=255,
+        upload_to=post_screenshot_path,
+        storage=OverwriteStorage(),
+        verbose_name=_("screenshot"),
+    )
+    screenshot_source_path = models.CharField(
+        max_length=512, blank=True, default="", verbose_name=_("screenshot source path")
+    )
+    image_source_path = models.CharField(
+        max_length=512, blank=True, default="", verbose_name=_("image source path")
+    )
+    image_description = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("image description"),
+        help_text=_("Textual description (alt text) of what the image shows."),
+    )
+    video_source_path = models.CharField(
+        max_length=512, blank=True, default="", verbose_name=_("video source path")
+    )
+    transcription = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("transcription"),
+        help_text=_("Full verbatim video transcript; display/backup."),
+    )
+
+    class Meta:
+        abstract = True
+
+
+class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
     account = models.ForeignKey(
         SocialMediaAccount,
         on_delete=models.PROTECT,
@@ -1225,7 +1359,6 @@ class SocialMediaPost(EvidenceSource, models.Model):
     description = models.TextField(
         blank=True, default="", verbose_name=_("description")
     )
-    caption = models.TextField(blank=True, default="", verbose_name=_("caption"))
     view_count = models.PositiveBigIntegerField(
         null=True, blank=True, verbose_name=_("view count")
     )
@@ -1274,7 +1407,6 @@ class SocialMediaPost(EvidenceSource, models.Model):
     user_snapshot = models.JSONField(
         null=True, blank=True, verbose_name=_("user snapshot")
     )
-    raw = models.JSONField(verbose_name=_("raw payload"))
 
     class Meta:
         verbose_name = _("social media post")
@@ -1297,61 +1429,32 @@ class SocialMediaPost(EvidenceSource, models.Model):
             args=[self.pk],
         )
 
+    @property
+    def is_video(self) -> bool:
+        # A post counts as a video post if the import tracked a video file for
+        # it. Drives the transcript-vs-own-text branch in
+        # `Evidence._video_transcript_segments`.
+        return bool(self.video_source_path)
+
     def _own_text_segments(self) -> list[TextSegment]:
-        # This post's own text, excluding anything redistributed. Transcription
-        # is not here: it lives per-media (in a video's excerpts) and is
-        # emitted by `_media_text_segments`.
-        segments = []
-        for kind, label, value in (
+        # This post's own authored text, excluding anything redistributed. For a
+        # video post the (often promotional) `description` is dropped — the
+        # transcript carries the content — but the title and body still ride
+        # along; non-video posts keep their whole text. The image's alt-text
+        # `image_description` is included where present. The video transcript is
+        # not here: it is emitted at the Evidence level
+        # (`Evidence._video_transcript_segments`).
+        fields = [
             ("title", _("Post title"), self.title),
             ("body", _("Post text"), self.text),
-            ("caption", _("Caption"), self.caption),
-        ):
+        ]
+        if not self.is_video:
+            fields.append(("description", _("Description"), self.description))
+        fields.append(("description", _("Image description"), self.image_description))
+        segments = []
+        for kind, label, value in fields:
             if value and value.strip():
                 segments.append(TextSegment(kind, label, value.strip()))
-        return segments
-
-    def _media_text_segments(self) -> list[TextSegment]:
-        # Text carried by the post's attached media. Each image contributes a
-        # description of what it shows plus its on-screen text (`content_text`,
-        # an `extracted_text` segment); each video contributes a description
-        # plus the text of each of its transcript excerpts (`transcription`
-        # segments). The kinds keep the right topic priority and display label.
-        # Reads the prefetched `images` / `videos` (+ `videos__excerpts`)
-        # relations so a prefetch keeps it query-free; emit only non-empty
-        # fields.
-        #
-        # Transcription segments are display-only (`for_search=False`,
-        # `for_topics=False`): the searched/topic-modelled text for a video now
-        # comes from the curated per-mention citations on the evidence (see
-        # `Evidence._mention_text_segments`), not the raw excerpt transcripts.
-        segments = []
-        for image in self.images.all():
-            for kind, label, value in (
-                ("description", _("Media description"), image.description),
-                ("extracted_text", _("Image text"), image.resolved_content_text),
-            ):
-                if value and value.strip():
-                    segments.append(TextSegment(kind, label, value.strip()))
-        for video in self.videos.all():
-            if video.description and video.description.strip():
-                segments.append(
-                    TextSegment(
-                        "description", _("Media description"), video.description.strip()
-                    )
-                )
-            for excerpt in video.excerpts.all():
-                value = excerpt.resolved_text
-                if value and value.strip():
-                    segments.append(
-                        TextSegment(
-                            "transcription",
-                            _("Transcription"),
-                            value.strip(),
-                            for_search=False,
-                            for_topics=False,
-                        )
-                    )
         return segments
 
     def text_segments(
@@ -1367,7 +1470,6 @@ class SocialMediaPost(EvidenceSource, models.Model):
         _seen.add(self.pk)
 
         segments = self._own_text_segments()
-        segments.extend(self._media_text_segments())
         if (
             include_redistributed
             and self.redistributes_id
@@ -1387,11 +1489,14 @@ class SocialMediaPost(EvidenceSource, models.Model):
     def full_text(self) -> str:
         # Own searchable text only; used for the short `display_text` summary,
         # so it stays cheap (no redistribution recursion / extra queries).
-        return "\n\n".join(
+        # Redacted (global + this post's scoped rules) so the summary never
+        # leaks a masked term.
+        text = "\n\n".join(
             s.text
             for s in self.text_segments(include_redistributed=False)
             if s.for_search
         )
+        return apply_redactions(text, post=self)
 
     @property
     def display_text(self) -> str:
@@ -1402,319 +1507,110 @@ class SocialMediaPost(EvidenceSource, models.Model):
         return self.posted_at.date() if self.posted_at else None
 
     @cached_property
-    def visible_screenshots(self):
-        # Archival screenshots that actually carry an image file, for the
-        # detail view's provenance display. Reads the prefetched `screenshots`.
-        return [s for s in self.screenshots.all() if s.image]
-
-    @cached_property
     def media_descriptions(self):
-        # (kind, text) for each attached image/video that has a description,
-        # for the detail view's Visual material section. The media files
-        # themselves are admin-only and not shown publicly; only what they
-        # depict. Reads the prefetched `images` / `videos`.
+        # (kind, text) shown in the detail view's Visual material section. The
+        # media files themselves are admin-only / not stored, only what they
+        # depict: the image's alt-text description and (for a video) that a
+        # transcript exists.
         out = []
-        for img in self.images.all():
-            if img.description and img.description.strip():
-                out.append(("image", img.description.strip()))
-        for video in self.videos.all():
-            if video.description and video.description.strip():
-                out.append(("video", video.description.strip()))
+        if self.image_description and self.image_description.strip():
+            out.append(("image", self.image_description.strip()))
         return out
 
     def compute_slug(self) -> str:
         return make_evidence_slug(self.account.platform, self.platform_post_id)
 
     def exclude_from_serialization(self):
-        # Large JSON payloads are persisted but excluded from diffs so
-        # ImportExportRun.changes stays readable.
-        return ["id", "raw", "user_snapshot"]
+        # The user snapshot is a large JSON blob persisted but excluded from
+        # diffs so ImportExportRun.changes stays readable.
+        return ["id", "user_snapshot"]
 
 
-class BasePostMedia(TrackableModel):
-    """Shared fields/behaviour for a media file belonging to a SocialMediaPost.
-
-    Abstract: the concrete `PostImage` and `PostVideo` each get their own table
-    so a row carries only the fields valid for its type (the previous single
-    `PostMedia` model mixed image-only and video-only fields). Media hangs off
-    the post rather than the Evidence because the post is the `EvidenceSource`:
-    the per-media text is surfaced through `SocialMediaPost.text_segments()` and
-    so flows into `Evidence.text_segments` like any other source text. The files
-    themselves are admin-only and not rendered in the public views.
-
-    `source_path` is the relative path from the import payload (e.g.
-    "./video/foo.mp4"), used as the natural key for idempotent re-import
-    (mirrors Attachment.external_id). The `post` FK and its `(post, source_path)`
-    uniqueness live on the concrete subclasses — each needs its own
-    `related_name` (`images` / `videos`).
-    """
-
-    # Each concrete subclass owns its media file under its own name (the shared
-    # `file` field is gone) and points these at it: `media_field_name` is the
-    # FileField/ImageField attribute (None for a video, which no longer carries a
-    # media file), `media_subdir` its child dir under `post_media/` (see
-    # `post_media_path`). Kept abstract here so `__str__`/serialization stay
-    # shared without the base declaring a column.
-    media_field_name = None
-    media_subdir = None
-
-    source_path = models.CharField(
-        max_length=512, blank=True, default="", verbose_name=_("source path")
-    )
-    description = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("description"),
-        help_text=_("Textual description of what the image/video shows."),
-    )
-
-    class Meta:
-        abstract = True
-
-    @property
-    def media_file(self):
-        # The concrete subclass's media FieldFile, addressed generically.
-        return getattr(self, self.media_field_name) if self.media_field_name else None
-
-    def __str__(self):
-        media = self.media_file
-        return f"{self.post} - {(media.name if media else '') or self.source_path}"
-
-    def exclude_from_serialization(self):
-        excluded = super().exclude_from_serialization()
-        if self.media_field_name:
-            excluded = excluded + [self.media_field_name]
-        return excluded
-
-
-class PostImage(BasePostMedia):
-    """An image attached to a SocialMediaPost.
-
-    `content_text` is the image's on-screen text (the searched text). It is
-    import-filled and may be wrong; `content_text_override` holds a curator's
-    correction and is preserved across re-imports. Read via
-    `resolved_content_text` (`content_text_override or content_text`) — the same
-    auto/override idiom as `Keyword.label`/`custom_label`. The importer keeps
-    overwriting `content_text` freely; it never touches the override.
-    """
-
-    media_field_name = "image"
-    media_subdir = "images"
-
-    post = models.ForeignKey(
-        SocialMediaPost,
-        on_delete=models.CASCADE,
-        related_name="images",
-        verbose_name=_("post"),
-    )
-    image = models.ImageField(
-        null=True,
-        blank=True,
-        max_length=255,
-        upload_to=post_media_path,
-        storage=OverwriteStorage(),
-        verbose_name=_("image"),
-    )
-    content_text = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("content text"),
-        help_text=_(
-            "On-screen text of the image (searched). Import-filled; correct it "
-            "via the override field."
-        ),
-    )
-    content_text_override = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("content text (corrected)"),
-        help_text=_(
-            "Curator correction of the content text. Blank falls back to the "
-            "imported value. Preserved across re-imports."
-        ),
-    )
-    is_related_to_text = models.BooleanField(
-        null=True,
-        blank=True,
-        verbose_name=_("related to post text"),
-        help_text=_("Whether the image relates to the post's text. Import-filled."),
-    )
-
-    class Meta:
-        verbose_name = _("post image")
-        verbose_name_plural = _("post images")
-        constraints = [
-            models.UniqueConstraint(
-                fields=["post", "source_path"],
-                condition=~models.Q(source_path=""),
-                name="unique_image_per_post_source",
-            ),
-        ]
-
-    @property
-    def resolved_content_text(self) -> str:
-        # Curator correction wins over the imported text; blank override falls
-        # back. Single source of truth for "the searched text of this image".
-        return self.content_text_override or self.content_text
-
-
-class PostVideo(BasePostMedia):
-    """A video attached to a SocialMediaPost.
-
-    The searched text of a video is not its whole transcript but the relevant
-    *excerpt(s)*, held as `VideoExcerpt` rows (one video can have several). The
-    full transcript is kept verbatim as a backup in `transcript_file` (e.g. an
-    SRT sidecar) and is never searched.
-    """
-
-    # A video carries no binary media file (not imported); only its transcript
-    # sidecar and the searched excerpts. So `media_field_name` stays None.
-    media_field_name = None
-
-    post = models.ForeignKey(
-        SocialMediaPost,
-        on_delete=models.CASCADE,
-        related_name="videos",
-        verbose_name=_("post"),
-    )
-    # Full transcript kept verbatim as a backup (e.g. an SRT sidecar of the
-    # video). Never parsed and never searched — the excerpts carry the searched
-    # text.
-    transcript_file = models.FileField(
-        upload_to="post_media/transcripts",
-        max_length=255,
-        blank=True,
-        verbose_name=_("transcript file"),
-        help_text=_("Full transcript (e.g. SRT), kept as backup; not searched."),
-    )
-
-    class Meta:
-        verbose_name = _("post video")
-        verbose_name_plural = _("post videos")
-        constraints = [
-            models.UniqueConstraint(
-                fields=["post", "source_path"],
-                condition=~models.Q(source_path=""),
-                name="unique_video_per_post_source",
-            ),
-        ]
-
-    def exclude_from_serialization(self):
-        return super().exclude_from_serialization() + ["transcript_file"]
-
-
-class VideoExcerpt(TrackableModel):
-    """A relevant, time-coded excerpt of a video's transcript.
-
-    One `PostVideo` can have several. `text` is the searched excerpt text: it is
-    import-filled and may be wrong, while `text_override` holds a curator's
-    correction preserved across re-imports. Read via `resolved_text`
-    (`text_override or text`) — the same auto/override idiom as
-    `PostImage.content_text`. `start`/`end` locate the excerpt within the video;
-    `order` keeps a stable display/import sequence (and is the natural key the
-    importer matches on, so an override survives re-import).
-    """
-
-    video = models.ForeignKey(
-        PostVideo,
-        on_delete=models.CASCADE,
-        related_name="excerpts",
-        verbose_name=_("video"),
-    )
-    order = models.PositiveIntegerField(default=0, verbose_name=_("order"))
-    start = models.DurationField(null=True, blank=True, verbose_name=_("start"))
-    end = models.DurationField(null=True, blank=True, verbose_name=_("end"))
-    text = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("text"),
-        help_text=_("Transcript excerpt text (searched). Import-filled."),
-    )
-    text_override = models.TextField(
-        blank=True,
-        default="",
-        verbose_name=_("text (corrected)"),
-        help_text=_(
-            "Curator correction of the excerpt text. Blank falls back to the "
-            "imported value. Preserved across re-imports."
-        ),
-    )
-
-    class Meta:
-        verbose_name = _("video excerpt")
-        verbose_name_plural = _("video excerpts")
-        ordering = ["video", "order"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["video", "order"],
-                name="unique_excerpt_order_per_video",
-            ),
-        ]
-
-    def __str__(self):
-        return f"{self.video} [{self.order}]"
-
-    @property
-    def resolved_text(self) -> str:
-        # Curator correction wins over the imported text; blank override falls
-        # back. Single source of truth for "the searched text of this excerpt".
-        return self.text_override or self.text
-
-
-class PostScreenshot(BasePostMedia):
-    """An archival screenshot of the post itself (provenance).
-
-    Unlike `PostImage`/`PostVideo`, a screenshot is not media *content* carried
-    by the post but a capture *of* the post — proof of what was posted and how
-    it looked. The post's own text already lives in `SocialMediaPost.text`, so a
-    screenshot carries no searched text and contributes nothing to
-    `text_segments` or the search index; it is a pure archival file (with an
-    optional `description` for admin context, inherited from `BasePostMedia`).
-    """
-
-    media_field_name = "image"
-    media_subdir = "screenshots"
-
-    post = models.ForeignKey(
-        SocialMediaPost,
-        on_delete=models.CASCADE,
-        related_name="screenshots",
-        verbose_name=_("post"),
-    )
-    image = models.ImageField(
-        null=True,
-        blank=True,
-        max_length=255,
-        upload_to=post_media_path,
-        storage=OverwriteStorage(),
-        verbose_name=_("image"),
-    )
-
-    class Meta:
-        verbose_name = _("post screenshot")
-        verbose_name_plural = _("post screenshots")
-        constraints = [
-            models.UniqueConstraint(
-                fields=["post", "source_path"],
-                condition=~models.Q(source_path=""),
-                name="unique_screenshot_per_post_source",
-            ),
-        ]
-
-
-@receiver(post_delete, sender=PostImage)
-@receiver(post_delete, sender=PostVideo)
-@receiver(post_delete, sender=PostScreenshot)
-def _delete_post_media_files(sender, instance, **kwargs):
+@receiver(post_delete, sender=SocialMediaPost)
+def _delete_post_screenshot_file(sender, instance, **kwargs):
     # The overwrite storage doesn't deduplicate (unlike HashedFilenameStorage),
-    # so every row owns its files outright — delete them from storage when the
-    # row goes, including cascades from a deleted post/account. `save=False`
-    # because the row is already gone. Both the media file and a video's
-    # transcript sidecar are covered.
-    for field_name in (instance.media_field_name, "transcript_file"):
-        field = getattr(instance, field_name, None) if field_name else None
-        if field:
-            field.delete(save=False)
+    # so every post owns its screenshot file outright — delete it from storage
+    # when the post goes, including cascades from a deleted account. `save=False`
+    # because the row is already gone.
+    if instance.screenshot:
+        instance.screenshot.delete(save=False)
+
+
+class RedactionRule(models.Model):
+    """A term→placeholder substitution masking sensitive text (slurs, names).
+
+    Applied read-time over assembled text — display, `search_text` and
+    `topic_text` — by `apply_redactions`, so the raw imported text is never
+    mutated. A rule is *global* when it lists no `posts` (applied to every post,
+    for terms that are always sensitive) or *scoped* to the `posts` it lists
+    (the context-dependent cases, shareable across several posts). The masked
+    form is frozen into the search index / topic fit when those are derived, so
+    editing a rule requires a re-index / topic re-fit to take effect there.
+    """
+
+    pattern = models.CharField(
+        max_length=255,
+        verbose_name=_("pattern"),
+        help_text=_("Literal term (matched whole-word) or, if marked, a regex."),
+    )
+    is_regex = models.BooleanField(default=False, verbose_name=_("is regex"))
+    placeholder = models.CharField(
+        max_length=100,
+        verbose_name=_("placeholder"),
+        help_text=_("Replacement shown in place of the term, e.g. “[N-Wort]”."),
+    )
+    enabled = models.BooleanField(default=True, verbose_name=_("enabled"))
+    posts = models.ManyToManyField(
+        SocialMediaPost,
+        blank=True,
+        related_name="redaction_rules",
+        verbose_name=_("posts"),
+        help_text=_("Leave empty for a global rule; otherwise scope to these posts."),
+    )
+
+    class Meta:
+        verbose_name = _("redaction rule")
+        verbose_name_plural = _("redaction rules")
+        ordering = ["pattern"]
+
+    def __str__(self):
+        return f"{self.pattern} → {self.placeholder}"
+
+    def compiled_pattern(self):
+        # Compiled regex for this rule, or None when the pattern is empty or an
+        # invalid regex (logged, skipped — one bad rule must not break the pass).
+        if not self.pattern:
+            return None
+        pattern = (
+            self.pattern if self.is_regex else r"\b" + re.escape(self.pattern) + r"\b"
+        )
+        try:
+            return re.compile(pattern, re.IGNORECASE)
+        except re.error:
+            logger.warning("Invalid redaction regex %r; skipping.", self.pattern)
+            return None
+
+    def apply(self, text: str) -> str:
+        if not text:
+            return text
+        rx = self.compiled_pattern()
+        return rx.sub(self.placeholder, text) if rx is not None else text
+
+
+@receiver(post_save, sender=RedactionRule)
+@receiver(post_delete, sender=RedactionRule)
+def _invalidate_redactor_on_change(sender, **kwargs):
+    # Drop the cached global redactor so the next render/index recompiles. A
+    # rule change only affects already-derived search/topic artifacts after a
+    # re-index / topic re-fit.
+    invalidate_global_redactor()
+
+
+@receiver(m2m_changed, sender=RedactionRule.posts.through)
+def _invalidate_redactor_on_scope_change(sender, **kwargs):
+    # Adding/removing posts can flip a rule between global and scoped, so the
+    # global set may have changed — invalidate the cache.
+    invalidate_global_redactor()
 
 
 class Collection(models.Model):
@@ -1831,7 +1727,19 @@ class EvidenceMention(models.Model):
         related_name="mentions",
         verbose_name=_("chapter"),
     )
+    # The curator's relevant quote for this footnote (= source `fliesstext`).
+    # Currently often not usable, so it is kept but NOT wired into
+    # display/search/topics; revisit later.
     citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
+    # Video-excerpt fields (= source `video_timestamp`), set only for mentions of
+    # a video post. `start`/`end` locate the excerpt in the video; `raw_transcript`
+    # is the verbatim auto-transcript of that window and is the searched /
+    # topic-modelled text for a video (see `Evidence._video_transcript_segments`).
+    start = models.DurationField(null=True, blank=True, verbose_name=_("start"))
+    end = models.DurationField(null=True, blank=True, verbose_name=_("end"))
+    raw_transcript = models.TextField(
+        blank=True, default="", verbose_name=_("raw transcript")
+    )
 
     class Meta:
         verbose_name = _("evidence mention")

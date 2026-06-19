@@ -9,12 +9,8 @@ from froide_evidencecollection.models import (
     Chapter,
     Evidence,
     EvidenceMention,
-    PostImage,
-    PostScreenshot,
-    PostVideo,
     SocialMediaAccount,
     SocialMediaPost,
-    VideoExcerpt,
 )
 
 from .factories import OrganizationFactory, PersonFactory
@@ -127,27 +123,26 @@ class TestJSONImporter:
     @pytest.mark.django_db
     def test_import_creates_post_media(self, person, tmp_path, settings):
         settings.MEDIA_ROOT = str(tmp_path / "media")
-        (tmp_path / "img").mkdir()
         (tmp_path / "shot").mkdir()
-        (tmp_path / "srt").mkdir()
-        (tmp_path / "img" / "y.png").write_bytes(b"fake-image")
         (tmp_path / "shot" / "s.png").write_bytes(b"fake-screenshot")
-        (tmp_path / "srt" / "x.srt").write_bytes(b"fake-srt")
 
         post = _make_post(
+            # Image/video are tracked by source path only (binaries not stored).
             image_file="./img/y.png",
-            # `image_alt_text` accompanies `image_file`: alt text plus a
-            # German JA/NEIN flag for whether the image relates to the text.
-            image_alt_text={"alt_text": "A protest sign", "text_bezug_zum_bild": "JA"},
+            # `image_alt_text` accompanies `image_file`: the alt-text description.
+            image_alt_text={"alt_text": "A protest sign"},
             video_file="./video/x.mp4",
-            # `srt_file` is the video's transcript sidecar (single path string).
-            srt_file="./srt/x.srt",
-            # `screenshot_file` is a single path string.
+            # The full video transcript, kept verbatim on the post.
+            transcription="the full transcript",
+            # `screenshot_file` is the one file-backed post media (single path).
             screenshot_file="./shot/s.png",
-            # `report_data` is currently required by the importer (temporary).
-            # `video_timestamp` carries the video's excerpts.
+            # `video_timestamp` is row-parallel to topic/footnote/fliesstext and
+            # folds onto the matching mention as start/end/raw_transcript.
             report_data={
                 "footnote_url": ["https://t.me/example/1"],
+                "topic": ["Disinformation"],
+                "footnote_id": ["fn1"],
+                "fliesstext": ["the curated quote"],
                 "video_timestamp": [
                     {"start": "00:00:01", "end": "00:00:05", "excerpt": "spoken words"},
                 ],
@@ -166,50 +161,38 @@ class TestJSONImporter:
         JSONImporter(path).run()
 
         sm_post = SocialMediaPost.objects.get()
-        image = sm_post.images.get()
-        video = sm_post.videos.get()
-        screenshot = sm_post.screenshots.get()
-        # The video_timestamp entry becomes the video's (order 0) excerpt, with
-        # "HH:MM:SS" parsed into start/end durations.
-        excerpt = video.excerpts.get()
-        assert excerpt.text == "spoken words"
-        assert excerpt.start == timedelta(seconds=1)
-        assert excerpt.end == timedelta(seconds=5)
-        assert image.content_text == ""
-        # Alt-text fields land on the image; JA -> True.
-        assert image.description == "A protest sign"
-        assert image.is_related_to_text is True
-        assert video.source_path == "./video/x.mp4"
-        assert screenshot.source_path == "./shot/s.png"
-        # Image/screenshot bytes are copied into their ImageField; a video carries
-        # no binary file, only its transcript sidecar and excerpts.
-        assert image.image.read() == b"fake-image"
-        assert screenshot.image.read() == b"fake-screenshot"
-        # The SRT sidecar lands in the video's transcript_file.
-        assert video.transcript_file.read() == b"fake-srt"
+        # Media tracked by source path on the post; only the screenshot is a file.
+        assert sm_post.image_source_path == "./img/y.png"
+        assert sm_post.image_description == "A protest sign"
+        assert sm_post.video_source_path == "./video/x.mp4"
+        assert sm_post.is_video is True
+        assert sm_post.transcription == "the full transcript"
+        assert sm_post.screenshot_source_path == "./shot/s.png"
+        assert sm_post.screenshot.read() == b"fake-screenshot"
+
+        # The video_timestamp folds onto the (single) mention, parsed into
+        # start/end durations; the curated quote lands in `citation`.
+        mention = EvidenceMention.objects.get()
+        assert mention.citation == "the curated quote"
+        assert mention.raw_transcript == "spoken words"
+        assert mention.start == timedelta(seconds=1)
+        assert mention.end == timedelta(seconds=5)
 
         # Idempotent: a second run neither duplicates rows nor reports changes.
         importer = JSONImporter(path)
         importer.run()
-        assert PostImage.objects.count() == 1
-        assert PostVideo.objects.count() == 1
-        assert VideoExcerpt.objects.count() == 1
-        assert PostScreenshot.objects.count() == 1
-        stats = importer.log_stats()
-        assert "PostImage" not in stats
-        assert "PostVideo" not in stats
-        assert "VideoExcerpt" not in stats
-        assert "PostScreenshot" not in stats
+        assert SocialMediaPost.objects.count() == 1
+        assert EvidenceMention.objects.count() == 1
+        assert importer.log_stats() == {}
 
     @pytest.mark.django_db
-    def test_reimport_backfills_missing_transcript(self, person, tmp_path, settings):
+    def test_reimport_backfills_missing_screenshot(self, person, tmp_path, settings):
         settings.MEDIA_ROOT = str(tmp_path / "media")
-        (tmp_path / "srt").mkdir()
-        transcript = tmp_path / "srt" / "x.srt"
+        (tmp_path / "shot").mkdir()
+        screenshot = tmp_path / "shot" / "s.png"
 
         post = _make_post(
-            video_file="./video/x.mp4",
-            srt_file="./srt/x.srt",
+            screenshot_file="./shot/s.png",
             report_data={"footnote_url": ["https://t.me/example/1"]},
         )
         path = _write_dump(
@@ -222,30 +205,31 @@ class TestJSONImporter:
             },
         )
 
-        # First run: the transcript isn't on disk yet, so the row is created
-        # without one (the historical situation that left 0 files attached).
+        # First run: the file isn't on disk yet, so the post is saved without a
+        # screenshot (the source path is still recorded).
         JSONImporter(path).run()
-        m = PostVideo.objects.get()
-        assert not m.transcript_file
-        assert m.source_path == "./video/x.mp4"
+        sm_post = SocialMediaPost.objects.get()
+        assert not sm_post.screenshot
+        assert sm_post.screenshot_source_path == "./shot/s.png"
 
-        # The transcript becomes available; a re-import backfills it onto the
-        # existing row rather than skipping it via the update branch.
-        transcript.write_bytes(b"fake-srt")
+        # The file becomes available; a re-import backfills it onto the existing
+        # post rather than skipping it.
+        screenshot.write_bytes(b"fake-screenshot")
         JSONImporter(path).run()
-        assert PostVideo.objects.count() == 1
-        assert PostVideo.objects.get().transcript_file.read() == b"fake-srt"
+        sm_post.refresh_from_db()
+        assert sm_post.screenshot.read() == b"fake-screenshot"
 
     @pytest.mark.django_db
-    def test_video_timestamps_become_ordered_excerpts(self, person, tmp_path):
+    def test_video_timestamps_fold_into_mentions(self, person, tmp_path):
         post = _make_post(
             video_file="./video/x.mp4",
             report_data={
                 "footnote_url": ["https://t.me/example/1"],
+                "topic": ["A", "B"],
+                "footnote_id": ["1", "2"],
+                "fliesstext": ["quote a", "quote b"],
                 "video_timestamp": [
                     {"start": "00:00:10", "end": "00:00:20", "excerpt": "first"},
-                    # An entirely-empty entry is skipped, not stored as a row.
-                    {"start": None, "end": None, "excerpt": None},
                     {"start": "01:02:03", "end": "01:02:30", "excerpt": "second"},
                 ],
             },
@@ -262,19 +246,19 @@ class TestJSONImporter:
 
         JSONImporter(path).run()
 
-        video = PostVideo.objects.get()
-        # The empty entry is dropped; the two real ones become ordered excerpts.
-        excerpts = list(video.excerpts.all())
-        assert [(e.order, e.text) for e in excerpts] == [(0, "first"), (1, "second")]
-        assert excerpts[0].start == timedelta(seconds=10)
-        assert excerpts[0].end == timedelta(seconds=20)
-        assert excerpts[1].start == timedelta(hours=1, minutes=2, seconds=3)
+        # Each video_timestamp lands on its row-parallel mention.
+        mentions = {m.category.name: m for m in EvidenceMention.objects.all()}
+        assert mentions["A"].raw_transcript == "first"
+        assert mentions["A"].start == timedelta(seconds=10)
+        assert mentions["A"].end == timedelta(seconds=20)
+        assert mentions["B"].raw_transcript == "second"
+        assert mentions["B"].start == timedelta(hours=1, minutes=2, seconds=3)
 
-        # Idempotent: re-running neither duplicates excerpts nor reports changes.
+        # Idempotent: re-running reports no mention changes.
         importer = JSONImporter(path)
         importer.run()
-        assert VideoExcerpt.objects.count() == 2
-        assert "VideoExcerpt" not in importer.log_stats()
+        assert EvidenceMention.objects.count() == 2
+        assert "EvidenceMention" not in importer.log_stats()
 
     @pytest.mark.django_db
     def test_reimport_same_data_produces_no_changes(self, person, tmp_path):

@@ -5,12 +5,10 @@ from froide_evidencecollection.models import (
     Evidence,
     EvidenceMention,
     Parliament,
-    PostImage,
-    PostVideo,
+    RedactionRule,
     SocialMediaAccount,
     SocialMediaPost,
     SyncableModel,
-    VideoExcerpt,
 )
 
 from .factories import OrganizationFactory, RoleFactory, syncable_model_factories
@@ -31,107 +29,154 @@ def _make_post(**overrides):
         "platform_post_id": ppid,
         "url": "https://t.me/example/1",
         "text": "post body",
-        "raw": {},
     }
     fields.update(overrides)
     return SocialMediaPost.objects.create(**fields)
 
 
 @pytest.mark.django_db
-class TestPostMediaTextSegments:
-    def test_media_text_flows_into_evidence_segments(self):
-        post = _make_post()
-        # An image's content_text surfaces as an `extracted_text` segment...
-        PostImage.objects.create(
-            post=post,
-            source_path="./img/a.png",
-            description="a protest sign",
-            content_text="STOP",
+class TestPostTextSegments:
+    def test_non_video_post_uses_its_whole_text(self):
+        # A non-video post contributes its title, body, description and the
+        # image's alt-text description — all searched and topic-modelled.
+        post = _make_post(
+            title="the title",
+            description="a description",
+            image_description="a protest sign",
         )
-        # ...and a video excerpt's text as a `transcription` segment.
-        video = PostVideo.objects.create(post=post, source_path="./video/b.mp4")
-        VideoExcerpt.objects.create(video=video, order=0, text="spoken words")
         evidence = Evidence.objects.create(social_media_post=post, external_id=1)
 
-        by_kind = {seg.kind: seg.text for seg in evidence.text_segments}
-        assert by_kind["body"] == "post body"
-        assert by_kind["description"] == "a protest sign"
-        assert by_kind["extracted_text"] == "STOP"
-        assert by_kind["transcription"] == "spoken words"
+        by_kind = {}
+        for seg in evidence.text_segments:
+            by_kind.setdefault(seg.kind, []).append(seg.text)
+        assert by_kind["title"] == ["the title"]
+        assert by_kind["body"] == ["post body"]
+        assert set(by_kind["description"]) == {"a description", "a protest sign"}
+        assert all(s.for_search and s.for_topics for s in evidence.text_segments)
 
-    def test_transcription_is_display_only(self):
-        # A video excerpt's transcript is shown on the detail page but is kept
-        # out of the search index and the topic input — the curated mention
-        # citations carry that text instead.
-        post = _make_post(text="")
-        video = PostVideo.objects.create(post=post, source_path="./video/b.mp4")
-        VideoExcerpt.objects.create(video=video, order=0, text="spoken words")
-        evidence = Evidence.objects.create(social_media_post=post, external_id=1)
-
-        seg = next(s for s in evidence.text_segments if s.kind == "transcription")
-        assert seg.for_search is False
-        assert seg.for_topics is False
-        assert "spoken words" not in evidence.search_text
-        assert "spoken words" not in evidence.topic_text
-
-    def test_mention_citation_feeds_search_and_topics(self):
-        # `EvidenceMention.citation` is a searched/topic-modelled segment, shown
-        # after the source text and labelled with its category and footnote.
-        post = _make_post(text="")
+    def test_video_post_uses_mention_raw_transcript(self):
+        # For a video post the per-mention raw_transcript is the searched /
+        # topic text; the full transcription is the fallback and is not used
+        # when a mention carries a transcript.
+        post = _make_post(
+            text="caption",
+            video_source_path="./video/b.mp4",
+            transcription="full transcript not used",
+        )
         evidence = Evidence.objects.create(social_media_post=post, external_id=1)
         category = Category.objects.create(name="Disinformation")
         EvidenceMention.objects.create(
             evidence=evidence,
             category=category,
             footnote="fn3",
-            citation="the relevant quote",
+            raw_transcript="the spoken excerpt",
         )
 
-        seg = next(s for s in evidence.text_segments if s.kind == "citation")
-        assert seg.text == "the relevant quote"
+        seg = next(s for s in evidence.text_segments if s.kind == "transcription")
+        assert seg.text == "the spoken excerpt"
         assert seg.for_search is True
         assert seg.for_topics is True
         assert seg.attribution == "Disinformation · fn3"
-        assert "the relevant quote" in evidence.search_text
-        assert "the relevant quote" in evidence.topic_text
+        assert "the spoken excerpt" in evidence.search_text
+        assert "the spoken excerpt" in evidence.topic_text
+        # The caption rides along, but the full transcription does not.
+        assert "caption" in evidence.search_text
+        assert "full transcript not used" not in evidence.search_text
 
-    def test_topic_text_orders_media_by_signal(self):
-        post = _make_post(text="")
-        # extracted_text leads (priority 0); transcription is display-only so it
-        # drops out of the topic input; descriptions (priority 2) trail in
-        # source order.
-        PostImage.objects.create(
-            post=post,
-            source_path="./img/a.png",
-            description="image scene",
-            content_text="image words",
+    def test_video_post_falls_back_to_full_transcription(self):
+        # With no per-mention transcript, the post's full transcription is used
+        # for display/search/topics.
+        post = _make_post(
+            text="",
+            video_source_path="./video/b.mp4",
+            transcription="the whole transcript",
         )
-        video = PostVideo.objects.create(
-            post=post,
-            source_path="./video/b.mp4",
-            description="video scene",
-        )
-        VideoExcerpt.objects.create(video=video, order=0, text="video speech")
         evidence = Evidence.objects.create(social_media_post=post, external_id=1)
 
-        assert evidence.topic_text == ("image words\n\nimage scene\n\nvideo scene")
+        seg = next(s for s in evidence.text_segments if s.kind == "transcription")
+        assert seg.text == "the whole transcript"
+        assert seg.for_search is True
+        assert "the whole transcript" in evidence.topic_text
 
-    def test_redistributed_media_is_prefixed_and_attributed(self):
-        inner = _make_post(platform_post_id="inner", url="https://t.me/x/2")
-        inner_video = PostVideo.objects.create(
-            post=inner, source_path="./video/inner.mp4"
+    def test_video_post_excludes_description(self):
+        # A video post's (often promotional) description is dropped from the
+        # segments — the transcript carries the content.
+        post = _make_post(
+            text="caption",
+            description="promo blurb",
+            video_source_path="./video/b.mp4",
+            transcription="speech",
         )
-        VideoExcerpt.objects.create(video=inner_video, order=0, text="quoted speech")
+        evidence = Evidence.objects.create(social_media_post=post, external_id=1)
+
+        assert "promo blurb" not in evidence.search_text
+        assert "caption" in evidence.search_text
+
+    def test_citation_is_not_wired_into_segments(self):
+        # `EvidenceMention.citation` is kept on the model but unwired from
+        # display/search/topics.
+        post = _make_post(text="body")
+        evidence = Evidence.objects.create(social_media_post=post, external_id=1)
+        category = Category.objects.create(name="Disinformation")
+        EvidenceMention.objects.create(
+            evidence=evidence,
+            category=category,
+            footnote="fn3",
+            citation="the curated quote",
+        )
+
+        assert "the curated quote" not in evidence.search_text
+        assert "the curated quote" not in evidence.topic_text
+
+    def test_redistributed_text_is_prefixed_and_attributed(self):
+        inner = _make_post(
+            platform_post_id="inner", url="https://t.me/x/2", text="quoted text"
+        )
         outer = _make_post(platform_post_id="outer", url="https://t.me/x/3")
         outer.redistributes = inner
         outer.save(update_fields=["redistributes"])
         evidence = Evidence.objects.create(social_media_post=outer, external_id=1)
 
-        seg = next(
-            s for s in evidence.text_segments if s.kind == "redistributed:transcription"
-        )
-        assert seg.text == "quoted speech"
+        seg = next(s for s in evidence.text_segments if s.kind == "redistributed:body")
+        assert seg.text == "quoted text"
         assert seg.attribution == str(inner.account)
+
+
+@pytest.mark.django_db
+class TestRedaction:
+    def test_global_rule_masks_everywhere(self):
+        post = _make_post(text="the Badword appears here")
+        evidence = Evidence.objects.create(social_media_post=post, external_id=1)
+        RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+
+        assert "Badword" not in evidence.search_text
+        assert "[X]" in evidence.search_text
+        assert "Badword" not in evidence.topic_text
+        # The raw imported field is untouched; only the assembled text is masked.
+        post.refresh_from_db()
+        assert "Badword" in post.text
+
+    def test_disabled_rule_does_not_mask(self):
+        post = _make_post(text="the Badword appears here")
+        evidence = Evidence.objects.create(social_media_post=post, external_id=1)
+        RedactionRule.objects.create(
+            pattern="Badword", placeholder="[X]", enabled=False
+        )
+
+        assert "Badword" in evidence.search_text
+
+    def test_scoped_rule_only_masks_its_posts(self):
+        scoped = _make_post(platform_post_id="a", text="secret name here")
+        other = _make_post(platform_post_id="b", text="secret name here")
+        ev_scoped = Evidence.objects.create(social_media_post=scoped, external_id=1)
+        ev_other = Evidence.objects.create(social_media_post=other, external_id=2)
+        rule = RedactionRule.objects.create(pattern="secret", placeholder="[Name]")
+        rule.posts.add(scoped)
+
+        assert "secret" not in ev_scoped.search_text
+        assert "[Name]" in ev_scoped.search_text
+        # The other post is untouched (the rule is scoped, not global).
+        assert "secret" in ev_other.search_text
 
 
 @pytest.mark.django_db

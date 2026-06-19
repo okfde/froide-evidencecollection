@@ -21,13 +21,9 @@ from froide_evidencecollection.models import (
     Organization,
     Person,
     PoliticalPosition,
-    PostImage,
-    PostScreenshot,
-    PostVideo,
     Role,
     SocialMediaAccount,
     SocialMediaPost,
-    VideoExcerpt,
 )
 from froide_evidencecollection.relation_seeding import seed_relations_from_source
 from froide_evidencecollection.utils import (
@@ -172,19 +168,6 @@ def _parse_month(value, end=False):
         return None
     day = monthrange(year, month)[1] if end else 1
     return date(year, month, day)
-
-
-def _parse_ja_nein(value):
-    # German yes/no flag ("JA"/"NEIN") -> bool; anything else (blank, missing,
-    # unexpected) -> None so "unknown" stays distinct from an explicit "no".
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip().upper()
-    if normalized == "JA":
-        return True
-    if normalized == "NEIN":
-        return False
-    return None
 
 
 class JSONImporter:
@@ -573,12 +556,22 @@ class JSONImporter:
             return
 
         references = item.get("references") or []
+        # `image_alt_text` accompanies `image_file`: a dict carrying the
+        # curator's alt text. Media is now tracked by source path on the post
+        # itself (only the screenshot is stored as a file, attached below).
+        alt = item.get("image_alt_text") or {}
         post_fields = {
             "url": item["url"],
             "posted_at": posted_at,
             "edited_at": edited_at,
             "text": item.get("text") or "",
             "title": item.get("title") or "",
+            "description": item.get("description") or "",
+            "transcription": item.get("transcription") or "",
+            "image_source_path": item.get("image_file") or "",
+            "image_description": (alt.get("alt_text") or "").strip(),
+            "video_source_path": item.get("video_file") or "",
+            "screenshot_source_path": item.get("screenshot_file") or "",
             "view_count": item.get("view_count"),
             "like_count": item.get("like_count"),
             "comment_count": item.get("comment_count"),
@@ -586,7 +579,6 @@ class JSONImporter:
             "share_count": item.get("share_count"),
             "reactions": item.get("reactions"),
             "user_snapshot": account_data,
-            "raw": item,
             # A reference without a platform_post_id can't become a stub post
             # (see _upsert_stub_post); keep it verbatim so the fact that this
             # post redistributes *something* survives. A post redistributes at
@@ -601,7 +593,7 @@ class JSONImporter:
         }
 
         post = self._upsert_post(account, platform_post_id, post_fields)
-        self._import_media(post, item)
+        self._attach_screenshot(post, item)
         evidence = self._upsert_evidence(post, external_id, evidence_fields)
         seed_relations_from_source(evidence)
         self._upsert_mentions(evidence, item)
@@ -646,149 +638,21 @@ class JSONImporter:
         return post
 
     # ------------------------------------------------------------------
-    # Post media (images / videos)
+    # Post screenshot (the only file-backed post media)
     # ------------------------------------------------------------------
-    def _import_media(self, post, item):
-        # An image, (at most one) video, and an archival screenshot of the post.
-        # An image's content_text is curator-filled; a video's searched text is
-        # its excerpts (from report_data.video_timestamp); a screenshot is a
-        # pure provenance file. The per-media text feeds Evidence.text_segments.
-        # prepare_import has collapsed each single-file field to a path string
-        # (or None when absent). `image_alt_text` accompanies `image_file`: a
-        # dict carrying the curator's alt text (`alt_text`) and whether the
-        # image relates to the post's text (`text_bezug_zum_bild`, "JA"/"NEIN").
-        image_path = item.get("image_file")
-        if image_path:
-            alt = item.get("image_alt_text") or {}
-            self._upsert_file_media(
-                post,
-                PostImage,
-                image_path,
-                extra_fields={
-                    "description": (alt.get("alt_text") or "").strip(),
-                    "is_related_to_text": _parse_ja_nein(
-                        alt.get("text_bezug_zum_bild")
-                    ),
-                },
-            )
-
-        # A video's binary file is no longer imported; the row exists for its
-        # searched text (`video_timestamp` excerpts) and the `srt_file` transcript
-        # sidecar. `video_file` still marks that there's a video and supplies the
-        # `source_path` natural key.
-        video_path = item.get("video_file")
-        if video_path:
-            report_data = item.get("report_data") or {}
-            self._upsert_video(
-                post,
-                video_path,
-                report_data.get("video_timestamp") or [],
-                item.get("srt_file") or "",
-            )
-
-        screenshot_path = item.get("screenshot_file")
-        if screenshot_path:
-            self._upsert_file_media(post, PostScreenshot, screenshot_path)
-
-    def _upsert_file_media(self, post, model, source_path, extra_fields=None):
-        # Shared upsert for file-backed media (PostImage, PostScreenshot): create
-        # the row, or backfill the file on a row that predates file storage or
-        # whose file could not be resolved on an earlier run. `extra_fields`
-        # carries import-owned scalar fields (an image's `description` /
-        # `is_related_to_text`) that are set on create and overwritten on
-        # re-import; a screenshot passes none. An image's on-screen
-        # `content_text` is curator-filled (never imported), so it is untouched.
-        extra_fields = extra_fields or {}
-        field_name = model.media_field_name
-        self.stats.reset_instance(model)
-        obj = model.objects.filter(post=post, source_path=source_path).first()
-        if obj is None:
-            obj = model(post=post, source_path=source_path, **extra_fields)
-            self._attach_media_file(obj, source_path, field_name)
-            obj.save()
-            self.stats.track_created(model, obj)
-            return obj
-
-        old_data = to_dict(obj)
-        changed = False
-        if source_path and not getattr(obj, field_name):
-            self._attach_media_file(obj, source_path, field_name)
-            changed = changed or bool(getattr(obj, field_name))
-        for field, value in extra_fields.items():
-            if not equals(getattr(obj, field), value):
-                setattr(obj, field, value)
-                changed = True
-        if changed:
-            obj.save()
-            self.stats.track_updated(model, old_data, obj)
-        return obj
-
-    def _upsert_video(self, post, source_path, timestamps, transcript_path=""):
-        self.stats.reset_instance(PostVideo)
-        video = PostVideo.objects.filter(post=post, source_path=source_path).first()
-        if video is None:
-            video = PostVideo(post=post, source_path=source_path)
-            self._attach_media_file(video, transcript_path, "transcript_file")
-            video.save()
-            self.stats.track_created(PostVideo, video)
-            self._sync_video_excerpts(video, timestamps)
-            return video
-
-        # Backfill the transcript sidecar on a row that predates file storage (or
-        # whose transcript could not be resolved on an earlier run); a video
-        # carries no binary media file. The excerpts are synced separately so a
-        # curator override survives re-import.
-        old_data = to_dict(video)
-        update = False
-        if transcript_path and not video.transcript_file:
-            self._attach_media_file(video, transcript_path, "transcript_file")
-            update = update or bool(video.transcript_file)
-        if update:
-            video.save()
-            self.stats.track_updated(PostVideo, old_data, video)
-        self._sync_video_excerpts(video, timestamps)
-        return video
-
-    def _sync_video_excerpts(self, video, timestamps):
-        # Build the video's excerpts from report_data.video_timestamp: one row
-        # per entry, ordered by position, with `start`/`end` parsed from
-        # "HH:MM:SS". Entirely-empty entries (start, end and excerpt all blank)
-        # are skipped. Match existing rows by `order` and overwrite only the
-        # import-owned fields (`start`, `end`, `text`) so a curator's
-        # `text_override` survives re-import; drop rows the import no longer backs.
-        desired = []
-        for entry in timestamps or []:
-            start = self._parse_timestamp(entry.get("start"))
-            end = self._parse_timestamp(entry.get("end"))
-            text = (entry.get("excerpt") or "").strip()
-            if start is None and end is None and not text:
-                continue
-            desired.append((start, end, text))
-
-        existing = {e.order: e for e in video.excerpts.all()}
-        for order, (start, end, text) in enumerate(desired):
-            excerpt = existing.pop(order, None)
-            if excerpt is None:
-                self.stats.reset_instance(VideoExcerpt)
-                excerpt = VideoExcerpt.objects.create(
-                    video=video, order=order, start=start, end=end, text=text
-                )
-                self.stats.track_created(VideoExcerpt, excerpt)
-            elif (
-                not equals(excerpt.start, start)
-                or not equals(excerpt.end, end)
-                or not equals(excerpt.text, text)
-            ):
-                self.stats.reset_instance(VideoExcerpt)
-                old_data = to_dict(excerpt)
-                excerpt.start, excerpt.end, excerpt.text = start, end, text
-                excerpt.save()
-                self.stats.track_updated(VideoExcerpt, old_data, excerpt)
-        for excerpt in existing.values():
-            self.stats.reset_instance(VideoExcerpt)
-            data = to_dict(excerpt)
-            excerpt.delete()
-            self.stats.track_deleted(VideoExcerpt, data)
+    def _attach_screenshot(self, post, item):
+        # Copy the archival screenshot bytes onto the post. Image/video content
+        # files are no longer stored — only tracked by source path on the post
+        # (set in `post_fields`). The `screenshot_source_path` is likewise set in
+        # `post_fields`; here we attach the file, backfilling a post that has no
+        # screenshot file yet. Counted under the post's own create/update, so no
+        # separate stats are emitted.
+        source_path = item.get("screenshot_file")
+        if not source_path or post.screenshot:
+            return
+        self._attach_media_file(post, source_path, "screenshot")
+        if post.screenshot:
+            post.save(update_fields=["screenshot"])
 
     @staticmethod
     def _parse_timestamp(value):
@@ -811,14 +675,12 @@ class JSONImporter:
             return None
         return timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
-    def _attach_media_file(self, media, source_path, field_name="file"):
+    def _attach_media_file(self, media, source_path, field_name="screenshot"):
         # Import bundles ship media as paths relative to the JSON file
-        # (e.g. "./video/foo.mp4"); resolve against its directory and copy the
-        # bytes into the named FieldFile (the media field — `image` for an
-        # image/screenshot, `file` for a video — or `transcript_file` for a
-        # video's SRT sidecar). A missing file is
-        # tolerated — the row (and a video's excerpts) still feed text_segments —
-        # but logged so the miss is visible.
+        # (e.g. "./screenshot/foo.png"); resolve against its directory and copy
+        # the bytes into the named FieldFile (the post's `screenshot`). A missing
+        # file is tolerated — the post still carries its text/source paths — but
+        # logged so the miss is visible.
         if not source_path:
             return
         base_dir = os.path.dirname(os.path.abspath(self.json_path))
@@ -915,7 +777,6 @@ class JSONImporter:
                 "url": ref.get("url") or "",
                 "posted_at": _parse_dt(ref.get("created_at")),
                 "text": ref.get("text") or "",
-                "raw": ref,
             },
         )
         if created_post:
@@ -1004,14 +865,31 @@ class JSONImporter:
         footnotes = report_data.get("footnote_id") or []
         chapter_structures = report_data.get("chapter_sturcrue") or []
         citations = report_data.get("fliesstext") or []
+        # `video_timestamp` is row-parallel to the lists above (validated against
+        # the dump): index i carries `{start, end, excerpt}` for the same mention
+        # whose curated quote is `fliesstext[i]`. Present (non-empty) only for
+        # video evidence; absent entries leave start/end null and raw_transcript
+        # empty. This is what folded the former VideoExcerpt rows onto the mention.
+        video_timestamps = report_data.get("video_timestamp") or []
         if not (topics or footnotes or chapter_structures):
             return
 
         existing = {(m.category_id, m.footnote): m for m in evidence.mentions.all()}
         wanted = set()
 
-        for category_name, footnote, chapter_structure, citation in zip_longest(
-            topics, footnotes, chapter_structures, citations, fillvalue=None
+        for (
+            category_name,
+            footnote,
+            chapter_structure,
+            citation,
+            vts,
+        ) in zip_longest(
+            topics,
+            footnotes,
+            chapter_structures,
+            citations,
+            video_timestamps,
+            fillvalue=None,
         ):
             category_name = (category_name or "").strip()
             if not category_name:
@@ -1023,20 +901,37 @@ class JSONImporter:
             chapter = self._get_or_create_chapter(
                 chapter_structure or [], topic=category_name
             )
+            vts = vts or {}
+            scalar_fields = {
+                "chapter_structure": chapter_structure or [],
+                "citation": citation or "",
+                "start": self._parse_timestamp(vts.get("start")),
+                "end": self._parse_timestamp(vts.get("end")),
+                "raw_transcript": (vts.get("excerpt") or "").strip(),
+            }
             if key in existing:
                 mention = existing[key]
-                if chapter is not None and mention.chapter_id != chapter.id:
+                old_data = to_dict(mention)
+                changed = False
+                if (chapter.id if chapter else None) != mention.chapter_id:
                     mention.chapter = chapter
-                    mention.save(update_fields=["chapter"])
+                    changed = True
+                for field, value in scalar_fields.items():
+                    if not equals(getattr(mention, field), value):
+                        setattr(mention, field, value)
+                        changed = True
+                if changed:
+                    self.stats.reset_instance(EvidenceMention)
+                    mention.save()
+                    self.stats.track_updated(EvidenceMention, old_data, mention)
                 continue
             self.stats.reset_instance(EvidenceMention)
             mention = EvidenceMention.objects.create(
                 evidence=evidence,
                 category=category,
                 footnote=footnote,
-                chapter_structure=chapter_structure or [],
                 chapter=chapter,
-                citation=citation or "",
+                **scalar_fields,
             )
             self.stats.track_created(EvidenceMention, mention)
 

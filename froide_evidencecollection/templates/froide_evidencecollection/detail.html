@@ -286,24 +286,19 @@
             {% endif %}
             {# ── Visual material (screenshot + media descriptions) ─────── #}
             {% with post=object.social_media_post %}
-                {% if post.visible_screenshots or post.media_descriptions %}
+                {% if post.screenshot or post.media_descriptions %}
                     <section class="detail-section">
                         <h2 class="detail-heading">{% trans "Visual material" %}</h2>
-                        {% if post.visible_screenshots %}
+                        {% if post.screenshot %}
                             <div class="row g-3 mb-3">
-                                {% for shot in post.visible_screenshots %}
-                                    <div class="col-md-6">
-                                        <figure class="mb-0">
-                                            <img src="{{ shot.image.url }}"
-                                                 class="img-fluid rounded border"
-                                                 alt="{% trans 'Screenshot of the original post' %}">
-                                            <figcaption class="text-muted small mt-1">
-                                                {% trans "Screenshot of the original post" %}
-                                                {% if shot.description %}— {{ shot.description }}{% endif %}
-                                            </figcaption>
-                                        </figure>
-                                    </div>
-                                {% endfor %}
+                                <div class="col-md-6">
+                                    <figure class="mb-0">
+                                        <img src="{{ post.screenshot.url }}"
+                                             class="img-fluid rounded border"
+                                             alt="{% trans 'Screenshot of the original post' %}">
+                                        <figcaption class="text-muted small mt-1">{% trans "Screenshot of the original post" %}</figcaption>
+                                    </figure>
+                                </div>
                             </div>
                         {% endif %}
                         {# Descriptions of the attached media (the files themselves #}
