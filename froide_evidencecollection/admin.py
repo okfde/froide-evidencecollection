@@ -4,10 +4,12 @@ from django import forms
 from django.conf import settings
 from django.contrib import admin
 from django.db.models import F, Q
+from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
 
 from .models import (
+    Actor,
     Affiliation,
     Attachment,
     Election,
@@ -18,6 +20,8 @@ from .models import (
     Parliament,
     Person,
     Role,
+    SocialMediaAccount,
+    SocialMediaPost,
 )
 from .utils import selectable_regions
 
@@ -62,6 +66,118 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return settings.DEBUG
+
+
+class SocialMediaAccountInline(admin.TabularInline):
+    model = SocialMediaAccount
+    extra = 0
+    fields = [
+        "platform",
+        "platform_user_id",
+        "username",
+        "display_name",
+        "is_verified",
+        "follower_count",
+    ]
+    readonly_fields = fields
+
+
+class SocialMediaPostInline(admin.TabularInline):
+    model = SocialMediaPost
+    extra = 0
+    fields = ["post_link", "url", "posted_at", "redistributes"]
+    readonly_fields = fields
+
+    def post_link(self, obj):
+        url = obj.get_admin_url()
+        if url is None:
+            return obj.platform_post_id
+        return format_html('<a href="{}">{}</a>', url, obj.platform_post_id)
+
+    post_link.short_description = _("platform post ID")
+
+
+@admin.register(SocialMediaAccount)
+class SocialMediaAccountAdmin(ReadOnlyAdmin):
+    inlines = [SocialMediaPostInline]
+    list_display = [
+        "actor",
+        "platform",
+        "platform_user_id",
+        "username",
+        "display_name",
+        "is_verified",
+        "follower_count",
+    ]
+    list_filter = ["platform", "is_verified"]
+    search_fields = ["username", "display_name", "platform_user_id"]
+    readonly_fields = [
+        "actor",
+        "platform",
+        "username",
+        "platform_user_id",
+        "display_name",
+        "description",
+        "url",
+        "is_verified",
+        "follower_count",
+        "collected_at",
+    ]
+
+
+@admin.register(SocialMediaPost)
+class SocialMediaPostAdmin(ReadOnlyAdmin):
+    list_display = [
+        "platform_post_id",
+        "account",
+        "posted_at",
+        "view_count",
+        "like_count",
+        "comment_count",
+        "reply_to",
+        "redistributes",
+    ]
+    list_filter = ["account__platform"]
+    search_fields = ["platform_post_id", "url", "text", "title", "transcription"]
+    readonly_fields = [
+        "account",
+        "platform_post_id",
+        "url",
+        "posted_at",
+        "edited_at",
+        "text",
+        "title",
+        "description",
+        "transcription",
+        "screenshot_preview",
+        "screenshot_source_path",
+        "image_source_path",
+        "image_description",
+        "video_source_path",
+        "view_count",
+        "like_count",
+        "comment_count",
+        "share_count",
+        "reactions",
+        "reply_to",
+        "redistributes",
+        "user_snapshot",
+    ]
+
+    @admin.display(description=_("screenshot"))
+    def screenshot_preview(self, obj):
+        # Render the archival screenshot inline so editors can view it on the
+        # post page. The only file-backed post media.
+        if not obj.screenshot:
+            return _("(no file)")
+        style = "max-height: 240px; max-width: 320px;"
+        return format_html('<img src="{}" style="{}" />', obj.screenshot.url, style)
+
+
+@admin.register(Actor)
+class ActorAdmin(ReadOnlyAdmin):
+    inlines = [SocialMediaAccountInline]
+    list_display = ["name"]
 
 
 class AffiliationInline(admin.TabularInline):

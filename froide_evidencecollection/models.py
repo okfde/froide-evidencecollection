@@ -1,9 +1,12 @@
 import textwrap
 import uuid
+from dataclasses import dataclass, replace
 from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.functional import cached_property
@@ -11,7 +14,8 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.translation import pgettext_lazy
 
 from froide.georegion.models import GeoRegion
-from froide_evidencecollection.utils import to_dict
+from froide_evidencecollection.storage import OverwriteStorage, post_screenshot_path
+from froide_evidencecollection.utils import make_evidence_slug, to_dict
 
 
 class TrackableModel(models.Model):
@@ -384,6 +388,389 @@ class Affiliation(SyncableModel):
         if self.aw_id:
             return f"https://www.abgeordnetenwatch.de/api/v2/candidacies-mandates/{self.aw_id}"
         return None
+
+
+class SocialMediaAccount(models.Model):
+    class Platform(models.TextChoices):
+        FACEBOOK = "facebook", _("Facebook")
+        INSTAGRAM = "instagram", _("Instagram")
+        TELEGRAM = "telegram", _("Telegram")
+        TIKTOK = "tiktok", _("TikTok")
+        TWITTER = "twitter", _("Twitter")
+        YOUTUBE = "youtube", _("YouTube")
+
+    actor = models.ForeignKey(
+        Actor,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="social_media_accounts",
+        verbose_name=_("actor"),
+    )
+    platform = models.CharField(
+        max_length=20, choices=Platform.choices, verbose_name=_("platform")
+    )
+    username = models.CharField(max_length=255, verbose_name=_("username"))
+    platform_user_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("platform user ID"),
+    )
+    display_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("display name"),
+    )
+    description = models.TextField(
+        blank=True, default="", verbose_name=_("description")
+    )
+    url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name=_("URL"),
+    )
+    is_verified = models.BooleanField(
+        null=True, blank=True, verbose_name=_("is verified")
+    )
+    follower_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("follower count")
+    )
+    collected_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("collected_at")
+    )
+
+    class Meta:
+        verbose_name = _("social media account")
+        verbose_name_plural = _("social media accounts")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["platform", "platform_user_id"],
+                name="unique_social_media_account",
+            ),
+        ]
+        ordering = ("platform", "username")
+
+    def __str__(self):
+        actor = self.actor or _("(unknown)")
+        return f"{actor} - {self.get_platform_display()}: {self.username}"
+
+    def exclude_from_serialization(self):
+        return ["id"]
+
+
+# Cap how deep `text_segments()` follows a chain of redistributed posts
+# (repost-of-a-repost). The cycle guard alone would terminate, but real chains
+# are 1–2 hops; this bounds work and query depth for pathological data.
+MAX_REDISTRIBUTION_DEPTH = 3
+
+
+@dataclass(frozen=True)
+class TextSegment:
+    """One labelled piece of textual content belonging to an evidence source.
+
+    Sources expose their text as a list of these rather than a flat string, so
+    the same definition drives the detail view (each segment rendered as a
+    distinct, individually formatted block), full-text search (`for_search`)
+    and topic modelling (`for_topics`). `attribution` is set on segments lifted
+    from a redistributed post so display can show provenance.
+    """
+
+    kind: str
+    label: str
+    text: str
+    fmt: str = "plain"
+    for_search: bool = True
+    for_topics: bool = True
+    attribution: str = ""
+
+    @property
+    def is_redistributed(self) -> bool:
+        return self.kind.startswith("redistributed:")
+
+    @property
+    def base_kind(self) -> str:
+        # The semantic kind without the `redistributed:` prefix, so the detail
+        # view can pick a per-kind style (quote / post / caption / …) without
+        # branching on provenance. Mirrors `_topic_sort_key`'s split.
+        return self.kind.split(":", 1)[1] if self.is_redistributed else self.kind
+
+
+class EvidenceSource:
+    """
+    Uniform accessor surface for models attachable to an Evidence as a source.
+
+    Subclasses expose `url` (model field) and implement `display_text`,
+    `publication_date` and `text_segments` so callers don't branch on source
+    type.
+    """
+
+    url: str
+
+    @property
+    def display_text(self) -> str:
+        raise NotImplementedError
+
+    @property
+    def publication_date(self):
+        raise NotImplementedError
+
+    def text_segments(self) -> list[TextSegment]:
+        raise NotImplementedError
+
+    def compute_slug(self) -> str:
+        """Derive the stable public slug for an Evidence backed by this source.
+
+        Each source type owns its slug derivation because the seed is a frozen
+        public contract (see `make_evidence_slug`); the value is computed once on
+        the Evidence and never changes afterwards.
+        """
+        raise NotImplementedError
+
+
+class PostMediaMixin(models.Model):
+    """Media tracking for a `SocialMediaPost`.
+
+    A post has at most one image and at most one video, so media no longer needs
+    its own tables: the screenshot is stored as a file (the only file-backed
+    post media — an archival capture of the post for provenance), while the
+    content image and video are merely *tracked* by their import source path
+    (the binaries are not stored, matching that they were never rendered
+    publicly). `image_description` is the image's alt text; the video's full
+    `transcription` is kept verbatim as a display/backup copy and is searched /
+    topic-modelled only as the fallback when no `EvidenceMention.raw_transcript`
+    excerpt exists (see `Evidence._video_transcript_segments`).
+    """
+
+    screenshot = models.ImageField(
+        null=True,
+        blank=True,
+        max_length=255,
+        upload_to=post_screenshot_path,
+        storage=OverwriteStorage(),
+        verbose_name=_("screenshot"),
+    )
+    screenshot_source_path = models.CharField(
+        max_length=512, blank=True, default="", verbose_name=_("screenshot source path")
+    )
+    image_source_path = models.CharField(
+        max_length=512, blank=True, default="", verbose_name=_("image source path")
+    )
+    image_description = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("image description"),
+        help_text=_("Textual description (alt text) of what the image shows."),
+    )
+    video_source_path = models.CharField(
+        max_length=512, blank=True, default="", verbose_name=_("video source path")
+    )
+    transcription = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("transcription"),
+        help_text=_("Full verbatim video transcript; display/backup."),
+    )
+
+    class Meta:
+        abstract = True
+
+
+class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
+    account = models.ForeignKey(
+        SocialMediaAccount,
+        on_delete=models.PROTECT,
+        related_name="posts",
+        verbose_name=_("account"),
+    )
+    platform_post_id = models.CharField(
+        max_length=255, verbose_name=_("platform post ID")
+    )
+    url = models.URLField(max_length=500, verbose_name=_("URL"))
+    posted_at = models.DateTimeField(null=True, blank=True, verbose_name=_("posted at"))
+    edited_at = models.DateTimeField(null=True, blank=True, verbose_name=_("edited at"))
+    text = models.TextField(blank=True, default="", verbose_name=_("text"))
+    title = models.TextField(blank=True, default="", verbose_name=_("title"))
+    description = models.TextField(
+        blank=True, default="", verbose_name=_("description")
+    )
+    view_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("view count")
+    )
+    like_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("like count")
+    )
+    comment_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("comment count")
+    )
+    is_comment_disabled = models.BooleanField(
+        null=True, blank=True, verbose_name=_("comments disabled")
+    )
+    share_count = models.PositiveBigIntegerField(
+        null=True, blank=True, verbose_name=_("share count")
+    )
+    reactions = models.JSONField(null=True, blank=True, verbose_name=_("reactions"))
+    reply_to = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="replies",
+        verbose_name=_("reply to"),
+    )
+    redistributes = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="redistributed_by",
+        verbose_name=_("redistributed post"),
+        help_text=_(
+            "Post whose content this post redistributes " "(repost, quote, forward, …)."
+        ),
+    )
+    unresolved_redistribution = models.JSONField(
+        null=True,
+        blank=True,
+        verbose_name=_("unresolved redistribution"),
+        help_text=_(
+            "Reference to a redistributed post that lacks a stable platform "
+            "post ID and so could not be linked via `redistributes` (e.g. a "
+            "Telegram hidden forward). Stored verbatim from the source."
+        ),
+    )
+    user_snapshot = models.JSONField(
+        null=True, blank=True, verbose_name=_("user snapshot")
+    )
+
+    class Meta:
+        verbose_name = _("social media post")
+        verbose_name_plural = _("social media posts")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["account", "platform_post_id"],
+                name="unique_post_per_account",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.account} #{self.platform_post_id}"
+
+    def get_admin_url(self):
+        if self.pk is None:
+            return None
+        return reverse(
+            "admin:froide_evidencecollection_socialmediapost_change",
+            args=[self.pk],
+        )
+
+    @property
+    def is_video(self) -> bool:
+        # A post counts as a video post if the import tracked a video file for
+        # it. Drives the transcript-vs-own-text branch in
+        # `Evidence._video_transcript_segments`.
+        return bool(self.video_source_path)
+
+    def _own_text_segments(self) -> list[TextSegment]:
+        # This post's own authored text, excluding anything redistributed. For a
+        # video post the (often promotional) `description` is dropped — the
+        # transcript carries the content — but the title and body still ride
+        # along; non-video posts keep their whole text. The image's alt-text
+        # `image_description` is included where present. The video transcript is
+        # not here: it is emitted at the Evidence level
+        # (`Evidence._video_transcript_segments`).
+        fields = [
+            ("title", _("Post title"), self.title),
+            ("body", _("Post text"), self.text),
+        ]
+        if not self.is_video:
+            fields.append(("description", _("Description"), self.description))
+        fields.append(("description", _("Image description"), self.image_description))
+        segments = []
+        for kind, label, value in fields:
+            if value and value.strip():
+                segments.append(TextSegment(kind, label, value.strip()))
+        return segments
+
+    def text_segments(
+        self, *, include_redistributed: bool = True, _depth: int = 0, _seen=None
+    ) -> list[TextSegment]:
+        # `_seen`/`_depth` guard against cycles and runaway chains in the
+        # self-referential `redistributes` FK (untrusted, scraped data).
+        # `unresolved_redistribution` carries a reference, not text, by design,
+        # so it contributes no segment here.
+        _seen = _seen if _seen is not None else set()
+        if self.pk in _seen:
+            return []
+        _seen.add(self.pk)
+
+        segments = self._own_text_segments()
+        if (
+            include_redistributed
+            and self.redistributes_id
+            and _depth < MAX_REDISTRIBUTION_DEPTH
+        ):
+            inner = self.redistributes.text_segments(
+                include_redistributed=True, _depth=_depth + 1, _seen=_seen
+            )
+            attribution = str(self.redistributes.account)
+            segments.extend(
+                replace(seg, kind=f"redistributed:{seg.kind}", attribution=attribution)
+                for seg in inner
+            )
+        return segments
+
+    @property
+    def full_text(self) -> str:
+        # Own searchable text only; used for the short `display_text` summary,
+        # so it stays cheap (no redistribution recursion / extra queries).
+        # NOTE: redaction is wired in by the RedactionRule commit, which wraps
+        # this in `apply_redactions(text, post=self)`.
+        text = "\n\n".join(
+            s.text
+            for s in self.text_segments(include_redistributed=False)
+            if s.for_search
+        )
+        return text
+
+    @property
+    def display_text(self) -> str:
+        return textwrap.shorten(self.full_text, width=50, placeholder="...")
+
+    @property
+    def publication_date(self):
+        return self.posted_at.date() if self.posted_at else None
+
+    @cached_property
+    def media_descriptions(self):
+        # (kind, text) shown in the detail view's Visual material section. The
+        # media files themselves are admin-only / not stored, only what they
+        # depict: the image's alt-text description and (for a video) that a
+        # transcript exists.
+        out = []
+        if self.image_description and self.image_description.strip():
+            out.append(("image", self.image_description.strip()))
+        return out
+
+    def compute_slug(self) -> str:
+        return make_evidence_slug(self.account.platform, self.platform_post_id)
+
+    def exclude_from_serialization(self):
+        # The user snapshot is a large JSON blob persisted but excluded from
+        # diffs so ImportExportRun.changes stays readable.
+        return ["id", "user_snapshot"]
+
+
+@receiver(post_delete, sender=SocialMediaPost)
+def _delete_post_screenshot_file(sender, instance, **kwargs):
+    # The overwrite storage doesn't deduplicate (unlike HashedFilenameStorage),
+    # so every post owns its screenshot file outright — delete it from storage
+    # when the post goes, including cascades from a deleted account. `save=False`
+    # because the row is already gone.
+    if instance.screenshot:
+        instance.screenshot.delete(save=False)
 
 
 class Evidence(TrackableModel):
