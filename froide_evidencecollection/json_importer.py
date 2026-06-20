@@ -248,6 +248,17 @@ class JSONImporter:
         self._actor_index = actor_index
         self._ambiguous_names = ambiguous
 
+        # The dump groups posts by scrape target, but one and the same post can
+        # be grouped under several targets (e.g. a person and their party's
+        # Landesverband), each carrying its *own* report_data — different
+        # footnotes/citations for the same post. Since all occurrences share one
+        # SocialMediaPost (keyed on account + platform_post_id) and thus one
+        # Evidence, importing each occurrence on its own would make the later one
+        # delete the earlier one's mentions (see `_upsert_mentions`). So collect
+        # occurrences by post identity first and merge their report_data, then
+        # import each post once with the union of all its mentions.
+        merged_items = {}
+        order = []
         for entry in data.values():
             target = self._resolve_target(entry, actor_index, ambiguous)
             if target is None:
@@ -265,9 +276,50 @@ class JSONImporter:
                     continue
 
                 for item in items:
-                    self._import_item(platform, item)
+                    key = self._post_identity(platform, item)
+                    existing = merged_items.get(key)
+                    if existing is None:
+                        merged_items[key] = (platform, item)
+                        order.append(key)
+                    else:
+                        self._merge_report_data(existing[1], item)
+
+        for key in order:
+            platform, item = merged_items[key]
+            self._import_item(platform, item)
 
         self._resolve_replies()
+
+    @staticmethod
+    def _post_identity(platform, item):
+        """Identity tuple matching the (account, platform_post_id) post key.
+
+        Mirrors how `_upsert_account`/`_upsert_post` identify a row, so two dump
+        occurrences that would map to the same SocialMediaPost share one key.
+        """
+        account = item.get("account") or {}
+        return (
+            platform,
+            str(account.get("platform_user_id")),
+            str(item.get("platform_post_id")),
+        )
+
+    @staticmethod
+    def _merge_report_data(base, extra):
+        """Fold another occurrence's report_data into ``base`` in place.
+
+        The report_data values are row-parallel lists (``topic[i]`` belongs with
+        ``footnote_id[i]`` etc.), so concatenating them per key keeps each
+        occurrence's rows aligned while unioning the mentions across occurrences.
+        Duplicate rows are harmless: `_upsert_mentions` collapses them on their
+        (category, footnote) key.
+        """
+        base_rd = base.get("report_data") or {}
+        extra_rd = extra.get("report_data") or {}
+        merged = dict(base_rd)
+        for field in set(base_rd) | set(extra_rd):
+            merged[field] = (base_rd.get(field) or []) + (extra_rd.get(field) or [])
+        base["report_data"] = merged
 
     def _discard_written_media_files(self):
         # Best-effort removal of files written during a run that then failed; a

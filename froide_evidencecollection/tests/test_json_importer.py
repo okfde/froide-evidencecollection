@@ -259,6 +259,47 @@ class TestJSONImporter:
         assert "EvidenceMention" not in importer.log_stats()
 
     @pytest.mark.django_db
+    def test_same_post_under_multiple_people_unions_mentions(self, person, tmp_path):
+        # The same post (same account + platform_post_id) is grouped under two
+        # scrape targets, each carrying its own report_data. Both occurrences map
+        # to one SocialMediaPost/Evidence, so the importer must keep the union of
+        # mentions rather than letting the second target wipe the first's.
+        other = PersonFactory(first_name="Erika", last_name="Musterfrau", external_id=2)
+        post_for_max = _make_post(
+            report_data={"topic": ["A"], "footnote_id": ["fn-max"]}
+        )
+        post_for_erika = _make_post(
+            report_data={"topic": ["B"], "footnote_id": ["fn-erika"]}
+        )
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {"telegram": [post_for_max]},
+                },
+                str(other.pk): {
+                    "label": "Erika Musterfrau",
+                    "social_media": {"telegram": [post_for_erika]},
+                },
+            },
+        )
+
+        JSONImporter(path).run()
+
+        # One shared post/evidence, both footnotes preserved.
+        assert SocialMediaPost.objects.count() == 1
+        assert Evidence.objects.count() == 1
+        footnotes = {m.footnote for m in EvidenceMention.objects.all()}
+        assert footnotes == {"fn-max", "fn-erika"}
+
+        # Idempotent: a second run keeps both mentions and reports no changes.
+        importer = JSONImporter(path)
+        importer.run()
+        assert EvidenceMention.objects.count() == 2
+        assert "EvidenceMention" not in importer.log_stats()
+
+    @pytest.mark.django_db
     def test_reimport_same_data_produces_no_changes(self, person, tmp_path):
         path = _write_dump(
             tmp_path,
