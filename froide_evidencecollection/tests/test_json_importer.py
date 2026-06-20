@@ -290,11 +290,14 @@ class TestJSONImporter:
         # One shared post/evidence, both footnotes preserved.
         assert SocialMediaPost.objects.count() == 1
         evidence = Evidence.objects.get()
-        footnotes = {m.footnote for m in EvidenceMention.objects.all()}
-        assert footnotes == {"fn-max", "fn-erika"}
+        by_footnote = {m.footnote: m for m in EvidenceMention.objects.all()}
+        assert set(by_footnote) == {"fn-max", "fn-erika"}
 
-        # Both grouped people are recorded as originators of the shared evidence.
+        # Both grouped people are recorded as originators of the shared evidence,
+        # and each mention is attributed to the person it was grouped under.
         assert set(evidence.originators.all()) == {person.actor, other.actor}
+        assert by_footnote["fn-max"].originator == person.actor
+        assert by_footnote["fn-erika"].originator == other.actor
 
         # Idempotent: a second run keeps both mentions and reports no changes.
         importer = JSONImporter(path)

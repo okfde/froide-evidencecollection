@@ -1418,6 +1418,18 @@ class EvidenceMention(models.Model):
         related_name="mentions",
         verbose_name=_("category"),
     )
+    # Which originator this specific mention is attributed to. An evidence can
+    # have several originators (e.g. two speakers in one video); each is grouped
+    # under its own footnotes/quotes in the source, so the mention records who
+    # said what. Always set: a mention is only created from a post grouped under
+    # a resolved actor. PROTECT so deleting an actor can't silently destroy the
+    # footnote/quote data attributed to them.
+    originator = models.ForeignKey(
+        Actor,
+        on_delete=models.PROTECT,
+        related_name="originated_mentions",
+        verbose_name=_("originator"),
+    )
     footnote = models.CharField(
         max_length=255, blank=True, default="", verbose_name=_("footnote")
     )

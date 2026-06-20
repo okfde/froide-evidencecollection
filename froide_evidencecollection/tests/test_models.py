@@ -1,6 +1,7 @@
 import pytest
 
 from froide_evidencecollection.models import (
+    Actor,
     Category,
     Evidence,
     EvidenceMention,
@@ -12,6 +13,11 @@ from froide_evidencecollection.models import (
 )
 
 from .factories import OrganizationFactory, RoleFactory, syncable_model_factories
+
+
+def _actor():
+    """A throwaway actor for mentions whose originator is irrelevant to the test."""
+    return Actor.objects.create(organization=OrganizationFactory())
 
 
 def _make_post(**overrides):
@@ -70,6 +76,7 @@ class TestPostTextSegments:
             category=category,
             footnote="fn3",
             raw_transcript="the spoken excerpt",
+            originator=_actor(),
         )
 
         seg = next(s for s in evidence.text_segments if s.kind == "transcription")
@@ -123,6 +130,7 @@ class TestPostTextSegments:
             category=category,
             footnote="fn3",
             citation="the curated quote",
+            originator=_actor(),
         )
 
         assert "the curated quote" not in evidence.search_text

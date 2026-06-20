@@ -9,6 +9,7 @@ from django.utils import timezone
 import pytest
 
 from froide_evidencecollection.models import (
+    Actor,
     Category,
     Chapter,
     Evidence,
@@ -19,6 +20,8 @@ from froide_evidencecollection.models import (
     Theme,
 )
 from froide_evidencecollection.views import EvidenceTopicCloudView
+
+from .factories import OrganizationFactory
 
 
 def _make_evidence(ext_id, *, fitted=False):
@@ -54,7 +57,10 @@ def _make_chapter(label, *, is_main_topic=False, parent=None):
 def _file_under(evidence, chapter, category):
     """File ``evidence`` under ``chapter`` via an EvidenceMention."""
     return EvidenceMention.objects.create(
-        evidence=evidence, category=category, chapter=chapter
+        evidence=evidence,
+        category=category,
+        chapter=chapter,
+        originator=Actor.objects.create(organization=OrganizationFactory()),
     )
 
 

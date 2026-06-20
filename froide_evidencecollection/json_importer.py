@@ -280,22 +280,33 @@ class JSONImporter:
 
                 for item in items:
                     key = self._post_identity(platform, item)
+                    # One originator id per report_data row, so a merged post's
+                    # mentions can be attributed to whoever they were grouped
+                    # under (see `_upsert_mentions`). The rows of one occurrence
+                    # all belong to this target; row count is the (equal) length
+                    # of its report_data lists.
+                    row_count = self._report_row_count(item.get("report_data") or {})
                     existing = merged_items.get(key)
                     if existing is None:
                         merged_items[key] = {
                             "platform": platform,
                             "item": item,
                             "originator_ids": {actor.id},
+                            "mention_originators": [actor.id] * row_count,
                         }
                         order.append(key)
                     else:
                         self._merge_report_data(existing["item"], item)
                         existing["originator_ids"].add(actor.id)
+                        existing["mention_originators"].extend([actor.id] * row_count)
 
         for key in order:
             merged = merged_items[key]
             self._import_item(
-                merged["platform"], merged["item"], merged["originator_ids"]
+                merged["platform"],
+                merged["item"],
+                merged["originator_ids"],
+                merged["mention_originators"],
             )
 
         self._resolve_replies()
@@ -330,6 +341,17 @@ class JSONImporter:
         for field in set(base_rd) | set(extra_rd):
             merged[field] = (base_rd.get(field) or []) + (extra_rd.get(field) or [])
         base["report_data"] = merged
+
+    @staticmethod
+    def _report_row_count(report_data):
+        """Number of mention rows in a single occurrence's report_data.
+
+        The row-parallel lists `_upsert_mentions` consumes are equal-length
+        within one occurrence (validated against the dump), so the count is the
+        longest of them — robust to a field being absent on a given post.
+        """
+        fields = ("topic", "footnote_id", "chapter_sturcrue", "fliesstext")
+        return max((len(report_data.get(f) or []) for f in fields), default=0)
 
     def _discard_written_media_files(self):
         # Best-effort removal of files written during a run that then failed; a
@@ -601,7 +623,7 @@ class JSONImporter:
     # ------------------------------------------------------------------
     # Per-item import
     # ------------------------------------------------------------------
-    def _import_item(self, platform, item, originator_ids=()):
+    def _import_item(self, platform, item, originator_ids=(), mention_originators=()):
         account_data = item["account"]
         platform_post_id = str(item["platform_post_id"])
         posted_at = _parse_dt(item.get("created_at"))
@@ -654,7 +676,7 @@ class JSONImporter:
         self._attach_screenshot(post, item)
         evidence = self._upsert_evidence(post, evidence_fields)
         self._seed_originators_from_targets(evidence, originator_ids)
-        self._upsert_mentions(evidence, item)
+        self._upsert_mentions(evidence, item, mention_originators)
 
         self._post_index[(account.id, post.platform_post_id)] = post.id
 
@@ -916,7 +938,7 @@ class JSONImporter:
     # ------------------------------------------------------------------
     # Evidence mentions (category/page tuples)
     # ------------------------------------------------------------------
-    def _upsert_mentions(self, evidence, item):
+    def _upsert_mentions(self, evidence, item, mention_originators=()):
         report_data = item.get("report_data") or {}
         topics = report_data.get("topic") or []
         footnotes = report_data.get("footnote_id") or []
@@ -928,6 +950,9 @@ class JSONImporter:
         # video evidence; absent entries leave start/end null and raw_transcript
         # empty. This is what folded the former VideoExcerpt rows onto the mention.
         video_timestamps = report_data.get("video_timestamp") or []
+        # `mention_originators` is row-parallel too: the actor id of whoever this
+        # row was grouped under, so a merged post's mentions are attributed to
+        # the right originator (see `_run`). Empty for callers that pass none.
         if not (topics or footnotes or chapter_structures):
             return
 
@@ -940,12 +965,14 @@ class JSONImporter:
             chapter_structure,
             citation,
             vts,
+            originator_id,
         ) in zip_longest(
             topics,
             footnotes,
             chapter_structures,
             citations,
             video_timestamps,
+            mention_originators,
             fillvalue=None,
         ):
             category_name = (category_name or "").strip()
@@ -965,6 +992,7 @@ class JSONImporter:
                 "start": self._parse_timestamp(vts.get("start")),
                 "end": self._parse_timestamp(vts.get("end")),
                 "raw_transcript": (vts.get("excerpt") or "").strip(),
+                "originator_id": originator_id,
             }
             if key in existing:
                 mention = existing[key]
