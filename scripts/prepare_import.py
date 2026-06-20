@@ -862,8 +862,8 @@ def main() -> None:
         "-o",
         "--output",
         type=Path,
-        default=Path("import.json"),
-        help="Output path (default: import.json).",
+        default=Path("scripts/data/import.json"),
+        help="Output path (default: scripts/data/import.json).",
     )
     parser.add_argument(
         "--survey",
@@ -904,6 +904,7 @@ def main() -> None:
             item = {**item, "functions": clean_functions(item["functions"])}
         result[item_id] = item
 
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
 
