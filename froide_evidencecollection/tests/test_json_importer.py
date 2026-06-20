@@ -289,9 +289,12 @@ class TestJSONImporter:
 
         # One shared post/evidence, both footnotes preserved.
         assert SocialMediaPost.objects.count() == 1
-        assert Evidence.objects.count() == 1
+        evidence = Evidence.objects.get()
         footnotes = {m.footnote for m in EvidenceMention.objects.all()}
         assert footnotes == {"fn-max", "fn-erika"}
+
+        # Both grouped people are recorded as originators of the shared evidence.
+        assert set(evidence.originators.all()) == {person.actor, other.actor}
 
         # Idempotent: a second run keeps both mentions and reports no changes.
         importer = JSONImporter(path)
@@ -843,18 +846,23 @@ class TestJSONImporter:
         )
         JSONImporter(path).run()
 
-        # The import never links accounts to actors, so no originator is seeded.
+        # The post is grouped under Max, so he is recorded as an originator from
+        # the dump grouping — even though the scraped account is not linked to him.
         evidence = Evidence.objects.get()
-        assert list(evidence.originators.all()) == []
-
-        # Once a curator links the account, a re-run seeds the originator.
         account = SocialMediaAccount.objects.get()
-        account.actor = person.actor
+        assert account.actor is None
+        assert list(evidence.originators.all()) == [person.actor]
+
+        # If a curator links the account to a *different* actor, a re-run seeds
+        # that actor too (the account link is independent of the grouping).
+        other = PersonFactory(first_name="Erika", last_name="Musterfrau", external_id=2)
+        other_actor = Actor.objects.create(person=other)
+        account.actor = other_actor
         account.save()
         JSONImporter(path).run()
 
         evidence.refresh_from_db()
-        assert list(evidence.originators.all()) == [person.actor]
+        assert set(evidence.originators.all()) == {person.actor, other_actor}
 
     @pytest.mark.django_db
     def test_links_reply_to_parent_post_within_batch(self, person, tmp_path):

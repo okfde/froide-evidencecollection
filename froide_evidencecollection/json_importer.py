@@ -255,19 +255,22 @@ class JSONImporter:
         # SocialMediaPost (keyed on account + platform_post_id) and thus one
         # Evidence, importing each occurrence on its own would make the later one
         # delete the earlier one's mentions (see `_upsert_mentions`). So collect
-        # occurrences by post identity first and merge their report_data, then
-        # import each post once with the union of all its mentions.
+        # occurrences by post identity first, merging their report_data and
+        # accumulating the set of targets they were grouped under, then import
+        # each post once with the union of all its mentions and originators.
         merged_items = {}
         order = []
         for entry in data.values():
             target = self._resolve_target(entry, actor_index, ambiguous)
             if target is None:
                 continue
-            # Ensure the Actor exists (referenced by functions and available for
-            # curators), but don't link scraped accounts to it: the dump groups
-            # posts by scrape target, yet a scraped account can no longer be
-            # assumed to belong to that actor.
-            self._get_or_create_actor(target)
+            # Ensure the Actor exists: it is referenced by functions and, below,
+            # recorded as an originator of every post grouped under this target.
+            # The scraped account is still never linked to the actor (the dump
+            # groups posts by scrape target, but the account that posted a given
+            # post can't be assumed to belong to that actor — see
+            # `_upsert_account`); the grouping only attests authorship/origin.
+            actor = self._get_or_create_actor(target)
             if isinstance(target, Person):
                 self._import_functions(target, entry)
             for platform, items in (entry.get("social_media") or {}).items():
@@ -279,14 +282,21 @@ class JSONImporter:
                     key = self._post_identity(platform, item)
                     existing = merged_items.get(key)
                     if existing is None:
-                        merged_items[key] = (platform, item)
+                        merged_items[key] = {
+                            "platform": platform,
+                            "item": item,
+                            "originator_ids": {actor.id},
+                        }
                         order.append(key)
                     else:
-                        self._merge_report_data(existing[1], item)
+                        self._merge_report_data(existing["item"], item)
+                        existing["originator_ids"].add(actor.id)
 
         for key in order:
-            platform, item = merged_items[key]
-            self._import_item(platform, item)
+            merged = merged_items[key]
+            self._import_item(
+                merged["platform"], merged["item"], merged["originator_ids"]
+            )
 
         self._resolve_replies()
 
@@ -591,7 +601,7 @@ class JSONImporter:
     # ------------------------------------------------------------------
     # Per-item import
     # ------------------------------------------------------------------
-    def _import_item(self, platform, item):
+    def _import_item(self, platform, item, originator_ids=()):
         account_data = item["account"]
         platform_post_id = str(item["platform_post_id"])
         posted_at = _parse_dt(item.get("created_at"))
@@ -644,6 +654,7 @@ class JSONImporter:
         self._attach_screenshot(post, item)
         evidence = self._upsert_evidence(post, evidence_fields)
         self._seed_relations_from_source(evidence)
+        self._seed_originators_from_targets(evidence, originator_ids)
         self._upsert_mentions(evidence, item)
 
         self._post_index[(account.id, post.platform_post_id)] = post.id
@@ -676,6 +687,20 @@ class JSONImporter:
         actor = post.account.actor
         if actor is not None:
             evidence.originators.add(actor)
+
+    def _seed_originators_from_targets(self, evidence, originator_ids):
+        """Record the scrape targets a post was grouped under as originators.
+
+        The dump groups each post under the actor(s) it documents; one post can
+        sit under several (e.g. two speakers in one video, or a person and their
+        party association). Those actors are the evidence's originators. This
+        records the *actor*, not an account link — the posting account is still
+        never tied to the actor (see `_upsert_account`). Add-only and idempotent
+        (M2M `add` ignores members already present), so curator edits and the
+        account-derived originator survive re-runs.
+        """
+        if originator_ids:
+            evidence.originators.add(*originator_ids)
 
     def _upsert_post(self, account, platform_post_id, post_fields):
         self.stats.reset_instance(SocialMediaPost)
