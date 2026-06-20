@@ -834,7 +834,7 @@ class TestJSONImporter:
         assert leaf_b.subsumed_evidences().count() == 1
 
     @pytest.mark.django_db
-    def test_seeds_originator_from_manually_linked_account(self, person, tmp_path):
+    def test_originators_come_from_grouping_not_account_holder(self, person, tmp_path):
         path = _write_dump(
             tmp_path,
             {
@@ -853,8 +853,8 @@ class TestJSONImporter:
         assert account.actor is None
         assert list(evidence.originators.all()) == [person.actor]
 
-        # If a curator links the account to a *different* actor, a re-run seeds
-        # that actor too (the account link is independent of the grouping).
+        # Linking the posting account to another actor must NOT make that actor
+        # an originator: the account holder is never assumed to be the originator.
         other = PersonFactory(first_name="Erika", last_name="Musterfrau", external_id=2)
         other_actor = Actor.objects.create(person=other)
         account.actor = other_actor
@@ -862,7 +862,7 @@ class TestJSONImporter:
         JSONImporter(path).run()
 
         evidence.refresh_from_db()
-        assert set(evidence.originators.all()) == {person.actor, other_actor}
+        assert list(evidence.originators.all()) == [person.actor]
 
     @pytest.mark.django_db
     def test_links_reply_to_parent_post_within_batch(self, person, tmp_path):

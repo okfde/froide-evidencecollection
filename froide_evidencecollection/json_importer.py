@@ -653,7 +653,6 @@ class JSONImporter:
         post = self._upsert_post(account, platform_post_id, post_fields)
         self._attach_screenshot(post, item)
         evidence = self._upsert_evidence(post, evidence_fields)
-        self._seed_relations_from_source(evidence)
         self._seed_originators_from_targets(evidence, originator_ids)
         self._upsert_mentions(evidence, item)
 
@@ -671,33 +670,16 @@ class JSONImporter:
         if reply_id is not None:
             self._pending_replies[post.id] = (str(reply_id), account.id)
 
-    def _seed_relations_from_source(self, evidence):
-        """Seed an evidence's originators from observation-layer source data.
-
-        Maps the originating actor recorded on the evidence's source (a
-        SocialMediaPost) onto its `originators` relation. Idempotent:
-        re-running adds nothing already present (M2M `add` is a no-op for
-        existing members), so curator edits are preserved across re-runs.
-        """
-        post = evidence.social_media_post
-        if post is None or not post.account_id:
-            return
-        # The import never links accounts to actors, so this only fires for
-        # accounts a curator has linked manually.
-        actor = post.account.actor
-        if actor is not None:
-            evidence.originators.add(actor)
-
     def _seed_originators_from_targets(self, evidence, originator_ids):
         """Record the scrape targets a post was grouped under as originators.
 
         The dump groups each post under the actor(s) it documents; one post can
         sit under several (e.g. two speakers in one video, or a person and their
-        party association). Those actors are the evidence's originators. This
-        records the *actor*, not an account link — the posting account is still
-        never tied to the actor (see `_upsert_account`). Add-only and idempotent
-        (M2M `add` ignores members already present), so curator edits and the
-        account-derived originator survive re-runs.
+        party association). Those actors — and *only* those — are the evidence's
+        originators: who holds the posting account is never assumed to be the
+        originator (the account is never even linked to an actor by the import,
+        see `_upsert_account`). Add-only and idempotent (M2M `add` ignores
+        members already present), so curator edits survive re-runs.
         """
         if originator_ids:
             evidence.originators.add(*originator_ids)
