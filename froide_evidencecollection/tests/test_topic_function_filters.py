@@ -27,13 +27,14 @@ from froide_evidencecollection.views import EvidenceTopicCloudView
 
 
 def _posted_evidence(actor, posted_at, ext_id):
-    """A topic-fitted, social-media-backed evidence posted by ``actor`` at
-    ``posted_at`` (an aware datetime)."""
+    """A topic-fitted, social-media-backed evidence with ``actor`` as its
+    originator, posted at ``posted_at`` (an aware datetime). The actor is linked
+    via ``Evidence.originators`` (the import-populated relation); the scraped
+    account is intentionally not linked to an actor, mirroring production."""
     account = SocialMediaAccount.objects.create(
         platform=SocialMediaAccount.Platform.TELEGRAM,
         username=f"u{ext_id}",
         platform_user_id=str(ext_id),
-        actor=actor,
     )
     post = SocialMediaPost.objects.create(
         account=account,
@@ -42,10 +43,12 @@ def _posted_evidence(actor, posted_at, ext_id):
         text="post body",
         posted_at=posted_at,
     )
-    return Evidence.objects.create(
+    evidence = Evidence.objects.create(
         social_media_post=post,
         topic_fit_at=timezone.now(),
     )
+    evidence.originators.add(actor)
+    return evidence
 
 
 def _filtered_ids(params):

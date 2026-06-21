@@ -27,7 +27,7 @@
                         </td>
                         <td>{{ item.post.account.get_platform_display|default:"—" }}</td>
                         <td>
-                            {{ item.post.account.actor|default:"—" }}
+                            {{ item.actors|default:"—" }}
                             {% if item.region %}<span class="topic-cloud-table__region">· {{ item.region }}</span>{% endif %}
                         </td>
                         <td class="text-end text-nowrap">

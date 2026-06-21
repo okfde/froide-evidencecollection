@@ -578,12 +578,10 @@ class EvidenceTopicCloudView(TemplateView):
         "region",
     )
 
-    # Relation path from an Evidence to the political positions held by the
-    # posting actor's person. Only social-media-post evidence reaches it;
-    # document-backed evidence has no account/actor and falls out.
-    POLITICAL_POSITION_PREFIX = (
-        "social_media_post__account__actor__person__political_positions"
-    )
+    # Relation path from an Evidence to the political positions held by an
+    # originator who is a person. Evidence whose originators are all
+    # organizations (or that has none) falls out.
+    POLITICAL_POSITION_PREFIX = "originators__person__political_positions"
 
     @classmethod
     def _has_active_filter(cls, params):
@@ -650,7 +648,7 @@ class EvidenceTopicCloudView(TemplateView):
     @classmethod
     def _political_position_q(cls, params):
         """Filter on the *function the originator held when the evidence was
-        posted* — the posting actor's person's political position, narrowed by
+        posted* — an originator person's political position, narrowed by
         any of three params:
 
         * ``role`` — the function/role of that position (a ``Role`` pk),
@@ -667,9 +665,10 @@ class EvidenceTopicCloudView(TemplateView):
         both day boundaries inclusive.
 
         Returns a ``Q`` to AND into the queryset, or ``None`` when none of the
-        three params is set. Only social-media-post evidence can match (the path
-        runs through the account's actor → person); document-backed evidence
-        falls out.
+        three params is set. Only evidence with a person originator can match
+        (the path runs through originators → person); the active-at-post-time
+        test still uses the social-media post's date, so the caller applies it
+        with ``distinct()`` to fold the to-many originators join.
         """
         pp = cls.POLITICAL_POSITION_PREFIX
         attr_conds = []
@@ -704,27 +703,28 @@ class EvidenceTopicCloudView(TemplateView):
         Mirrors `_political_position_q`'s active-at-post-time test (the position's
         start on or before and end on or after the post date, a null bound
         counting as unbounded) but only to *show* the Bundesland the originator's
-        function was anchored in. Evidence with no posting person, no dated post,
-        or no region-bearing active position is simply absent from the map. A
-        person holding several matching positions yields their distinct regions,
-        comma-joined.
+        function was anchored in. Evidence with no person originator, no dated
+        post, or no region-bearing active position is simply absent from the map.
+        Several matching positions (across one or more originator persons) yield
+        their distinct regions, comma-joined.
         """
-        # Posting person + post date per evidence. Only social-media evidence
-        # reaches a person (document-backed evidence has no account/actor).
+        # Originator person(s) + post date per evidence. The active-at-post-time
+        # test needs the post's date, so evidence without a dated post is
+        # skipped; evidence whose originators are all organizations has no
+        # person and falls out.
         person_ids = set()
-        ev_meta = []  # (evidence_pk, person_id, post_date)
+        ev_meta = []  # (evidence_pk, [person_id, ...], post_date)
         for ev in evidences:
             post = ev.social_media_post if ev.social_media_post_id else None
-            if post is None or post.posted_at is None or not post.account_id:
+            if post is None or post.posted_at is None:
                 continue
-            account = post.account
-            if not account.actor_id:
+            ev_person_ids = [
+                actor.person_id for actor in ev.originators.all() if actor.person_id
+            ]
+            if not ev_person_ids:
                 continue
-            person_id = account.actor.person_id
-            if not person_id:
-                continue
-            person_ids.add(person_id)
-            ev_meta.append((ev.pk, person_id, post.posted_at.date()))
+            person_ids.update(ev_person_ids)
+            ev_meta.append((ev.pk, ev_person_ids, post.posted_at.date()))
         if not person_ids:
             return {}
 
@@ -741,16 +741,17 @@ class EvidenceTopicCloudView(TemplateView):
             positions_by_person[pos.person_id].append(pos)
 
         regions = {}
-        for ev_pk, person_id, post_date in ev_meta:
+        for ev_pk, ev_person_ids, post_date in ev_meta:
             names = []
-            for pos in positions_by_person.get(person_id, ()):
-                if pos.start_date and pos.start_date > post_date:
-                    continue
-                if pos.end_date and pos.end_date < post_date:
-                    continue
-                name = pos.region.name
-                if name and name not in names:
-                    names.append(name)
+            for person_id in ev_person_ids:
+                for pos in positions_by_person.get(person_id, ()):
+                    if pos.start_date and pos.start_date > post_date:
+                        continue
+                    if pos.end_date and pos.end_date < post_date:
+                        continue
+                    name = pos.region.name
+                    if name and name not in names:
+                        names.append(name)
             if names:
                 regions[ev_pk] = ", ".join(names)
         return regions
@@ -768,13 +769,18 @@ class EvidenceTopicCloudView(TemplateView):
         qs = (
             Evidence.objects.filter(topic_fit_at__isnull=False)
             .select_related(
-                "social_media_post__account__actor",
+                "social_media_post__account",
             )
             # `keywords` is the facet index, read in-memory by `_build_facets`;
             # prefetch only the enabled ones so curator-disabled keywords never
             # reach the view.
             .prefetch_related(
                 Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
+                # Originators drive the actor display/panel and the
+                # region-by-evidence read; person/organization are needed for
+                # the actor's display name (`Actor.name`).
+                "originators__person",
+                "originators__organization",
                 # Theme membership for the dot's dominant-theme colour: the
                 # directly assigned themes, and the mentions' chapters (the
                 # chapter-derived themes are resolved via `chapter_theme_map`).
@@ -801,7 +807,6 @@ class EvidenceTopicCloudView(TemplateView):
                 "social_media_post__posted_at",
                 "social_media_post__account__platform",
                 "social_media_post__account__username",
-                "social_media_post__account__actor",
             )
             .order_by("-social_media_post__posted_at", "-pk")
         )
@@ -864,7 +869,8 @@ class EvidenceTopicCloudView(TemplateView):
         actor = (params.get("actor") or "").strip()
         if actor:
             try:
-                qs = qs.filter(social_media_post__account__actor_id=int(actor))
+                # originators is a to-many, so de-dupe.
+                qs = qs.filter(originators__id=int(actor)).distinct()
             except ValueError:
                 pass
 
@@ -1226,8 +1232,9 @@ class EvidenceTopicCloudView(TemplateView):
             account = ev.social_media_post.account if ev.social_media_post_id else None
             platform = account.get_platform_display() if account else ""
             username = account.username if account and account.username else ""
-            # The dot's actor, so the side panel can highlight one actor's dots.
-            actor_id = account.actor_id if account and account.actor_id else ""
+            # The dot's originators (space-separated ids), so the side panel can
+            # highlight one actor's dots — an evidence may have several.
+            actor_id = " ".join(str(a.id) for a in ev.originators.all())
             pub_date = ev.source.publication_date if ev.source else None
             posted_on = pub_date.isoformat() if pub_date else ""
             # `data-theme` carries the dot's own dominant theme (for a later
@@ -1251,22 +1258,20 @@ class EvidenceTopicCloudView(TemplateView):
         _mark(f"cloud_circles ({cloud_point_count})")
 
         # Actors present in the filtered set, tallied over the visible evidence
-        # (account → actor, already select_related so no extra per-row query).
-        # Drives the "Actors in view" side panel; clicking a name highlights
-        # that actor's dots client-side rather than filtering. One `in_bulk`
-        # resolves the names/labels so the panel reads like the actor dropdown.
+        # via each evidence's originators (prefetched, so no extra per-row
+        # query). Drives the "Actors in view" side panel; clicking a name
+        # highlights that actor's dots client-side rather than filtering. An
+        # evidence with several originators counts toward each of them.
         actor_counts = {}
+        actor_objs = {}
         for ev in evidences:
-            post = ev.social_media_post if ev.social_media_post_id else None
-            actor_id = post.account.actor_id if post and post.account_id else None
-            if actor_id:
-                actor_counts[actor_id] = actor_counts.get(actor_id, 0) + 1
-        actor_objs = Actor.objects.in_bulk(list(actor_counts))
+            for actor in ev.originators.all():
+                actor_counts[actor.id] = actor_counts.get(actor.id, 0) + 1
+                actor_objs[actor.id] = actor
         actors_in_view = sorted(
             (
                 {"pk": pk, "name": str(actor_objs[pk]), "count": count}
                 for pk, count in actor_counts.items()
-                if pk in actor_objs
             ),
             key=lambda a: (-a["count"], a["name"].lower()),
         )
@@ -1291,6 +1296,9 @@ class EvidenceTopicCloudView(TemplateView):
                 "url": ev.get_absolute_url(),
                 "snippet": self._snippet(ev),
                 "posted_on": ev.source.publication_date if ev.source else None,
+                # Originator name(s), comma-joined (an evidence may have
+                # several); shown in the table view. Originators are prefetched.
+                "actors": ", ".join(str(a) for a in ev.originators.all()),
                 # Region of the originator's function at post time (table view).
                 "region": region_by_ev.get(ev.pk, ""),
             }
@@ -1337,9 +1345,7 @@ class EvidenceTopicCloudView(TemplateView):
         # `Actor.name` is a Python property (person/organization), not a DB
         # column, so it can't be used in `order_by`; sort in Python instead.
         actors = sorted(
-            Actor.objects.filter(
-                social_media_accounts__posts__evidence__topic_fit_at__isnull=False
-            )
+            Actor.objects.filter(originated_evidence__topic_fit_at__isnull=False)
             .distinct()
             .select_related("person", "organization"),
             key=lambda a: a.name.casefold(),
@@ -1354,7 +1360,7 @@ class EvidenceTopicCloudView(TemplateView):
         # position at post time (see `_political_position_q`); the options here
         # are just the universe of values, not time-bounded.
         pp_qs = PoliticalPosition.objects.filter(
-            person__actor__social_media_accounts__posts__evidence__topic_fit_at__isnull=False
+            person__actor__originated_evidence__topic_fit_at__isnull=False
         )
         role_ids = set(
             pp_qs.filter(role__isnull=False).values_list("role_id", flat=True)

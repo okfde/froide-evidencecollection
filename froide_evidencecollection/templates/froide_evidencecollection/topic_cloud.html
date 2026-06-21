@@ -1703,7 +1703,9 @@
             }
             svg.classList.add('has-actor-highlight');
             Array.prototype.forEach.call(circles, function (c) {
-                var hit = c.getAttribute('data-actor') === activeActorId;
+                // data-actor is a space-separated list of originator ids.
+                var ids = (c.getAttribute('data-actor') || '').split(' ');
+                var hit = ids.indexOf(activeActorId) !== -1;
                 c.classList.toggle('is-actor-hit', hit);
             });
         }
