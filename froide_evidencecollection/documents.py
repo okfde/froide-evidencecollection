@@ -107,7 +107,12 @@ class EvidenceDocument(DSLDocument):
         return list(obj.originators.values_list("id", flat=True))
 
     def prepare_originator_names(self, obj: Evidence):
-        return list(obj.originators.values_list("name", flat=True))
+        # `Actor.name` is a Python property (delegating to person/organization),
+        # not a DB column, so it can't be used in `values_list`.
+        return [
+            actor.name
+            for actor in obj.originators.select_related("person", "organization")
+        ]
 
     def prepare_categories(self, obj: Evidence):
         return list(obj.mentions.values_list("category_id", flat=True).distinct())

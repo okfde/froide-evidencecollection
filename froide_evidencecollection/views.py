@@ -1334,12 +1334,15 @@ class EvidenceTopicCloudView(TemplateView):
         ]
         _mark(f"facets ({len(facets)})")
 
-        actors = list(
+        # `Actor.name` is a Python property (person/organization), not a DB
+        # column, so it can't be used in `order_by`; sort in Python instead.
+        actors = sorted(
             Actor.objects.filter(
                 social_media_accounts__posts__evidence__topic_fit_at__isnull=False
             )
             .distinct()
-            .order_by("name")
+            .select_related("person", "organization"),
+            key=lambda a: a.name.casefold(),
         )
         _mark(f"actors ({len(actors)})")
 

@@ -346,12 +346,6 @@ class Command(BaseCommand):
                 "social_media_post__redistributes__redistributes__account",
             )
             .prefetch_related(
-                "social_media_post__images",
-                "social_media_post__videos__excerpts",
-                "social_media_post__redistributes__images",
-                "social_media_post__redistributes__videos__excerpts",
-                "social_media_post__redistributes__redistributes__images",
-                "social_media_post__redistributes__redistributes__videos__excerpts",
                 "mentions__category",
             )
             .order_by("pk")
@@ -584,12 +578,12 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             # Keywords are NOT wiped: they carry curator edits (custom_label,
-            # enabled, group) that must survive a refit, so they're reconciled
+            # enabled) that must survive a refit, so they're reconciled
             # by lemma below. Clear only the derived M2M links here.
             Evidence.keywords.through.objects.all().delete()
 
             # Keyword rows for the kept lemmas — upserted by lemma so a curator's
-            # custom_label / enabled / group edits survive. The fit owns only the
+            # custom_label / enabled edits survive. The fit owns only the
             # derived fields (label, df, fit_at).
             keyword_pk_by_lemma: dict[str, int] = {}
             for lemma in sorted(kept_lemmas):
@@ -611,11 +605,10 @@ class Command(BaseCommand):
                 keyword_pk_by_lemma[lemma] = kw_obj.pk
 
             # Reconcile keywords that fell out of this fit: drop the un-curated
-            # ones (pure noise), but keep any a curator touched (renamed,
-            # disabled, or grouped) — just zero their derived fields so they
-            # don't rank.
+            # ones (pure noise), but keep any a curator touched (renamed or
+            # disabled) — just zero their derived fields so they don't rank.
             stale = Keyword.objects.exclude(lemma__in=kept_lemmas)
-            stale.filter(custom_label="", enabled=True, group__isnull=True).delete()
+            stale.filter(custom_label="", enabled=True).delete()
             stale.update(df=0, salience_max=0.0, salience_mean=0.0)
 
             for ev, (x, y) in zip(evidences, coords, strict=True):
