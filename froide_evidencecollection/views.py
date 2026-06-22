@@ -1016,6 +1016,57 @@ class EvidenceTopicCloudView(TemplateView):
             return lens_color
         return theme_color.get(dominant_theme_id, cls.DOT_COLOR)
 
+    # ------------------------------------------------------------------
+    # Actor surfaces. The actor of an evidence is its `originators` (the
+    # import-populated relation); the scraped account is never linked to an
+    # actor. All four read the prefetched `originators`, so they cost no extra
+    # query, and are pure functions of their inputs so they unit-test without a
+    # request.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _originator_ids(evidence):
+        """Space-separated originator ids for a dot's ``data-actor`` hook (an
+        evidence may have several); the side panel highlights by membership."""
+        return " ".join(str(a.id) for a in evidence.originators.all())
+
+    @staticmethod
+    def _originator_names(evidence):
+        """Comma-joined originator display names for the table view."""
+        return ", ".join(str(a) for a in evidence.originators.all())
+
+    @staticmethod
+    def _actors_in_view(evidences):
+        """The "Actors in view" side panel: each originator across the visible
+        evidence with the number of those evidence it originated, sorted by
+        descending count then name. An evidence with several originators counts
+        toward each of them."""
+        actor_counts = {}
+        actor_objs = {}
+        for ev in evidences:
+            for actor in ev.originators.all():
+                actor_counts[actor.id] = actor_counts.get(actor.id, 0) + 1
+                actor_objs[actor.id] = actor
+        return sorted(
+            (
+                {"pk": pk, "name": str(actor_objs[pk]), "count": count}
+                for pk, count in actor_counts.items()
+            ),
+            key=lambda a: (-a["count"], a["name"].lower()),
+        )
+
+    @staticmethod
+    def _actor_options():
+        """Actors that originated at least one topic-fitted evidence — the
+        searchable dropdown's options, bounded to values that can yield a
+        non-empty result. `Actor.name` is a Python property (not a column), so
+        sort in Python after select_relating its person/organization."""
+        return sorted(
+            Actor.objects.filter(originated_evidence__topic_fit_at__isnull=False)
+            .distinct()
+            .select_related("person", "organization"),
+            key=lambda a: a.name.casefold(),
+        )
+
     def _build_facets(
         self,
         evidences,
@@ -1234,7 +1285,7 @@ class EvidenceTopicCloudView(TemplateView):
             username = account.username if account and account.username else ""
             # The dot's originators (space-separated ids), so the side panel can
             # highlight one actor's dots — an evidence may have several.
-            actor_id = " ".join(str(a.id) for a in ev.originators.all())
+            actor_id = self._originator_ids(ev)
             pub_date = ev.source.publication_date if ev.source else None
             posted_on = pub_date.isoformat() if pub_date else ""
             # `data-theme` carries the dot's own dominant theme (for a later
@@ -1260,21 +1311,8 @@ class EvidenceTopicCloudView(TemplateView):
         # Actors present in the filtered set, tallied over the visible evidence
         # via each evidence's originators (prefetched, so no extra per-row
         # query). Drives the "Actors in view" side panel; clicking a name
-        # highlights that actor's dots client-side rather than filtering. An
-        # evidence with several originators counts toward each of them.
-        actor_counts = {}
-        actor_objs = {}
-        for ev in evidences:
-            for actor in ev.originators.all():
-                actor_counts[actor.id] = actor_counts.get(actor.id, 0) + 1
-                actor_objs[actor.id] = actor
-        actors_in_view = sorted(
-            (
-                {"pk": pk, "name": str(actor_objs[pk]), "count": count}
-                for pk, count in actor_counts.items()
-            ),
-            key=lambda a: (-a["count"], a["name"].lower()),
-        )
+        # highlights that actor's dots client-side rather than filtering.
+        actors_in_view = self._actors_in_view(evidences)
         _mark(f"actors_in_view ({len(actors_in_view)})")
 
         # SR-only / mobile outline: a single flat list of the matching
@@ -1298,7 +1336,7 @@ class EvidenceTopicCloudView(TemplateView):
                 "posted_on": ev.source.publication_date if ev.source else None,
                 # Originator name(s), comma-joined (an evidence may have
                 # several); shown in the table view. Originators are prefetched.
-                "actors": ", ".join(str(a) for a in ev.originators.all()),
+                "actors": self._originator_names(ev),
                 # Region of the originator's function at post time (table view).
                 "region": region_by_ev.get(ev.pk, ""),
             }
@@ -1342,14 +1380,7 @@ class EvidenceTopicCloudView(TemplateView):
         ]
         _mark(f"facets ({len(facets)})")
 
-        # `Actor.name` is a Python property (person/organization), not a DB
-        # column, so it can't be used in `order_by`; sort in Python instead.
-        actors = sorted(
-            Actor.objects.filter(originated_evidence__topic_fit_at__isnull=False)
-            .distinct()
-            .select_related("person", "organization"),
-            key=lambda a: a.name.casefold(),
-        )
+        actors = self._actor_options()
         _mark(f"actors ({len(actors)})")
 
         # Originator-function filter options: the roles, institutional levels and
