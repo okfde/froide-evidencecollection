@@ -13,6 +13,17 @@ dependencies = [
     "froide @ git+https://github.com/okfde/froide.git@main",
 ]
 
+[project.optional-dependencies]
+# Extras for the `fit_keywords` management command (KeyBERT topic/keyword cloud).
+# Not needed to run the app; install with `uv pip install -e '.[keywords]'`.
+# keybert pulls in sentence-transformers, scikit-learn and numpy transitively;
+# umap-learn and simplemma are not its dependencies, so they're listed here.
+keywords = [
+    "keybert",
+    "umap-learn",
+    "simplemma",
+]
+
 [dependency-groups]
 dev = [
     "django-configurations",

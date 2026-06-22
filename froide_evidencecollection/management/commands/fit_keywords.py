@@ -22,7 +22,7 @@ sets.
 Run manually (or via cron); the cloud view reads the cached numbers.
 
 Requires: keybert, sentence-transformers, umap-learn, scikit-learn, numpy,
-simplemma. Install with `uv pip install keybert simplemma`.
+simplemma. Install the bundled extra with `uv pip install -e '.[keywords]'`.
 """
 
 import hashlib
