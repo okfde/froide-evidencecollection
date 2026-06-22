@@ -179,10 +179,18 @@ def to_dict(instance):
             value = f.value_from_object(instance)
             if (
                 isinstance(
-                    f, (models.UUIDField, models.DateField, models.DurationField)
+                    f,
+                    (
+                        models.UUIDField,
+                        models.DateField,
+                        models.DurationField,
+                        models.FileField,
+                    ),
                 )
                 and value is not None
             ):
+                # FileField/ImageField yields a FieldFile, which is not JSON
+                # serializable; store its path (name) so changes stay diffable.
                 value = str(value)
 
             data[f.name] = value
