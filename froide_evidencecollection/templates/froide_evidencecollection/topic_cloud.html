@@ -1,10 +1,8 @@
 {% extends "froide_evidencecollection/base.html" %}
 {% load i18n %}
+{% load static %}
 {% block app_body %}
-    <script src="https://unpkg.com/htmx.org@2.0.4"
-            integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
-            crossorigin="anonymous"
-            defer></script>
+    <script src="{% static 'froide_evidencecollection/htmx.min.js' %}" defer></script>
     <div class="container-fluid my-4 topic-cloud-page topic-view-cloud">
         <header class="mb-3 d-flex flex-wrap align-items-baseline gap-3">
             <h1 class="mb-0">{% trans "Topics" %}</h1>
