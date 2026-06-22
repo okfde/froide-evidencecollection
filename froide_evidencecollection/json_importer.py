@@ -355,7 +355,7 @@ class JSONImporter:
         within one occurrence (validated against the dump), so the count is the
         longest of them — robust to a field being absent on a given post.
         """
-        fields = ("topic", "footnote_id", "chapter_structur", "fliesstext")
+        fields = ("topic", "footnote_id", "fliesstext")
         return max((len(report_data.get(f) or []) for f in fields), default=0)
 
     def _discard_written_media_files(self):
@@ -949,9 +949,19 @@ class JSONImporter:
     # ------------------------------------------------------------------
     def _upsert_mentions(self, evidence, item, mention_originators=()):
         report_data = item.get("report_data") or {}
+        # `topic` is row-parallel to the lists below: index i describes the same
+        # mention. Each entry is a root-to-leaf path of theme labels, e.g.
+        # ["Menschenwürde", "…", "Ethnisch-kulturelles Volksverständnis der AfD"].
+        # The leaf names the category the evidence is filed under, and the whole
+        # path materialises the chapter tree (see `_get_or_create_chapter`). The
+        # dump also carries the report's physical chapter path in
+        # `capitel_structur`, but we deliberately ignore it: it bottoms out at a
+        # per-evidence actor+date leaf (1146 distinct paths vs. 30 for `topic`)
+        # and is littered with editorial prefixes and organisational nodes, so it
+        # would build a chapter node per piece of evidence rather than a clean
+        # thematic tree.
         topics = report_data.get("topic") or []
         footnotes = report_data.get("footnote_id") or []
-        chapter_structures = report_data.get("chapter_sturcrue") or []
         citations = report_data.get("fliesstext") or []
         # `video_timestamp` is row-parallel to the lists above (validated against
         # the dump): index i carries `{start, end, excerpt}` for the same mention
@@ -962,41 +972,38 @@ class JSONImporter:
         # `mention_originators` is row-parallel too: the actor id of whoever this
         # row was grouped under, so a merged post's mentions are attributed to
         # the right originator (see `_run`). Empty for callers that pass none.
-        if not (topics or footnotes or chapter_structures):
+        if not (topics or footnotes):
             return
 
         existing = {(m.category_id, m.footnote): m for m in evidence.mentions.all()}
         wanted = set()
 
         for (
-            category_name,
+            topic_path,
             footnote,
-            chapter_structure,
             citation,
             vts,
             originator_id,
         ) in zip_longest(
             topics,
             footnotes,
-            chapter_structures,
             citations,
             video_timestamps,
             mention_originators,
             fillvalue=None,
         ):
-            category_name = (category_name or "").strip()
-            if not category_name:
+            topic_path = self._clean_topic_path(topic_path)
+            if not topic_path:
                 continue
+            category_name = topic_path[-1]
             category, _ = Category.objects.get_or_create(name=category_name)
             footnote = (footnote or "").strip()
             key = (category.id, footnote)
             wanted.add(key)
-            chapter = self._get_or_create_chapter(
-                chapter_structure or [], topic=category_name
-            )
+            chapter = self._get_or_create_chapter(topic_path)
             vts = vts or {}
             scalar_fields = {
-                "chapter_structure": chapter_structure or [],
+                "chapter_structure": topic_path,
                 "citation": citation or "",
                 "start": self._parse_timestamp(vts.get("start")),
                 "end": self._parse_timestamp(vts.get("end")),
@@ -1037,12 +1044,35 @@ class JSONImporter:
             mention.delete()
             self.stats.track_deleted(EvidenceMention, mention_id)
 
-    def _get_or_create_chapter(self, labels, topic):
-        """Materialise the chapter path and flag the topic node.
+    @staticmethod
+    def _clean_topic_path(raw):
+        """Normalise a raw ``topic`` entry into a root-to-leaf label path.
 
-        Builds (or reuses) the tree path described by ``labels`` and marks the
-        node whose label equals ``topic`` as ``is_main_topic``. Returns the leaf
-        chapter, or ``None`` when there is nothing to build or on a dry run.
+        Accepts the dump's list-of-labels form (and tolerates a bare string for
+        older single-label callers), trims blanks, and collapses runs of equal
+        adjacent labels — the dump occasionally repeats the leaf (e.g.
+        ``["…", "Ausbürgerung", "Ausbürgerung"]``), which would otherwise create a
+        chapter node whose only child carries the same label.
+        """
+        if not raw:
+            return []
+        if isinstance(raw, str):
+            raw = [raw]
+        labels = []
+        for label in raw:
+            label = (label or "").strip()
+            if not label or (labels and labels[-1] == label):
+                continue
+            labels.append(label)
+        return labels
+
+    def _get_or_create_chapter(self, labels):
+        """Materialise the chapter path and flag its leaf as the main topic.
+
+        ``labels`` is a cleaned root-to-leaf topic path. Builds (or reuses) the
+        tree and marks the leaf ``is_main_topic`` — with topic-derived paths the
+        leaf is always the specific theme the evidence is filed under. Returns the
+        leaf chapter, or ``None`` when there is nothing to build or on a dry run.
         """
         labels = [(label or "").strip() for label in labels]
         labels = [label for label in labels if label]
@@ -1050,13 +1080,9 @@ class JSONImporter:
             return None
 
         leaf = Chapter.get_or_create_from_path(labels)
-        topic = (topic or "").strip()
-        if topic:
-            path_nodes = list(leaf.get_ancestors()) + [leaf]
-            for node in path_nodes:
-                if node.custom_label == topic and not node.is_main_topic:
-                    node.is_main_topic = True
-                    node.save(update_fields=["is_main_topic"])
+        if leaf and not leaf.is_main_topic:
+            leaf.is_main_topic = True
+            leaf.save(update_fields=["is_main_topic"])
         return leaf
 
     # ------------------------------------------------------------------

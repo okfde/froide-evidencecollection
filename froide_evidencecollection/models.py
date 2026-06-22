@@ -1473,15 +1473,14 @@ class EvidenceMention(models.Model):
 class Chapter(MP_Node):
     """A node in the chapter hierarchy of the underlying report.
 
-    The tree is materialised during the JSON import from the
-    ``chapter_sturcrue`` field of each evidence mention, where every entry is a
-    root-to-leaf list of chapter labels. A node's identity is the full path of
-    labels leading to it, so the same label under different parents yields
-    distinct nodes.
+    The tree is materialised during the JSON import from each evidence mention's
+    ``topic`` path, a root-to-leaf list of theme labels. A node's identity is the
+    full path of labels leading to it, so the same label under different parents
+    yields distinct nodes.
 
-    ``is_main_topic`` marks the node whose label appears as the mention's
-    ``topic`` (i.e. the chapter that names the thematic topic an evidence is
-    filed under).
+    ``is_main_topic`` marks the leaf of each imported path (i.e. the chapter that
+    names the specific thematic topic an evidence is filed under); a node can be
+    both a main topic for one evidence and an intermediate node for another.
     """
 
     custom_label = models.CharField(max_length=255, verbose_name=_("label"))

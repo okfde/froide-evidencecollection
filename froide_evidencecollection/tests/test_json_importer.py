@@ -728,9 +728,8 @@ class TestJSONImporter:
                             _make_post(
                                 report_data={
                                     "footnote_url": ["https://t.me/example/1"],
-                                    "topic": ["A", "B"],
+                                    "topic": [["A"], ["B"]],
                                     "footnote_id": ["1", "2"],
-                                    "chapter_sturcrue": [["Ch 1"], ["Ch 2"]],
                                 }
                             ),
                         ]
@@ -753,9 +752,8 @@ class TestJSONImporter:
                             _make_post(
                                 report_data={
                                     "footnote_url": ["https://t.me/example/1"],
-                                    "topic": ["B", "C"],
+                                    "topic": [["B"], ["C"]],
                                     "footnote_id": ["2", "3"],
-                                    "chapter_sturcrue": [["Ch 2"], ["Ch 3"]],
                                 }
                             ),
                         ]
@@ -777,7 +775,7 @@ class TestJSONImporter:
         # Mention (B, 2) is untouched, no spurious churn.
         assert EvidenceMention.objects.filter(category__name="B").count() == 1
 
-    def test_chapter_tree_is_built_from_structure(self, person, tmp_path):
+    def test_chapter_tree_is_built_from_topic_paths(self, person, tmp_path):
         path = _write_dump(
             tmp_path,
             {
@@ -790,9 +788,8 @@ class TestJSONImporter:
                                 url="https://t.me/example/1",
                                 report_data={
                                     "footnote_url": ["https://t.me/example/1"],
-                                    "topic": ["T"],
+                                    "topic": [["Root", "T", "Leaf A"]],
                                     "footnote_id": ["1"],
-                                    "chapter_sturcrue": [["Root", "T", "Leaf A"]],
                                 },
                             ),
                             _make_post(
@@ -800,9 +797,8 @@ class TestJSONImporter:
                                 url="https://t.me/example/2",
                                 report_data={
                                     "footnote_url": ["https://t.me/example/2"],
-                                    "topic": ["T"],
+                                    "topic": [["Root", "T", "Leaf B"]],
                                     "footnote_id": ["2"],
-                                    "chapter_sturcrue": [["Root", "T", "Leaf B"]],
                                 },
                             ),
                         ]
@@ -812,7 +808,8 @@ class TestJSONImporter:
         )
         JSONImporter(path).run()
 
-        # Shared prefixes reuse nodes: Root -> T -> {Leaf A, Leaf B}.
+        # The chapter tree is built from the topic path; shared prefixes reuse
+        # nodes: Root -> T -> {Leaf A, Leaf B}.
         assert Chapter.objects.count() == 4
         root = Chapter.objects.get(custom_label="Root")
         topic = Chapter.objects.get(custom_label="T")
@@ -822,19 +819,60 @@ class TestJSONImporter:
         assert topic.get_parent() == root
         assert set(topic.get_children()) == {leaf_a, leaf_b}
 
-        # is_main_topic is set only on the node matching the `topic` field.
-        assert topic.is_main_topic
+        # The leaf of each topic path is the main topic; ancestors are not.
+        assert leaf_a.is_main_topic
+        assert leaf_b.is_main_topic
         assert not root.is_main_topic
-        assert not leaf_a.is_main_topic
+        assert not topic.is_main_topic
 
-        # The leaf chapter is linked from each mention.
+        # The leaf names the mention's category and is linked as its chapter.
+        assert {m.category.name for m in EvidenceMention.objects.all()} == {
+            "Leaf A",
+            "Leaf B",
+        }
         assert {m.chapter for m in EvidenceMention.objects.all()} == {leaf_a, leaf_b}
 
         # Subsumed counts include descendants.
         assert root.subsumed_evidences().count() == 2
-        assert topic.subsumed_evidences().count() == 2
-        assert leaf_a.subsumed_evidences().count() == 1
-        assert leaf_b.subsumed_evidences().count() == 1
+
+    def test_topic_path_collapses_adjacent_duplicate_labels(self, person, tmp_path):
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {
+                        "telegram": [
+                            _make_post(
+                                report_data={
+                                    "footnote_url": ["https://t.me/example/1"],
+                                    "topic": [
+                                        [
+                                            "Menschenwürde",
+                                            "Ausbürgerung",
+                                            "Ausbürgerung",
+                                        ]
+                                    ],
+                                    "footnote_id": ["1"],
+                                },
+                            ),
+                        ]
+                    },
+                }
+            },
+        )
+        JSONImporter(path).run()
+
+        # The repeated leaf is collapsed: Menschenwürde -> Ausbürgerung (no
+        # same-label child), and the leaf is the mention's category.
+        assert Chapter.objects.count() == 2
+        leaf = Chapter.objects.get(custom_label="Ausbürgerung")
+        assert leaf.get_parent().custom_label == "Menschenwürde"
+        assert leaf.is_main_topic
+        mention = EvidenceMention.objects.get()
+        assert mention.category.name == "Ausbürgerung"
+        assert mention.chapter == leaf
+        assert mention.chapter_structure == ["Menschenwürde", "Ausbürgerung"]
 
     @pytest.mark.django_db
     def test_originators_come_from_grouping_not_account_holder(self, person, tmp_path):
