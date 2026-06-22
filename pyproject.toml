@@ -28,6 +28,9 @@ dev = [
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.package-data]
+froide_evidencecollection = ["data/*.csv"]
+
 [tool.ruff]
 exclude = ["migrations", "build", "node_modules"]
 
