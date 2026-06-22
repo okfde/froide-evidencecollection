@@ -6,7 +6,11 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from froide_evidencecollection.models import Actor, InstitutionalLevel, Organization
-from froide_evidencecollection.utils import normalize_name
+from froide_evidencecollection.utils import (
+    apply_org_label_replacement,
+    load_org_label_replacements,
+    normalize_name,
+)
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 REVIEW = "REVIEW"
@@ -32,13 +36,19 @@ class Command(BaseCommand):
             help="CSV mapping org type/label to InstitutionalLevel",
         )
         parser.add_argument(
+            "--replacements",
+            default=str(DATA_DIR / "org_label_replacements.csv"),
+            help="CSV of dump-label corrections (wrong_label -> correct_label)",
+        )
+        parser.add_argument(
             "--apply",
             action="store_true",
             help="Write changes. Without this the command only reports.",
         )
 
     def handle(self, *args, **options):
-        dump_labels = self.load_org_labels(options["json_file"])
+        replacements = load_org_label_replacements(options["replacements"])
+        dump_labels = self.load_org_labels(options["json_file"], replacements)
         overrides = self.load_overrides(options["overrides"])
         exact_levels, prefix_levels = self.load_level_rules(options["levels"])
 
@@ -127,14 +137,16 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
     # Loaders
     # ------------------------------------------------------------------
-    def load_org_labels(self, json_file):
+    def load_org_labels(self, json_file, replacements):
         with open(json_file) as f:
             data = json.load(f)
-        # Org entries are top-level entries that carry a label but no functions.
+        # Org entries are top-level entries that carry a label and are typed "o".
+        # Apply dump-label corrections so the dump's shorthand (abbreviated type
+        # words, typos) never becomes an org name.
         return {
-            v["label"]
+            apply_org_label_replacement(v["label"], replacements)
             for v in data.values()
-            if v.get("label") and not v.get("functions")
+            if v.get("label") and v.get("ent_type") == "o"
         }
 
     def _read_csv(self, path):
@@ -182,9 +194,9 @@ class Command(BaseCommand):
         for label, level in creations:
             w(f"  {label!r}  [{level}]")
 
-        w(self.style.MIGRATE_HEADING(f"\nKept as-is — no dump match ({len(orphans)}):"))
-        for org in sorted(orphans, key=lambda o: o.organization_name):
-            w(f"  {org.organization_name!r}")
+        # w(self.style.MIGRATE_HEADING(f"\nKept as-is — no dump match ({len(orphans)}):"))
+        # for org in sorted(orphans, key=lambda o: o.organization_name):
+        #    w(f"  {org.organization_name!r}")
 
         if needs_level:
             w(self.style.WARNING(f"\nSkipped — level undecided ({len(needs_level)}):"))

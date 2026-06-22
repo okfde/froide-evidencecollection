@@ -26,7 +26,9 @@ from froide_evidencecollection.models import (
 )
 from froide_evidencecollection.utils import (
     ImportStatsCollection,
+    apply_org_label_replacement,
     equals,
+    load_org_label_replacements,
     normalize_name,
     to_dict,
 )
@@ -222,6 +224,9 @@ class JSONImporter:
         # populated in run() and reused to match functions to existing orgs.
         self._actor_index = {}
         self._ambiguous_names = set()
+        # Same dump-label corrections align_org_names applies, so an org's
+        # abbreviated dump label resolves to its expanded Organization name.
+        self._org_label_replacements = load_org_label_replacements()
 
     def load(self):
         with open(self.json_path) as f:
@@ -271,8 +276,8 @@ class JSONImporter:
             # post can't be assumed to belong to that actor — see
             # `_upsert_account`); the grouping only attests authorship/origin.
             actor = self._get_or_create_actor(target)
-            if isinstance(target, Person):
-                self._import_functions(target, entry)
+            # if isinstance(target, Person):
+            #    self._import_functions(target, entry)
             for platform, items in (entry.get("social_media") or {}).items():
                 if platform not in PLATFORM_MAP:
                     logger.warning("Unknown platform %r; skipping", platform)
@@ -350,7 +355,7 @@ class JSONImporter:
         within one occurrence (validated against the dump), so the count is the
         longest of them — robust to a field being absent on a given post.
         """
-        fields = ("topic", "footnote_id", "chapter_sturcrue", "fliesstext")
+        fields = ("topic", "footnote_id", "chapter_structur", "fliesstext")
         return max((len(report_data.get(f) or []) for f in fields), default=0)
 
     def _discard_written_media_files(self):
@@ -421,6 +426,10 @@ class JSONImporter:
     def _resolve_target(self, entry, actor_index, ambiguous):
         """Resolve a dump entry to its Person/Organization, or None to skip."""
         label = entry.get("label")
+        if label and entry.get("ent_type") == "o":
+            # Match the expanded name align_org_names stored (e.g. the dump's
+            # "BV Lichtenberg" resolves to "Bezirksverband Lichtenberg").
+            label = apply_org_label_replacement(label, self._org_label_replacements)
         key = normalize_name(label) if label else ""
         if not key:
             msg = f"Entry without usable label; skipping (label={label!r})"

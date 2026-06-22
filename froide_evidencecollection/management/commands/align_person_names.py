@@ -202,10 +202,11 @@ class Command(BaseCommand):
     def load_person_labels(self, json_file):
         with open(json_file) as f:
             data = json.load(f)
-        # Person entries are the ones that carry a label and have functions
-        # (the inverse of the org rule in align_org_names).
+        # Person entries are the ones that carry a label and are typed "p".
         return {
-            v["label"] for v in data.values() if v.get("label") and v.get("functions")
+            v["label"]
+            for v in data.values()
+            if v.get("label") and v.get("ent_type") == "p"
         }
 
     def _read_csv(self, path):
@@ -244,9 +245,9 @@ class Command(BaseCommand):
         for label, first, last in sorted(creations):
             w(f"  {label!r}  ->  first={first!r} last={last!r}")
 
-        w(self.style.MIGRATE_HEADING(f"\nKept as-is — no dump match ({len(orphans)}):"))
-        for person in sorted(orphans, key=lambda p: (p.last_name, p.first_name)):
-            w(f"  {person.first_name + ' ' + person.last_name!r}")
+        # w(self.style.MIGRATE_HEADING(f"\nKept as-is — no dump match ({len(orphans)}):"))
+        # for person in sorted(orphans, key=lambda p: (p.last_name, p.first_name)):
+        #    w(f"  {person.first_name + ' ' + person.last_name!r}")
 
         if needs_review:
             w(self.style.WARNING(f"\nSkipped — split undecided ({len(needs_review)}):"))

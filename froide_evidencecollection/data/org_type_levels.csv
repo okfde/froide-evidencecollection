@@ -19,6 +19,8 @@ prefix,Bundestagsfraktion,AfD-Bundespartei,
 prefix,EU-Fraktion,AfD-Europafraktion,
 prefix,Bezirksverband,AfD-Kreisverbände,
 prefix,Jugendorganisation,Jugendorganisation,
+prefix,Junge Alternative,Jugendorganisation,JA youth org
+prefix,Generation Deutschland,Jugendorganisation,GD youth org
 exact,AG Russlanddeutsche,AfD-Landesverbände,part of Landesverband NRW
 exact,Pankower Abgeordnete,AfD-Kreisverbände,Berlin district mandates
 exact,AfD Express,Umfeld,media outlet

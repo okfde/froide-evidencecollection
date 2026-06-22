@@ -1,0 +1,17 @@
+# Corrections applied to dump ORG labels before matching/creating, so the dump's
+# shorthand (abbreviations, typos) doesn't end up as the org name and re-imports
+# stay idempotent.
+#
+# kind    = "prefix" (replace the leading abbreviation token, keep the rest) or
+#           "exact"  (replace the whole label)
+# wrong   = the abbreviation/leading token, or the exact label, as in the dump
+# correct = the full word, or the corrected label
+# note    = why (for human reviewers)
+kind,wrong,correct,note
+prefix,BV,Bezirksverband,
+prefix,KV,Kreisverband,
+prefix,KF,Kreistagsfraktion,Kreis-level parliament group
+prefix,OV,Ortsverband,
+prefix,JA,Junge Alternative,
+prefix,GD,Generation Deutschland,
+exact,Landesverand Brandenburg,Landesverband Brandenburg,typo in dump (missing 'b')

@@ -35,6 +35,9 @@ def transform_telegram_post(post: dict) -> dict:
 
     post["media"] = media
 
+    # collected_at
+    post["collected_at"] = _pop_collected_at(post)
+
     # reactions
     reactions = post.get("reactions")
     if isinstance(reactions, dict):
@@ -108,7 +111,7 @@ def transform_instagram_post(post: dict) -> dict:
 
     # created_at / collected_at
     post["created_at"] = _parse_epoch(post.pop("taken_at"))
-    post["collected_at"] = _parse_epoch(post.pop("scraped_date"))
+    post["collected_at"] = _pop_collected_at(post)
 
     # account
     user = post.pop("user")
@@ -126,7 +129,7 @@ def transform_instagram_post(post: dict) -> dict:
 def transform_facebook_post(post: dict) -> dict:
     # created_at / collected_at
     post["created_at"] = _parse_epoch(post.pop("timestamp"))
-    post["collected_at"] = _parse_epoch(post.pop("scraped_date"))
+    post["collected_at"] = _pop_collected_at(post)
 
     # counts
     post["comment_count"] = _coerce_int(post.pop("comments_count"))
@@ -140,7 +143,7 @@ def transform_facebook_post(post: dict) -> dict:
     author = post.pop("author")
     url = author["url"]
     username = None
-    if "people/" not in url:
+    if url and "people/" not in url:
         username = url.replace("https://www.facebook.com/", "")
 
     post["account"] = {
@@ -173,8 +176,15 @@ def transform_facebook_post(post: dict) -> dict:
 
 
 def transform_tiktok_post(post: dict) -> dict:
-    # created_at
+    # platform_post_id is usually the renamed "id"; a few posts carry it as
+    # "vid_id" instead. Prefer "id" and fall back to "vid_id" when absent.
+    vid_id = post.pop("vid_id", None)
+    if not post.get("platform_post_id"):
+        post["platform_post_id"] = vid_id
+
+    # created_at / collected_at
     post["created_at"] = _parse_epoch(post.pop("createTime"))
+    post["collected_at"] = _pop_collected_at(post)
 
     # counts (from statsV2)
     stats = post.pop("statsV2") or {}
@@ -200,6 +210,9 @@ def transform_tiktok_post(post: dict) -> dict:
 
 
 def transform_youtube_post(post: dict) -> dict:
+    # collected_at
+    post["collected_at"] = _pop_collected_at(post)
+
     # counts
     post["view_count"] = _coerce_int(post.pop("viewCount"))
     post["like_count"] = _coerce_int(post.pop("likeCount"))
@@ -224,11 +237,14 @@ def transform_youtube_post(post: dict) -> dict:
 
 
 def _twitter_account(user: dict) -> dict:
+    username = user["username"]
+    user_url = f"https://x.com/{username.lower()}" if username else None
+
     return {
         "username": user["username"],
         "platform_user_id": user["user_id"],
         "display_name": user["name"],
-        "url": f"https://x.com/{user["username"].lower()}",
+        "url": user_url,
         "description": user["description"],
         "is_verified": user["is_verified"],
         "is_blue_verified": user["is_blue_verified"],
@@ -242,7 +258,7 @@ def _twitter_account(user: dict) -> dict:
 def transform_twitter_post(post: dict) -> dict:
     # created_at /collected_at
     post["created_at"] = _parse_epoch(post.pop("timestamp"))
-    post["collected_at"] = _parse_epoch(post.pop("scraped_date", None))
+    post["collected_at"] = _pop_collected_at(post)
 
     # counts
     post["view_count"] = _coerce_int(post.pop("views", None))
@@ -284,6 +300,8 @@ PLATFORM_CONFIG: dict[str, dict] = {
             "srt_file",
             "screenshot_file",
             "url",
+            "scraped_date",
+            "scraped_time",
         },
         "rename": {
             "url_corrected": "url",
@@ -367,7 +385,6 @@ PLATFORM_CONFIG: dict[str, dict] = {
             "carousel_media",
             "location",
             "has_audio",
-            "scraped_date",
         },
         "rename": {
             "code": "platform_post_id",
@@ -457,10 +474,11 @@ PLATFORM_CONFIG: dict[str, dict] = {
             "effectStickers",
             "stickersOnItem",
             "creatorAIComment",
+            "vid_id",  # fallback for platform_post_id; resolved in transform
         },
         "rename": {
             "text": "transcription",
-            "vid_id": "platform_post_id",
+            "id": "platform_post_id",
             "desc": "text",
             "textLanguage": "language",
             "poi": "location",
@@ -479,7 +497,6 @@ PLATFORM_CONFIG: dict[str, dict] = {
             "duetDisplay",
             "duetEnabled",
             "forFriend",
-            "id",  # same as vid_id
             "isAd",
             "isReviewing",
             "itemCommentStatus",
@@ -534,7 +551,7 @@ PLATFORM_CONFIG: dict[str, dict] = {
             "video",
             "image",
             "reactions",
-            "scraped_date",
+            "scraped_time",
             "external_url",
             "comments_count",
             "reshare_count",
@@ -626,7 +643,6 @@ PLATFORM_CONFIG: dict[str, dict] = {
             "quoted_status",
             "bookmark_count",
             "source",
-            "scraped_date",
         },
         "rename": {
             "tweet_id": "platform_post_id",
@@ -643,6 +659,20 @@ PLATFORM_CONFIG: dict[str, dict] = {
 }
 
 _warned_unknown: set[tuple[str, str]] = set()
+
+
+def _pop_collected_at(post):
+    """Extract the scraping time from either `scraped_time` or `scraped_date`.
+
+    Both fields hold an epoch timestamp but only one is present depending on
+    the source. Prefer `scraped_time`, falling back to `scraped_date`.
+    """
+    value = post.pop("scraped_time", None)
+    if value in (None, ""):
+        value = post.pop("scraped_date", None)
+    else:
+        post.pop("scraped_date", None)
+    return _parse_epoch(value)
 
 
 def _parse_epoch(value):
@@ -898,10 +928,15 @@ def main() -> None:
 
     result = {}
     for item_id, item in items.items():
+        if "Label" in item:
+            item = {
+                ("label" if key == "Label" else key): value
+                for key, value in item.items()
+            }
         if "social_media" in item:
             item = {**item, "social_media": clean_social_media(item["social_media"])}
-        if "functions" in item:
-            item = {**item, "functions": clean_functions(item["functions"])}
+        # if "functions" in item:
+        #    item = {**item, "functions": clean_functions(item["functions"])}
         result[item_id] = item
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

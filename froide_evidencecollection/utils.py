@@ -1,10 +1,12 @@
 import base64
+import csv
 import datetime
 import hashlib
 import logging
 import re
 import uuid
 from itertools import chain
+from pathlib import Path
 
 from django.conf import settings
 from django.db import models
@@ -14,6 +16,45 @@ from froide.georegion.models import GeoRegion
 logger = logging.getLogger(__name__)
 
 CONFIG = settings.FROIDE_EVIDENCECOLLECTION_NOCODB_IMPORT_CONFIG
+
+ORG_LABEL_REPLACEMENTS_PATH = (
+    Path(__file__).resolve().parent / "data" / "org_label_replacements.csv"
+)
+
+
+def load_org_label_replacements(path=ORG_LABEL_REPLACEMENTS_PATH):
+    """Load dump-label corrections as ``(exact, prefix)`` maps.
+
+    ``exact`` replaces a whole label, ``prefix`` expands a leading abbreviation
+    token (keeping the rest). Used to normalize the dump's shorthand both when
+    aligning Organization names and when matching dump labels during import, so
+    the two stay in lockstep.
+    """
+    exact, prefix = {}, {}
+    if not Path(path).exists():
+        return exact, prefix
+    with open(path, encoding="utf-8") as f:
+        rows = [line for line in f if not line.lstrip().startswith("#")]
+    for row in csv.DictReader(rows):
+        kind, wrong, correct = row.get("kind"), row.get("wrong"), row.get("correct")
+        if not (wrong and correct):
+            continue
+        if kind == "exact":
+            exact[wrong] = correct
+        elif kind == "prefix":
+            prefix[wrong] = correct
+    return exact, prefix
+
+
+def apply_org_label_replacement(label, replacements):
+    """Apply ``load_org_label_replacements`` maps to a single org label."""
+    exact, prefix = replacements
+    if label in exact:
+        return exact[label]
+    head, sep, tail = label.partition(" ")
+    if sep and head in prefix:
+        return f"{prefix[head]} {tail}"
+    return label
 
 
 def compute_hash(text):
