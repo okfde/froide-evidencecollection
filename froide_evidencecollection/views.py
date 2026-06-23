@@ -223,6 +223,21 @@ def resolve_nested_value(obj, parts):
     return str(current) if current is not None else ""
 
 
+class NoIndexMixin:
+    """Keep a per-evidence view out of search engine indexes.
+
+    `X-Robots-Tag: noindex` is honored by Google et al. and works no matter
+    what the surrounding CMS page template emits in <head>. To actually
+    de-index a page the crawler must be able to *read* this header, so the
+    URL must stay crawlable (do not also Disallow it in robots.txt).
+    """
+
+    def dispatch(self, *args, **kwargs):
+        response = super().dispatch(*args, **kwargs)
+        response["X-Robots-Tag"] = "noindex"
+        return response
+
+
 class EvidenceMixin(BreadcrumbView):
     def get_breadcrumbs(self, context):
         if "request" in context:
@@ -238,7 +253,7 @@ class EvidenceMixin(BreadcrumbView):
         return Evidence.objects.all()
 
 
-class EvidenceDetailView(EvidenceMixin, DetailView):
+class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
     template_name = "froide_evidencecollection/detail.html"
 
     def get_queryset(self):
@@ -282,7 +297,7 @@ EVIDENCE_CARD_PREFETCH_RELATED = (
 ACTOR_PROFILE_EVIDENCE_LIMIT = 20
 
 
-class ActorDetailView(DetailView):
+class ActorDetailView(NoIndexMixin, DetailView):
     model = Actor
     template_name = "froide_evidencecollection/actor_detail.html"
     context_object_name = "actor"
@@ -448,14 +463,16 @@ class NeverCacheMixin:
         return never_cache(super().dispatch)(*args, **kwargs)
 
 
-class EvidenceExportView(NeverCacheMixin, ExportMixin, EvidenceListView):
+class EvidenceExportView(NoIndexMixin, NeverCacheMixin, ExportMixin, EvidenceListView):
     def get_export_queryset(self):
         sqs = self.get_queryset()
         sqs.update_query()
         return sqs.to_queryset()
 
 
-class EvidenceDetailExportView(NeverCacheMixin, ExportMixin, EvidenceMixin, DetailView):
+class EvidenceDetailExportView(
+    NoIndexMixin, NeverCacheMixin, ExportMixin, EvidenceMixin, DetailView
+):
     def get_export_queryset(self):
         queryset = self.get_queryset().filter(slug=self.kwargs["slug"])
         if not queryset.exists():
