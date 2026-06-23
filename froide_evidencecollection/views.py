@@ -33,6 +33,8 @@ from .models import (
     EvidenceMention,
     InstitutionalLevel,
     Keyword,
+    Organization,
+    Person,
     PoliticalPosition,
     Role,
     SocialMediaAccount,
@@ -596,7 +598,7 @@ class EvidenceTopicCloudView(TemplateView):
         "actor",
         "role",
         "level",
-        "region",
+        "verband",
     )
 
     # Relation path from an Evidence to the political positions held by an
@@ -685,23 +687,22 @@ class EvidenceTopicCloudView(TemplateView):
     def _political_position_q(cls, params):
         """Filter on the *function the originator held when the evidence was
         posted* — an originator person's political position, narrowed by
-        any of three params:
+        either of two params:
 
         * ``role`` — the function/role of that position (a ``Role`` pk),
-        * ``level`` — its institutional level (an ``InstitutionalLevel`` pk),
-        * ``region`` — the region it is anchored in (a ``GeoRegion`` pk).
+        * ``level`` — its institutional level (an ``InstitutionalLevel`` pk).
 
-        All three bind to a *single* position (one join), and that position
+        Both bind to a *single* position (one join), and that position
         must have been active on the post's date: its start on or before and
         its end on or after it, with an open-ended (null) start or end counting
-        as unbounded. Combining several therefore narrows to one position that
-        matches all of them at post time — "the same function". A position's
+        as unbounded. Combining them therefore narrows to one position that
+        matches both at post time — "the same function". A position's
         ``start_date`` / ``end_date`` are month-precision day markers, so the
         comparison is against the post's calendar date (``TruncDate``), making
         both day boundaries inclusive.
 
-        Returns a ``Q`` to AND into the queryset, or ``None`` when none of the
-        three params is set. Only evidence with a person originator can match
+        Returns a ``Q`` to AND into the queryset, or ``None`` when neither
+        param is set. Only evidence with a person originator can match
         (the path runs through originators → person); the active-at-post-time
         test still uses the social-media post's date, so the caller applies it
         with ``distinct()`` to fold the to-many originators join.
@@ -711,7 +712,6 @@ class EvidenceTopicCloudView(TemplateView):
         for name, field in (
             ("role", "role_id"),
             ("level", "institutional_level_id"),
-            ("region", "region_id"),
         ):
             raw = (params.get(name) or "").strip()
             if raw.isdigit():
@@ -732,65 +732,67 @@ class EvidenceTopicCloudView(TemplateView):
         return active
 
     @staticmethod
-    def _regions_by_evidence(evidences):
-        """Map evidence pk → the region(s) of the political function its posting
-        person held when it was posted, as a display string (e.g. ``"Bayern"``).
+    def _verband_q(params):
+        """Filter on the *Verband* of an originator — the regional chapter
+        recorded on the posting Person/Organization (`AbstractActor.verband`),
+        a ``GeoRegion`` pk in the ``verband`` param.
 
-        Mirrors `_political_position_q`'s active-at-post-time test (the position's
-        start on or before and end on or after the post date, a null bound
-        counting as unbounded) but only to *show* the Bundesland the originator's
-        function was anchored in. Evidence with no person originator, no dated
-        post, or no region-bearing active position is simply absent from the map.
-        Several matching positions (across one or more originator persons) yield
-        their distinct regions, comma-joined.
+        Unlike the role/level function filters, this is a direct actor attribute,
+        not tied to a political position or the post date. The originator is an
+        ``Actor`` wrapping either a person or an organization, so the value can
+        sit on either side; both are matched. Returns a ``Q`` to AND into the
+        queryset (the caller folds the to-many originators join with
+        ``distinct()``), or ``None`` when the param is absent or non-numeric.
         """
-        # Originator person(s) + post date per evidence. The active-at-post-time
-        # test needs the post's date, so evidence without a dated post is
-        # skipped; evidence whose originators are all organizations has no
-        # person and falls out.
-        person_ids = set()
-        ev_meta = []  # (evidence_pk, [person_id, ...], post_date)
+        raw = (params.get("verband") or "").strip()
+        if not raw.isdigit():
+            return None
+        vid = int(raw)
+        return Q(originators__person__verband_id=vid) | Q(
+            originators__organization__verband_id=vid
+        )
+
+    @staticmethod
+    def _verbande_by_evidence(evidences):
+        """Map evidence pk → the Verband(e) of its originators, as a display
+        string (``"Bund"`` for the federal level, the Bundesland name
+        otherwise — see `AbstractActor.verband_label`).
+
+        Evidence whose originators all lack a verband is simply absent from the
+        map. Several originators with distinct verbände yield them comma-joined.
+        """
+        # Originator actor ids per evidence (originators are prefetched).
+        actor_ids = set()
+        ev_meta = []  # (evidence_pk, [actor_id, ...])
         for ev in evidences:
-            post = ev.social_media_post if ev.social_media_post_id else None
-            if post is None or post.posted_at is None:
-                continue
-            ev_person_ids = [
-                actor.person_id for actor in ev.originators.all() if actor.person_id
-            ]
-            if not ev_person_ids:
-                continue
-            person_ids.update(ev_person_ids)
-            ev_meta.append((ev.pk, ev_person_ids, post.posted_at.date()))
-        if not person_ids:
+            ids = [actor.id for actor in ev.originators.all()]
+            if ids:
+                actor_ids.update(ids)
+                ev_meta.append((ev.pk, ids))
+        if not actor_ids:
             return {}
 
-        # Region-bearing positions for those persons, grouped by person so the
-        # per-evidence date match below is a cheap in-memory scan.
-        positions_by_person = defaultdict(list)
-        for pos in (
-            PoliticalPosition.objects.filter(
-                person_id__in=person_ids, region__isnull=False
-            )
-            .select_related("region")
-            .only("person_id", "start_date", "end_date", "region__name")
+        # One query for the verband label of every originator in view; the FK
+        # may sit on the person or the organization side of the Actor.
+        label_by_actor = {}
+        for actor in Actor.objects.filter(id__in=actor_ids).select_related(
+            "person__verband", "organization__verband"
         ):
-            positions_by_person[pos.person_id].append(pos)
+            target = actor.person or actor.organization
+            label = target.verband_label if target else ""
+            if label:
+                label_by_actor[actor.id] = label
 
-        regions = {}
-        for ev_pk, ev_person_ids, post_date in ev_meta:
+        verbande = {}
+        for ev_pk, ids in ev_meta:
             names = []
-            for person_id in ev_person_ids:
-                for pos in positions_by_person.get(person_id, ()):
-                    if pos.start_date and pos.start_date > post_date:
-                        continue
-                    if pos.end_date and pos.end_date < post_date:
-                        continue
-                    name = pos.region.name
-                    if name and name not in names:
-                        names.append(name)
+            for actor_id in ids:
+                label = label_by_actor.get(actor_id)
+                if label and label not in names:
+                    names.append(label)
             if names:
-                regions[ev_pk] = ", ".join(names)
-        return regions
+                verbande[ev_pk] = ", ".join(names)
+        return verbande
 
     def _filter_qs(self):
         # `.only()` is load-bearing: SocialMediaPost has wide JSONFields
@@ -813,7 +815,7 @@ class EvidenceTopicCloudView(TemplateView):
             .prefetch_related(
                 Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
                 # Originators drive the actor display/panel and the
-                # region-by-evidence read; person/organization are needed for
+                # verband-by-evidence read; person/organization are needed for
                 # the actor's display name (`Actor.name`).
                 "originators__person",
                 "originators__organization",
@@ -927,12 +929,19 @@ class EvidenceTopicCloudView(TemplateView):
             except ValueError:
                 pass
 
-        # Originator-function filters (role / institutional level / region of the
+        # Originator-function filters (role / institutional level of the
         # political position the posting person held at post time). Bound to a
         # single active position via one join, so distinct() to fold the to-many.
         pp_q = self._political_position_q(params)
         if pp_q is not None:
             qs = qs.filter(pp_q).distinct()
+
+        # Verband filter: the regional chapter recorded on an originator
+        # (person or organization). A direct actor attribute, so independent of
+        # the function filters above; distinct() folds the to-many join.
+        verband_q = self._verband_q(params)
+        if verband_q is not None:
+            qs = qs.filter(verband_q).distinct()
 
         return qs
 
@@ -1509,10 +1518,9 @@ class EvidenceTopicCloudView(TemplateView):
         # at OUTLINE_MAX_EVIDENCE so the hidden DOM stays bounded; the remainder
         # is summarised with a "narrow the filters" note.
         outline_shown = evidences[: self.OUTLINE_MAX_EVIDENCE]
-        # Region of the political function each posting person held at post time,
-        # shown next to the actor in the table view. One grouped query over the
-        # shown set (see `_regions_by_evidence`).
-        region_by_ev = self._regions_by_evidence(outline_shown)
+        # Verband of each originator, shown next to the actor in the table view.
+        # One grouped query over the shown set (see `_verbande_by_evidence`).
+        verband_by_ev = self._verbande_by_evidence(outline_shown)
         outline_items = [
             {
                 # `post` feeds the optional account/title line; it is the post
@@ -1526,8 +1534,8 @@ class EvidenceTopicCloudView(TemplateView):
                 # Originator name(s), comma-joined (an evidence may have
                 # several); shown in the table view. Originators are prefetched.
                 "actors": self._originator_names(ev),
-                # Region of the originator's function at post time (table view).
-                "region": region_by_ev.get(ev.pk, ""),
+                # Verband of the originator(s) (table view).
+                "verband": verband_by_ev.get(ev.pk, ""),
             }
             for ev in outline_shown
         ]
@@ -1572,13 +1580,13 @@ class EvidenceTopicCloudView(TemplateView):
         actors = self._actor_options()
         _mark(f"actors ({len(actors)})")
 
-        # Originator-function filter options: the roles, institutional levels and
-        # regions that actually occur on a political position of some person who
-        # has posted topic-fitted evidence. Bounding to occurring values keeps
-        # each dropdown to options that can yield a non-empty result (like the
-        # actor list above). The three filters select against the *active*
-        # position at post time (see `_political_position_q`); the options here
-        # are just the universe of values, not time-bounded.
+        # Originator-function filter options: the roles and institutional levels
+        # that actually occur on a political position of some person who has
+        # posted topic-fitted evidence. Bounding to occurring values keeps each
+        # dropdown to options that can yield a non-empty result (like the actor
+        # list above). The filters select against the *active* position at post
+        # time (see `_political_position_q`); the options here are just the
+        # universe of values, not time-bounded.
         pp_qs = PoliticalPosition.objects.filter(
             person__actor__originated_evidence__topic_fit_at__isnull=False
         )
@@ -1590,15 +1598,31 @@ class EvidenceTopicCloudView(TemplateView):
                 "institutional_level_id", flat=True
             )
         )
-        region_ids = set(
-            pp_qs.filter(region__isnull=False).values_list("region_id", flat=True)
-        )
         roles = list(Role.objects.filter(id__in=role_ids).order_by("name"))
         levels = list(
             InstitutionalLevel.objects.filter(id__in=level_ids).order_by("name")
         )
-        regions = list(GeoRegion.objects.filter(id__in=region_ids).order_by("name"))
-        _mark(f"function options ({len(roles)}/{len(levels)}/{len(regions)})")
+
+        # Verband filter options: the verbände recorded on originators (person or
+        # organization) that have posted topic-fitted evidence. Labelled like the
+        # display ("Bund" for the country level), with Bund first then the
+        # Bundesländer alphabetically.
+        verband_ids = set()
+        for model in (Person, Organization):
+            verband_ids.update(
+                model.objects.filter(
+                    actor__originated_evidence__topic_fit_at__isnull=False,
+                    verband__isnull=False,
+                ).values_list("verband_id", flat=True)
+            )
+        verbaende = sorted(
+            (
+                {"id": r.id, "label": "Bund" if r.kind == "country" else r.name}
+                for r in GeoRegion.objects.filter(id__in=verband_ids)
+            ),
+            key=lambda v: (v["label"] != "Bund", v["label"]),
+        )
+        _mark(f"function options ({len(roles)}/{len(levels)}/{len(verbaende)})")
 
         # Year-range slider bounds: earliest/latest post year across the whole
         # topic-bearing corpus, so the slider extent stays fixed regardless of
@@ -1647,14 +1671,15 @@ class EvidenceTopicCloudView(TemplateView):
                 "actors_in_view": actors_in_view,
                 "selected_actor": selected_actor,
                 "platforms": SocialMediaAccount.Platform.choices,
-                # Originator-function filters: the function (role), the
-                # institutional level of that function, and its region, as held
-                # by the posting person when the evidence was posted. Selected
-                # values ride through `request.GET` in the template, like the
-                # platform select.
+                # Originator-function filters: the function (role) and its
+                # institutional level, as held by the posting person when the
+                # evidence was posted. Selected values ride through
+                # `request.GET` in the template, like the platform select.
                 "roles": roles,
                 "levels": levels,
-                "regions": regions,
+                # Verband of the originator (a direct actor attribute, not
+                # function-derived).
+                "verbaende": verbaende,
                 "year_min": year_min,
                 "year_max": year_max,
                 "selected_year_from": selected_year_from,
@@ -1672,7 +1697,7 @@ class EvidenceTopicCloudView(TemplateView):
                         "actor",
                         "role",
                         "level",
-                        "region",
+                        "verband",
                     )
                 ),
                 "reset_url": reverse("evidencecollection:evidence-topic-cloud"),

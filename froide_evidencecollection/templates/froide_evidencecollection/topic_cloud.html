@@ -120,12 +120,13 @@
                             </ul>
                         </div>
                     </div>
-                    {# Originator-function filters: the function (role) the posting #}
-                    {# person held when the evidence was posted, plus the           #}
-                    {# institutional level and region of that same function. Plain  #}
-                    {# selects in the form, so a change rides the htmx filter        #}
-                    {# submit like Platform. Each lists only values that occur on    #}
-                    {# some poster's positions, so every option can yield a result.  #}
+                    {# Originator filters: the function (role) the posting person   #}
+                    {# held when the evidence was posted and that function's         #}
+                    {# institutional level, plus the originator's Verband (a direct  #}
+                    {# actor attribute, not function-derived). Plain selects in the  #}
+                    {# form, so a change rides the htmx filter submit like Platform. #}
+                    {# Each lists only values that occur, so every option can yield  #}
+                    {# a result.                                                     #}
                     <div class="topic-filter-field">
                         <label for="tf-role" class="topic-filter-label">{% trans "Function" %}</label>
                         <select id="tf-role" name="role" class="form-select form-select-sm">
@@ -151,13 +152,13 @@
                         </select>
                     </div>
                     <div class="topic-filter-field">
-                        <label for="tf-region" class="topic-filter-label">{% trans "Region" %}</label>
-                        <select id="tf-region" name="region" class="form-select form-select-sm">
+                        <label for="tf-verband" class="topic-filter-label">{% trans "Verband" %}</label>
+                        <select id="tf-verband" name="verband" class="form-select form-select-sm">
                             <option value="">{% trans "any" %}</option>
-                            {% for region in regions %}
-                                <option value="{{ region.id }}"
-                                        {% if request.GET.region == region.id|stringformat:'s' %}selected{% endif %}>
-                                    {{ region.name }}
+                            {% for verband in verbaende %}
+                                <option value="{{ verband.id }}"
+                                        {% if request.GET.verband == verband.id|stringformat:'s' %}selected{% endif %}>
+                                    {{ verband.label }}
                                 </option>
                             {% endfor %}
                         </select>

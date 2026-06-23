@@ -28,7 +28,7 @@
                         <td>{{ item.post.account.get_platform_display|default:"—" }}</td>
                         <td>
                             {{ item.actors|default:"—" }}
-                            {% if item.region %}<span class="topic-cloud-table__region">· {{ item.region }}</span>{% endif %}
+                            {% if item.verband %}<span class="topic-cloud-table__region">· {{ item.verband }}</span>{% endif %}
                         </td>
                         <td class="text-end text-nowrap">
                             <a href="{{ item.url }}" target="_blank" rel="noopener">
