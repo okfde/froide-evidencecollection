@@ -14,8 +14,8 @@
             <h1 class="mb-0">{% trans "Topics" %}</h1>
         </header>
         {# ── Sticky filter region ──────────────────────────────────── #}
-        {# The whole filter stack — compact toolbar row, topic bar,      #}
-        {# main-topic tree and keyword facets — is pinned together so it #}
+        {# The whole filter stack — compact toolbar row, theme bar and   #}
+        {# main-topic tree — is pinned together so it                    #}
         {# travels with the canvas as the cloud scrolls behind it. The   #}
         {# host divs stay inside the wrapper so their htmx swaps still    #}
         {# target them by id.                                            #}
@@ -38,13 +38,6 @@
                     {# change/input filters are reproduced in topic_cloud.js, #}
                     {# which calls form.requestSubmit() to fire this trigger.  #}
                     hx-trigger="submit">
-                    {# Carries the selected keyword facets; one hidden input per    #}
-                    {# active keyword, managed by the facet cloud below (which      #}
-                    {# lives outside the swapped results, like the legend). Several #}
-                    {# keywords AND together; independent of the Topic select.      #}
-                    <span id="tf-keywords">
-                        {% for kw in selected_keywords %}<input type="hidden" name="keyword" value="{{ kw }}">{% endfor %}
-                    </span>
                     {# Selected theme (single-select), managed by the theme bar      #}
                     {# below: at most one hidden input, narrowing the cloud to that  #}
                     {# theme's evidence. Lives in the form so it rides every filter  #}
@@ -226,25 +219,22 @@
                     </div>
                 </form>
             </div>
-            {# ── Theme bar + keyword facet cloud ──────────────────────── #}
+            {# ── Theme bar + main-topic tree ──────────────────────────── #}
             {# Themes: the single browse axis, single-select; each chip carries  #}
             {# its identity colour (so the bar doubles as the dot colour key)    #}
             {# and selecting one narrows the cloud to that theme's evidence —    #}
-            {# all one colour. Keywords: each chip is one word; several AND       #}
-            {# together, narrowing to evidence containing them. Both live outside #}
-            {# #topic-cloud-results and are re-rendered on every filter change    #}
-            {# (JS swaps them from the partial response) so counts and the        #}
-            {# co-occurring set stay current.                                     #}
+            {# all one colour. Both live outside #topic-cloud-results and are    #}
+            {# re-rendered on every filter change (JS swaps them from the        #}
+            {# partial response) so counts stay current.                         #}
             <div id="topic-groups-host">{% include "froide_evidencecollection/_topic_themes.html" %}</div>
             <div id="topic-chapters-host">{% include "froide_evidencecollection/_topic_chapters.html" %}</div>
-            <div id="topic-facets-host">{% include "froide_evidencecollection/_topic_facets.html" %}</div>
         </div>
         {# /.topic-cloud-filters #}
         {# Two columns: the scatter (+ count line / outline) on the left, the #}
         {# "Actors in view" panel on the right. The panel lists the actors    #}
         {# present in the filtered set; clicking one highlights that actor's   #}
         {# dots in the cloud. It lives outside #topic-cloud-results and is     #}
-        {# swapped wholesale on every filter change, like the facet cloud.     #}
+        {# swapped wholesale on every filter change, like the theme bar.       #}
         {# ── View tabs: scatter cloud ⇆ tabular list ──────────────────── #}
         {# Pure client-side toggle (see the tab script): clicking a tab        #}
         {# flips a class on .topic-cloud-page, which CSS uses to show the       #}
@@ -366,8 +356,8 @@
            legend) plus the page header. */
         max-height: calc(100vh - 14rem);
     }
-    /* Sticky filter region: the whole filter stack (toolbar + topic bar +
-       main-topic tree + keyword facets) stays pinned to the top while the
+    /* Sticky filter region: the whole filter stack (toolbar + theme bar +
+       main-topic tree) stays pinned to the top while the
        canvas scrolls behind it. The wrapper carries its own background and
        a bottom shadow so the whole block reads as one layer above the cloud.
        Drops sticky on mobile because the stack is tall enough to feel
@@ -674,7 +664,7 @@
     }
     @media (max-width: 767.98px) {
         .topic-cloud-svg svg { max-height: 50vh; }
-        /* Drop the scatter — the keyword chips above act as the filter,
+        /* Drop the scatter — the theme bar above acts as the filter,
            the outline below becomes the visible post list. The colour key
            goes with it (nothing left to colour-code). */
         .topic-cloud-svg { display: none; }
@@ -705,98 +695,10 @@
         .topic-cloud-outline ol > li p { margin: 0 0 .25rem; }
         .topic-cloud-outline ol > li p:last-child { margin: 0; }
     }
-    /* ── Keyword facet cloud ──────────────────────────────────────── */
-    .topic-facets {
-        border: 1px solid #e7e2db;
-        border-radius: .5rem;
-        padding: .5rem .75rem;
-        background: #fcfbf9;
-    }
-    .topic-facets__head {
-        display: flex;
-        align-items: baseline;
-        gap: .75rem;
-        margin-bottom: .35rem;
-    }
-    .topic-facets__title {
-        font-size: .8rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .03em;
-        color: #6b5d4f;
-    }
-    .topic-facets__cloud {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .35rem .4rem;
-        align-items: baseline;
-    }
-    .topic-facet-chip {
-        border: 1px solid #d9cfc2;
-        background: #fff;
-        color: #4a3f33;
-        border-radius: 999px;
-        padding: .1rem .6rem;
-        line-height: 1.5;
-        cursor: pointer;
-        transition: background .12s, border-color .12s;
-    }
-    .topic-facet-chip:hover { background: #f1ece5; }
-    .topic-facet-chip:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 1px; }
-    .topic-facet-chip.is-active {
-        background: #6b4f2c;
-        border-color: #6b4f2c;
-        color: #fff;
-    }
-    .topic-facet-chip__count {
-        font-size: .72em;
-        opacity: .6;
-        margin-left: .35em;
-    }
-    .topic-facet-chip.is-active .topic-facet-chip__count { opacity: .85; }
-    /* Active (selected) keywords sit in their own row above the cloud, each
-       removable via the trailing ×. */
-    .topic-facets__active {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .35rem .4rem;
-        align-items: baseline;
-    }
-    .topic-facet-chip__remove {
-        font-size: .9em;
-        margin-left: .4em;
-        opacity: .85;
-    }
-    /* Size weight: bigger = more evidence. */
-    .topic-facet-chip.facet-w1 { font-size: .78rem; }
-    .topic-facet-chip.facet-w2 { font-size: .9rem; }
-    .topic-facet-chip.facet-w3 { font-size: 1.02rem; }
-    .topic-facet-chip.facet-w4 { font-size: 1.16rem; }
-    .topic-facet-chip.facet-w5 { font-size: 1.32rem; font-weight: 600; }
-    /* A facet that belongs to a currently selected topic: marked with the
-       accent ring so "this topic's own words" stand out from related ones. */
-    .topic-facet-chip.is-in-group {
-        border-color: #2f6f6a;
-        box-shadow: inset 0 0 0 1px #2f6f6a;
-    }
-    /* Parent-topic dot on each keyword chip: the same hue as the topic's chip
-       and its dots, so a word is always tied back to its broader topic. */
-    .topic-facet-chip__topic {
-        display: inline-block;
-        width: .5em;
-        height: .5em;
-        border-radius: 50%;
-        margin-right: .4em;
-        vertical-align: baseline;
-        box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
-    }
-    .topic-facet-chip.is-active .topic-facet-chip__topic {
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, .5);
-    }
-    /* Theme bar: the single browse axis above the keyword facets. Each chip
+    /* Theme bar: the single browse axis above the main-topic tree. Each chip
        carries its theme's identity colour (via the inline --topic-color), so
-       the bar doubles as the dot colour key. Framed like the keyword-facet and
-       actor panels so the three browse surfaces read as a set. */
+       the bar doubles as the dot colour key. Framed like the main-topic tree
+       and actor panels so the browse surfaces read as a set. */
     .topic-groups {
         border: 1px solid #e7e2db;
         border-radius: .5rem;
@@ -869,7 +771,7 @@
        full row height so consecutive rows form a continuous line down the tree.
        The selected node gets a left accent bar rather than a filled background,
        so the tree stays light. The panel is framed like the other filters
-       (keyword facets, actors). */
+       (theme bar, actors). */
     .topic-chapters {
         border: 1px solid #e7e2db;
         border-radius: .5rem;

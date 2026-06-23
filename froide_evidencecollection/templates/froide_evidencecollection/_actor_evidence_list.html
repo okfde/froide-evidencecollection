@@ -1,6 +1,6 @@
 {% load i18n %}
 {% load evidence_tags %}
-{# Compact list of an actor's evidence: one row per piece, showing date, platform, theme(s) and keywords. Expects `evidence_list` in context. #}
+{# Compact list of an actor's evidence: one row per piece, showing date, platform and theme(s). Expects `evidence_list` in context. #}
 <div class="table-responsive">
     <table class="table align-middle mb-0 actor-evidence-table">
         <thead>
@@ -8,7 +8,6 @@
                 <th style="width: 8rem;">{% trans "Date" %}</th>
                 <th style="width: 9rem;">{% trans "Platform" %}</th>
                 <th>{% trans "Theme(s)" %}</th>
-                <th>{% trans "Keywords" %}</th>
                 <th style="width: 5rem;"></th>
             </tr>
         </thead>
@@ -37,14 +36,6 @@
                                   style="background-color: {{ theme|palette_color }}26;
                                          color: #222;
                                          border-color: {{ theme|palette_color }}">{{ theme.label }}</span>
-                        {% empty %}
-                            <span class="text-muted">—</span>
-                        {% endfor %}
-                    </td>
-                    <td>
-                        {% for keyword in evidence.keywords.all %}
-                            <a href="{% url 'evidencecollection:evidence-topic-cloud' %}?keyword={{ keyword.lemma|urlencode }}"
-                               class="badge rounded-pill bg-light text-muted fw-normal text-decoration-none">{{ keyword.display_label }}</a>
                         {% empty %}
                             <span class="text-muted">—</span>
                         {% endfor %}

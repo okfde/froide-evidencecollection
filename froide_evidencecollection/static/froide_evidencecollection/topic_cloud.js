@@ -765,22 +765,9 @@
             'div.alert',
         ];
 
-        // The keyword facet cloud lives outside #topic-cloud-results too, and
-        // narrows on every filter change, so swap it wholesale from the
-        // partial response just like the group bar.
-        function updateFacetsHost(fresh) {
-            var host = document.getElementById('topic-facets-host');
-            if (!host) return;
-            var existing = host.querySelector('.topic-facets');
-            var incoming = fresh ? fresh.querySelector('.topic-facets') : null;
-            if (existing && incoming) existing.replaceWith(incoming);
-            else if (existing && !incoming) existing.remove();
-            else if (!existing && incoming) host.appendChild(incoming);
-        }
-
-        // The keyword group bar narrows on every filter change too (counts and
+        // The theme bar narrows on every filter change too (counts and
         // the active chip), so swap it wholesale from the partial response just
-        // like the facets and legend.
+        // like the actor panel.
         function updateGroupsHost(fresh) {
             var host = document.getElementById('topic-groups-host');
             if (!host) return;
@@ -806,7 +793,7 @@
 
         // The "Actors in view" panel is recomputed over the filtered set on
         // every change, so swap it wholesale from the partial response like the
-        // facet/group bars.
+        // theme bar.
         function updateActorsHost(fresh) {
             var host = document.getElementById('topic-actors-host');
             if (!host) return;
@@ -1003,12 +990,11 @@
             var fresh = tmp.querySelector('#topic-cloud-results');
             if (!fresh) return;
             applyUpdate(fresh);
-            // The theme bar, facet cloud and actor panel live outside
+            // The theme bar, main-topic tree and actor panel live outside
             // #topic-cloud-results, so swap them explicitly from the partial
             // response, then re-assert the actor highlight over the new dots.
             updateGroupsHost(tmp);
             updateChaptersHost(tmp);
-            updateFacetsHost(tmp);
             updateActorsHost(tmp);
             syncActorHighlight();
             evt.detail.shouldSwap = false;
@@ -1029,57 +1015,11 @@
             container.setAttribute('aria-busy', 'true');
         });
 
-        // Keyword facets → the hidden #tf-keywords inputs (one per active
-        // keyword). The cloud is re-rendered server-side on every change (so
-        // the list narrows), hence we don't toggle chip state client-side:
-        // clicking a chip just edits the hidden inputs and re-submits, and the
-        // swapped-in cloud reflects the new selection. Delegated on the stable
-        // host because updateFacetsHost replaces the cloud wholesale.
-        var keywordsBox = document.getElementById('tf-keywords');
-        var facetsHost = document.getElementById('topic-facets-host');
-        function selectedKeywords() {
-            if (!keywordsBox) return [];
-            return Array.prototype.map.call(
-                keywordsBox.querySelectorAll('input[name="keyword"]'),
-                function (i) { return i.value; }
-            );
-        }
-        function setKeywords(values) {
-            if (!keywordsBox) return;
-            keywordsBox.innerHTML = '';
-            values.forEach(function (v) {
-                var inp = document.createElement('input');
-                inp.type = 'hidden';
-                inp.name = 'keyword';
-                inp.value = v;
-                keywordsBox.appendChild(inp);
-            });
-            form.requestSubmit();
-        }
-        if (facetsHost && keywordsBox) {
-            facetsHost.addEventListener('click', function (ev) {
-                if (ev.target.closest('#topic-facets-clear')) {
-                    setKeywords([]);
-                    return;
-                }
-                var chip = ev.target.closest('.topic-facet-chip');
-                if (!chip) return;
-                var kw = chip.getAttribute('data-keyword') || '';
-                if (!kw) return;
-                var current = selectedKeywords();
-                var idx = current.indexOf(kw);
-                // Active chip (already selected) → remove; otherwise add.
-                if (idx === -1) current.push(kw);
-                else current.splice(idx, 1);
-                setKeywords(current);
-            });
-        }
-
         // Theme bar → the hidden #tf-themes input (the single selected theme).
         // Single-select: clicking a chip selects only that theme, narrowing the
         // cloud to its evidence (so every visible dot takes the theme's colour);
         // clicking the active chip again clears it. The theme selection is
-        // independent of the keyword facets — they stack. Delegated on the stable
+        // independent of the main-topic tree — they stack. Delegated on the stable
         // host because updateGroupsHost replaces the bar wholesale.
         var groupsBox = document.getElementById('tf-themes');
         var groupsHost = document.getElementById('topic-groups-host');
@@ -1119,8 +1059,8 @@
         // Main-topic tree → the hidden #tf-chapters input (the single selected
         // chapter). Single-select drill-down: clicking a node narrows the cloud
         // to evidence under that chapter's subtree; clicking the active node
-        // again clears it. Independent of the keyword facets and the theme bar —
-        // all three stack. Delegated on the stable host because
+        // again clears it. Independent of the theme bar — the two stack.
+        // Delegated on the stable host because
         // updateChaptersHost replaces the tree wholesale.
         var chaptersBox = document.getElementById('tf-chapters');
         var chaptersHost = document.getElementById('topic-chapters-host');
@@ -1242,9 +1182,8 @@
                 form.querySelectorAll('input').forEach(function (i) {
                     if (i.type === 'search' || i.type === 'date' || i.type === 'text') i.value = '';
                 });
-                // Clear the keyword facets + theme inline (no dispatch — we
+                // Clear the theme + chapter selections inline (no dispatch — we
                 // re-submit once below). form.reset() leaves hidden inputs as-is.
-                if (keywordsBox) keywordsBox.innerHTML = '';
                 if (groupsBox) groupsBox.innerHTML = '';
                 if (chaptersBox) chaptersBox.innerHTML = '';
                 if (actorCombobox) actorCombobox.reset();

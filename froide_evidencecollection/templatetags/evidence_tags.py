@@ -32,7 +32,7 @@ def plain_text(value):
     - Converts literal '\\n' sequences to real newlines
     - Escapes HTML and converts newlines to <br> tags (via linebreaksbr)
     """
-    value = value.replace("\\n", "\n")
+    value = (value or "").replace("\\n", "\n")
     return linebreaksbr(value)
 
 

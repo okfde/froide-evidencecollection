@@ -211,40 +211,23 @@
                     </div>
                 </section>
             {% endif %}
-            {# ── Classification: categories (with footnotes) + keywords ── #}
-            {# Categories are the curated classification (each carries its     #}
-            {# footnote references); keywords are the derived facet tags that  #}
-            {# link into the topic cloud. Shown together, side by side, so the #}
-            {# two related kinds of label read as one block.                   #}
-            {% if object.categories_with_footnotes or object.keywords.all %}
-                <section class="detail-section row g-4">
-                    {% if object.categories_with_footnotes %}
-                        <div class="col-md-7">
-                            <h2 class="detail-heading">{% trans "Categories" %}</h2>
-                            <ul class="list-unstyled mb-0">
-                                {% for cat, footnotes in object.categories_with_footnotes %}
-                                    <li class="mb-2 d-flex flex-wrap align-items-baseline gap-2">
-                                        <span class="badge rounded-pill border fw-normal"
-                                              style="background-color: {{ cat|palette_color }}26;
-                                                     color: #222;
-                                                     border-color: {{ cat|palette_color }}">{{ cat }}</span>
-                                        {% if footnotes %}<span class="text-muted small">{{ footnotes|join:", " }}</span>{% endif %}
-                                    </li>
-                                {% endfor %}
-                            </ul>
-                        </div>
-                    {% endif %}
-                    {% if object.keywords.all %}
-                        <div class="col-md-5">
-                            <h2 class="detail-heading">{% trans "Keywords" %}</h2>
-                            <div class="d-flex flex-wrap gap-2">
-                                {% for keyword in object.keywords.all %}
-                                    <a href="{% url 'evidencecollection:evidence-topic-cloud' %}?keyword={{ keyword.lemma|urlencode }}"
-                                       class="badge rounded-pill bg-light text-muted fw-normal text-decoration-none">{{ keyword.display_label }}</a>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    {% endif %}
+            {# ── Classification: categories (with footnotes) ───────────── #}
+            {# Categories are the curated classification, each carrying its    #}
+            {# footnote references.                                            #}
+            {% if object.categories_with_footnotes %}
+                <section class="detail-section">
+                    <h2 class="detail-heading">{% trans "Categories" %}</h2>
+                    <ul class="list-unstyled mb-0">
+                        {% for cat, footnotes in object.categories_with_footnotes %}
+                            <li class="mb-2 d-flex flex-wrap align-items-baseline gap-2">
+                                <span class="badge rounded-pill border fw-normal"
+                                      style="background-color: {{ cat|palette_color }}26;
+                                             color: #222;
+                                             border-color: {{ cat|palette_color }}">{{ cat }}</span>
+                                {% if footnotes %}<span class="text-muted small">{{ footnotes|join:", " }}</span>{% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
                 </section>
             {% endif %}
             {# ── Collected text ───────────────────────────────────────── #}
@@ -259,13 +242,13 @@
                     {% if object.citation %}
                         <div class="seg seg-citation">
                             <div class="seg-label">{% trans "Citation" %}</div>
-                            <div class="seg-body">{% highlight_keywords object.citation object.keywords.all %}</div>
+                            <div class="seg-body">{{ object.citation|plain_text }}</div>
                         </div>
                     {% endif %}
                     {% if object.description %}
                         <div class="seg">
                             <div class="seg-label">{% trans "Description" %}</div>
-                            <div class="seg-body">{% highlight_keywords object.description object.keywords.all %}</div>
+                            <div class="seg-body">{{ object.description|plain_text }}</div>
                         </div>
                     {% endif %}
                     {% for seg in object.text_segments %}
@@ -276,9 +259,7 @@
                                     <span>{{ seg.label }}</span>
                                     {% if seg.attribution %}<span class="seg-attr">· {{ seg.attribution }}</span>{% endif %}
                                 </div>
-                                <div class="seg-body{% if seg.base_kind == 'body' %} seg-body-post{% endif %}">
-                                    {% highlight_keywords seg.text object.keywords.all %}
-                                </div>
+                                <div class="seg-body{% if seg.base_kind == 'body' %} seg-body-post{% endif %}">{{ seg.text|plain_text }}</div>
                             </div>
                         {% endif %}
                     {% endfor %}
