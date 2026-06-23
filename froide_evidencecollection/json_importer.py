@@ -216,7 +216,7 @@ class JSONImporter:
         self._account_index = {}
         # SocialMediaPost.id -> (reply_to_platform_post_id, account_id)
         self._pending_replies = {}
-        # verband (Bundesland) name -> GeoRegion or None
+        # verband value (Bundesland name or "Bund") -> GeoRegion or None
         self._region_cache = {}
         # canonical role name -> Role
         self._role_cache = {}
@@ -284,6 +284,7 @@ class JSONImporter:
             # post can't be assumed to belong to that actor — see
             # `_upsert_account`); the grouping only attests authorship/origin.
             actor = self._get_or_create_actor(target)
+            self._set_verband(target, entry)
             # if isinstance(target, Person):
             #    self._import_functions(target, entry)
             for platform, items in (entry.get("social_media") or {}).items():
@@ -517,6 +518,19 @@ class JSONImporter:
             self.stats.track_created(Actor, actor)
             return actor
 
+    def _set_verband(self, target, entry):
+        # Set the actor's `verband` (Person/Organization) from the dump entry.
+        # Never overwrite a resolved value with None: an unresolved verband
+        # (typo, blank) shouldn't wipe a value already on the actor.
+        region = self._resolve_region(entry.get("verband"))
+        if region is None or target.verband_id == region.id or self.dry_run:
+            return
+        old_data = to_dict(target)
+        target.verband = region
+        self.stats.reset_instance(type(target))
+        target.save()
+        self.stats.track_updated(type(target), old_data, target)
+
     # ------------------------------------------------------------------
     # Political positions (per-person "functions" list)
     # ------------------------------------------------------------------
@@ -674,16 +688,21 @@ class JSONImporter:
         return self._level_cache[name]
 
     def _resolve_region(self, name):
-        # Resolve a `verband` Bundesland name to its GeoRegion (kind "state").
-        # Cached per run; unmatched names (e.g. typos) resolve to None and are
-        # logged — fixing them is part of the separate cleanup step.
+        # Resolve a `verband` value to its GeoRegion. A Bundesland name maps to
+        # the matching state region; the special value "Bund" (the federal level)
+        # maps to the country-level region. Cached per run; unmatched names
+        # (e.g. typos) resolve to None and are logged — fixing them is part of
+        # the separate cleanup step.
         name = (name or "").strip()
         if not name:
             return None
         if name not in self._region_cache:
-            region = GeoRegion.objects.filter(name=name, kind="state").first()
+            if name == "Bund":
+                region = GeoRegion.objects.filter(kind="country").first()
+            else:
+                region = GeoRegion.objects.filter(name=name, kind="state").first()
             if region is None:
-                logger.warning("No state GeoRegion found for verband %r", name)
+                logger.warning("No GeoRegion found for verband %r", name)
             self._region_cache[name] = region
         return self._region_cache[name]
 

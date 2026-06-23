@@ -12,7 +12,30 @@ from froide_evidencecollection.models import (
     SyncableModel,
 )
 
-from .factories import OrganizationFactory, RoleFactory, syncable_model_factories
+from .factories import (
+    GeoRegionFactory,
+    OrganizationFactory,
+    RoleFactory,
+    syncable_model_factories,
+)
+
+
+class TestVerbandLabel:
+    @pytest.mark.django_db
+    def test_country_region_reads_bund(self):
+        org = OrganizationFactory(
+            verband=GeoRegionFactory(name="Deutschland", kind="country")
+        )
+        assert org.verband_label == "Bund"
+
+    @pytest.mark.django_db
+    def test_state_region_reads_bare_name(self):
+        org = OrganizationFactory(verband=GeoRegionFactory(name="Bayern", kind="state"))
+        assert org.verband_label == "Bayern"
+
+    @pytest.mark.django_db
+    def test_no_verband_reads_empty(self):
+        assert OrganizationFactory(verband=None).verband_label == ""
 
 
 def _actor():

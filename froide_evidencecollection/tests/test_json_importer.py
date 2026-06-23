@@ -13,7 +13,7 @@ from froide_evidencecollection.models import (
     SocialMediaPost,
 )
 
-from .factories import OrganizationFactory, PersonFactory
+from .factories import GeoRegionFactory, OrganizationFactory, PersonFactory
 
 
 def _make_account(**overrides):
@@ -557,6 +557,63 @@ class TestJSONImporter:
         assert stats["Actor"]["deleted"] == []
         assert len(stats["Actor"]["skipped"]) == 1
         assert "Nobody Here" in stats["Actor"]["skipped"][0]
+
+    @pytest.mark.django_db
+    def test_sets_verband_from_state_and_bund(self, tmp_path):
+        sachsen = GeoRegionFactory(name="Sachsen", kind="state")
+        bund = GeoRegionFactory(name="Deutschland", kind="country")
+        p1 = PersonFactory(first_name="A", last_name="State", external_id=11)
+        p2 = PersonFactory(first_name="B", last_name="Fed", external_id=12)
+        path = _write_dump(
+            tmp_path,
+            {
+                "1": {
+                    "label": "A State",
+                    "verband": "Sachsen",
+                    "social_media": {"telegram": [_make_post()]},
+                },
+                "2": {
+                    "label": "B Fed",
+                    "verband": "Bund",
+                    "social_media": {
+                        "telegram": [
+                            _make_post(
+                                platform_post_id="2", url="https://t.me/example/2"
+                            )
+                        ]
+                    },
+                },
+            },
+        )
+
+        JSONImporter(path).run()
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        assert p1.verband == sachsen
+        assert p2.verband == bund
+
+    @pytest.mark.django_db
+    def test_unresolved_verband_does_not_wipe_existing(self, tmp_path):
+        sachsen = GeoRegionFactory(name="Sachsen", kind="state")
+        person = PersonFactory(
+            first_name="Max", last_name="Mustermann", external_id=1, verband=sachsen
+        )
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "verband": "Nirgendwoland",
+                    "social_media": {"telegram": [_make_post()]},
+                }
+            },
+        )
+
+        JSONImporter(path).run()
+
+        person.refresh_from_db()
+        assert person.verband == sachsen
 
     @pytest.mark.django_db
     def test_resolves_organization_by_name(self, db, tmp_path):

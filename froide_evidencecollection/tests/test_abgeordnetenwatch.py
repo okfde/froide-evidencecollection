@@ -543,6 +543,7 @@ class TestPoliticianImporter:
                         "status": None,
                         "sync_uuid": str(persons[0].sync_uuid),
                         "title": "Dr." if with_values else "",
+                        "verband": None,
                         "wikidata_id": "Q123456" if with_values else None,
                     },
                 }
@@ -1343,6 +1344,7 @@ class TestAbgeordnetenwatchImporter:
                         "status": None,
                         "sync_uuid": str(persons[0].sync_uuid),
                         "title": "Dr.",
+                        "verband": None,
                         "wikidata_id": "Q123456",
                     },
                 }

@@ -113,9 +113,31 @@ class AbstractActor(SyncableModel):
     wikidata_id = models.CharField(
         max_length=20, unique=True, blank=True, null=True, verbose_name=_("Wikidata ID")
     )
+    # The regional chapter ("Verband") the actor belongs to: a Bundesland for a
+    # Landesverband, or the country-level region ("Deutschland") for "Bund". Kept
+    # separate from `Organization.regions` (which describes an org's area of
+    # activity); this names the actor's organizational level instead.
+    verband = models.ForeignKey(
+        GeoRegion,
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="+",
+        verbose_name=_("Verband"),
+        limit_choices_to={"kind__in": ["state", "country"]},
+    )
 
     class Meta:
         abstract = True
+
+    @property
+    def verband_label(self):
+        """Display label for `verband`: ``Bund`` for the country-level region,
+        the bare Bundesland name otherwise (instead of GeoRegion's verbose
+        ``__str__``)."""
+        if self.verband is None:
+            return ""
+        return "Bund" if self.verband.kind == "country" else self.verband.name
 
     @cached_property
     def wikidata_url(self):

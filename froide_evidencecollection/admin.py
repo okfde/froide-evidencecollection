@@ -263,6 +263,7 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
         "wikidata_link",
         "aw_link",
         "status",
+        "verband_display",
         "created_at",
         "updated_at",
         "synced_at",
@@ -272,6 +273,7 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
         "sync_uuid",
         "wikidata_link",
         "aw_link",
+        "verband_display",
         "created_at",
         "updated_at",
         "synced_at",
@@ -285,6 +287,10 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
         "affiliations__organization",
     ]
     search_fields = ["first_name", "last_name", "also_known_as"]
+
+    @admin.display(description=_("Verband"))
+    def verband_display(self, obj):
+        return obj.verband_label
 
     def wikidata_link(self, obj):
         if obj.wikidata_url:
@@ -327,6 +333,7 @@ class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
         "institutional_level",
         "regions",
         "special_regions",
+        "verband_display",
         "status",
         "created_at",
         "updated_at",
@@ -336,6 +343,7 @@ class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
     readonly_fields = [
         "sync_uuid",
         "wikidata_link",
+        "verband_display",
         "created_at",
         "updated_at",
         "synced_at",
@@ -359,6 +367,10 @@ class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
 
     def region_list(self, obj):
         return ", ".join([region.name for region in obj.regions.all()])
+
+    @admin.display(description=_("Verband"))
+    def verband_display(self, obj):
+        return obj.verband_label
 
 
 @admin.register(Role)
