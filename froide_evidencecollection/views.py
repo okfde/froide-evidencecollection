@@ -815,6 +815,9 @@ class EvidenceTopicCloudView(TemplateView):
             )
             .only(
                 "pk",
+                # `slug` backs `get_absolute_url()`, read once per circle in the
+                # cloud loop — load it here so it isn't a deferred per-row query.
+                "slug",
                 "citation",
                 "description",
                 "topic_x",
