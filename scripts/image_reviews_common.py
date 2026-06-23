@@ -70,16 +70,22 @@ def iter_review_posts(data):
                     yield post_key(platform, item), platform, item
 
 
-def thumbnail_path(item, images_root):
-    """Best local image for a post: the content image if present, else the
-    archival screenshot. Returns an absolute Path or None."""
-    for rel in (item.get("image_file"), item.get("screenshot_file")):
-        if not rel:
-            continue
-        path = Path(os.path.normpath(os.path.join(images_root, rel)))
-        if path.is_file():
-            return path
-    return None
+def _resolve(rel, images_root):
+    """Absolute Path for a bundle-relative file ref, or None if absent/missing."""
+    if not rel:
+        return None
+    path = Path(os.path.normpath(os.path.join(images_root, rel)))
+    return path if path.is_file() else None
+
+
+def image_path(item, images_root):
+    """The post's content image as an absolute Path, or None."""
+    return _resolve(item.get("image_file"), images_root)
+
+
+def screenshot_path(item, images_root):
+    """The post's archival full-page screenshot as an absolute Path, or None."""
+    return _resolve(item.get("screenshot_file"), images_root)
 
 
 # Generated files default here (relative to the repo root); see .gitignore.

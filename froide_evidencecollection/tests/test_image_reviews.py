@@ -59,7 +59,7 @@ def test_export_import_apply_roundtrip(tmp_path):
                 _post("1", "u1", image_file="./images/a.jpg"),
                 _post(
                     "2", "u1", screenshot="./screenshots/b.png"
-                ),  # screenshot fallback
+                ),  # only a screenshot, no content image
             ],
             "twitter": [
                 _post("3", "u9", alt=""),  # no generated text -> not exported
@@ -78,6 +78,7 @@ def test_export_import_apply_roundtrip(tmp_path):
     assert [c.value for c in ws[1]] == [
         "id",
         "image",
+        "full_screenshot",
         "alt_text",
         "alt_text_edited",
         "notes",
@@ -85,10 +86,10 @@ def test_export_import_apply_roundtrip(tmp_path):
     keys = {ws.cell(row=r, column=1).value for r in range(2, ws.max_row + 1)}
     assert keys == {"facebook:u1:1", "facebook:u1:2"}  # post 3 excluded
 
-    # Editor corrects post 1 (column 4); leaves post 2 untouched (approve as-is).
+    # Editor corrects post 1 (column 5); leaves post 2 untouched (approve as-is).
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "facebook:u1:1":
-            ws.cell(row=r, column=4, value="corrected")
+            ws.cell(row=r, column=5, value="corrected")
     ws.parent.save(out)
 
     import_image_reviews.import_reviews(str(out), str(ledger))
@@ -143,18 +144,18 @@ def test_image_without_description_is_exported_for_handfilling(tmp_path):
     ws = load_workbook(out).active
     rows = {
         ws.cell(row=r, column=1).value: (
-            ws.cell(row=r, column=3).value,  # generated (reference)
-            ws.cell(row=r, column=4).value,  # editable
+            ws.cell(row=r, column=4).value,  # generated (reference)
+            ws.cell(row=r, column=5).value,  # editable
         )
         for r in range(2, ws.max_row + 1)
     }
     assert set(rows) == {"facebook:u1:1"}  # only the image post; post 2 excluded
     assert rows["facebook:u1:1"] == (None, None)  # no generated text, blank to fill
 
-    # Editor writes a description by hand (column 4) for the image that had none.
+    # Editor writes a description by hand (column 5) for the image that had none.
     for r in range(2, ws.max_row + 1):
         if ws.cell(row=r, column=1).value == "facebook:u1:1":
-            ws.cell(row=r, column=4, value="hand written")
+            ws.cell(row=r, column=5, value="hand written")
     ws.parent.save(out)
     import_image_reviews.import_reviews(str(out), str(ledger))
 
@@ -258,7 +259,7 @@ def test_import_directory_collects_all_sheets(tmp_path):
         (sheets_dir / "r_02.xlsx", "edit-b"),
     ]:
         wb = load_workbook(sheet)
-        wb.active.cell(row=2, column=4, value=text)
+        wb.active.cell(row=2, column=5, value=text)
         wb.save(sheet)
 
     # Importing the directory picks up both sheets at once.

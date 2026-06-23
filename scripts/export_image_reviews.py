@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Export image descriptions from import.json for human review.
 
-One row per post that has an image (or an existing description): a locked `id`, an
-embedded thumbnail (the post's content image, or its screenshot as fallback), an
+One row per post that has an image (or an existing description): a locked `id`, two
+embedded thumbnails (the post's content `image` and its full-page `screenshot`,
+each shown whenever present), an
 editable `alt_text` cell — pre-filled with the machine-generated description, or
 left blank for an image that has none so an editor can write one by hand — and a
 free-text `notes` cell. A reviewer edits `alt_text` in place (or clears it to drop
@@ -26,10 +27,11 @@ from pathlib import Path
 from image_reviews_common import (
     ensure_parent,
     generated_alt,
+    image_path,
     iter_review_posts,
     load_json,
     load_ledger,
-    thumbnail_path,
+    screenshot_path,
 )
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XLImage
@@ -38,8 +40,13 @@ from PIL import Image as PILImage
 
 # Generated text is shown read-only as a reference; the editor writes into
 # `alt_text_edited`. Keep these names in sync with import_image_reviews.py.
-HEADERS = ["id", "image", "alt_text", "alt_text_edited", "notes"]
+HEADERS = ["id", "image", "full_screenshot", "alt_text", "alt_text_edited", "notes"]
 THUMB_MAX = (320, 320)
+# The full-page screenshot carries more detail (surrounding text, layout), and is
+# usually tall/portrait — so cap it by width (what makes text legible) and leave a
+# generous height ceiling, letting tall shots render at a readable width rather
+# than being shrunk to fit a square box.
+SCREENSHOT_MAX = (480, 800)
 PX_PER_CHAR = 7.0  # Excel column-width unit ≈ 7px at the default font.
 PX_TO_POINT = 0.75  # Row height is in points.
 
@@ -81,15 +88,15 @@ def _shards(out, rows, split):
         start += size
 
 
-def _embed_thumbnail(ws, row, item, images_root, buffers):
-    """Embed a scaled thumbnail at B{row}; return display height in px or None."""
-    path = thumbnail_path(item, images_root)
+def _embed_thumbnail(ws, anchor, path, buffers, max_size=THUMB_MAX):
+    """Embed a scaled thumbnail at `anchor` (e.g. "B2"); return display height in
+    px, or None if there's no image to embed."""
     if path is None:
         return None
     try:
         with PILImage.open(path) as im:
             im = im.convert("RGB")
-            im.thumbnail(THUMB_MAX)
+            im.thumbnail(max_size)
             buf = BytesIO()
             im.save(buf, format="PNG")
             w, h = im.size
@@ -100,7 +107,7 @@ def _embed_thumbnail(ws, row, item, images_root, buffers):
     buffers.append(buf)  # keep alive until the workbook is saved
     xl = XLImage(buf)
     xl.width, xl.height = w, h
-    ws.add_image(xl, f"B{row}")
+    ws.add_image(xl, anchor)
     return h
 
 
@@ -116,9 +123,10 @@ def _write_workbook(path, rows, images_root):
     ws.freeze_panes = "A2"
     ws.column_dimensions["A"].width = 36
     ws.column_dimensions["B"].width = THUMB_MAX[0] / PX_PER_CHAR
-    ws.column_dimensions["C"].width = 60
+    ws.column_dimensions["C"].width = SCREENSHOT_MAX[0] / PX_PER_CHAR
     ws.column_dimensions["D"].width = 60
-    ws.column_dimensions["E"].width = 30
+    ws.column_dimensions["E"].width = 60
+    ws.column_dimensions["F"].width = 30
 
     wrap = Alignment(wrap_text=True, vertical="top")
     top = Alignment(vertical="top")
@@ -127,16 +135,23 @@ def _write_workbook(path, rows, images_root):
 
     for r, (key, generated, prior_edit, item) in enumerate(rows, start=2):
         ws.cell(row=r, column=1, value=key).alignment = top
-        ws.cell(row=r, column=3, value=generated).alignment = wrap
-        ws.cell(row=r, column=4, value=prior_edit or None).alignment = wrap
-        ws.cell(row=r, column=5).alignment = wrap
-        height = _embed_thumbnail(ws, r, item, images_root, buffers)
-        if height is None:
-            missing += 1
+        ws.cell(row=r, column=4, value=generated).alignment = wrap
+        ws.cell(row=r, column=5, value=prior_edit or None).alignment = wrap
+        ws.cell(row=r, column=6).alignment = wrap
+        img_h = _embed_thumbnail(ws, f"B{r}", image_path(item, images_root), buffers)
+        shot_h = _embed_thumbnail(
+            ws, f"C{r}", screenshot_path(item, images_root), buffers, SCREENSHOT_MAX
+        )
+        if img_h is None:
             ws.cell(row=r, column=2, value="[no image]").alignment = wrap
-            ws.row_dimensions[r].height = 60
+        if shot_h is None:
+            ws.cell(row=r, column=3, value="[no screenshot]").alignment = wrap
+        heights = [h for h in (img_h, shot_h) if h is not None]
+        if heights:
+            ws.row_dimensions[r].height = max(max(heights) * PX_TO_POINT, 60)
         else:
-            ws.row_dimensions[r].height = max(height * PX_TO_POINT, 60)
+            missing += 1  # no visual at all (neither image nor screenshot)
+            ws.row_dimensions[r].height = 60
 
     wb.save(ensure_parent(path))
     return len(rows), missing
