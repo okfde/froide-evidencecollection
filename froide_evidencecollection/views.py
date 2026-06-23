@@ -569,6 +569,7 @@ class EvidenceTopicCloudView(TemplateView):
     NARROWING_PARAMS = (
         "q",
         "theme",
+        "chapter",
         "platform",
         "posted_after",
         "posted_before",
@@ -640,6 +641,21 @@ class EvidenceTopicCloudView(TemplateView):
         meaning. Non-numeric values are skipped; any extra ``theme`` params are
         ignored."""
         for raw in params.getlist("theme"):
+            raw = (raw or "").strip()
+            if raw.isdigit():
+                return int(raw)
+        return None
+
+    @staticmethod
+    def _selected_chapter_id(params):
+        """Selected main topic = the first valid ``chapter`` query param (a
+        Chapter pk), or ``None`` when none is set. The main-topic tree is
+        single-select drill-down: clicking a node narrows the cloud to the
+        evidence filed under that chapter or any of its descendants, so two
+        selected nodes has no meaning. Non-numeric values are skipped; any extra
+        ``chapter`` params are ignored. This is independent of the theme bar — the
+        two stack (AND)."""
+        for raw in params.getlist("chapter"):
             raw = (raw or "").strip()
             if raw.isdigit():
                 return int(raw)
@@ -844,6 +860,20 @@ class EvidenceTopicCloudView(TemplateView):
                 theme_q |= Q(mentions__chapter__in=themed_chapters)
             qs = qs.filter(theme_q).distinct()
 
+        # Main topic (report chapter): the hierarchical entry point, single-
+        # select. Selecting a main-topic node narrows to evidence filed under
+        # that chapter or any of its descendants (its subtree in the full chapter
+        # tree) — so a parent node matches a superset of its children, the
+        # "higher level → more evidence" behaviour of the tree. Independent of
+        # the theme bar above — the two stack (AND). distinct() because the
+        # mention join can match through several mentions.
+        chapter_id = self._selected_chapter_id(params)
+        if chapter_id is not None:
+            chapter = Chapter.objects.filter(pk=chapter_id).first()
+            if chapter is not None:
+                subtree = Chapter.get_tree(chapter)
+                qs = qs.filter(mentions__chapter__in=subtree).distinct()
+
         # Keyword facets: narrow to evidence whose text actually contains the
         # selected keyword lemma(s), via the Evidence↔Keyword index. Several
         # selected keywords AND together (each a separate join on the M2M), so
@@ -951,6 +981,134 @@ class EvidenceTopicCloudView(TemplateView):
         ):
             selected_theme_id = None
         return selected_theme_id, theme_options
+
+    def _build_main_topic_tree(self, params):
+        """Hierarchical main-topic filter data, drawn from the chapter tree.
+
+        The report's chapters form a deep tree (``Chapter``), of which only the
+        nodes flagged ``is_main_topic`` name a thematic topic. This builds a
+        *condensed* tree of those main-topic nodes alone: each one hangs off its
+        nearest main-topic ancestor, collapsing the non-main intermediate
+        chapters between them (main topics aren't located at a uniform depth, so
+        the gaps are merged away). The result is a single pre-order-flattened
+        list ready for an indented render.
+
+        Coverage is cumulative and corpus-wide: a node's ``count`` is the number
+        of distinct topic-fitted evidence filed under that chapter *or any of its
+        descendants* (the same subtree the filter narrows to). A parent therefore
+        always subsumes its children — the higher the level, the more evidence
+        matches. Only nodes that subsume at least one evidence are kept; since a
+        parent's count is ≥ each child's, dropping the empties never orphans a
+        surviving child.
+
+        The tree is collapsed by default: only root nodes are ``visible``, and a
+        node is ``expanded`` (its children revealed) only along the path to the
+        selected node, so a drill-down keeps its context after the section is
+        re-rendered.
+
+        Returns ``(selected_chapter_id, nodes)`` where each node is
+        ``{id, parent_id, label, count, depth, guides, has_children, expanded,
+        visible, selected}`` (``guides`` is one entry per ancestor level, for
+        drawing the indentation rails), pre-order flattened with siblings ordered
+        by coverage (then label) so the biggest topics lead.
+        """
+        selected_chapter_id = self._selected_chapter_id(params)
+
+        chapters = list(
+            Chapter.objects.only("id", "path", "is_main_topic", "custom_label")
+        )
+        by_path = {c.path: c for c in chapters}
+        label_of = {c.id: c.custom_label for c in chapters}
+        steplen = Chapter.steplen
+
+        # For every chapter, the main-topic node ids on its root-to-leaf path,
+        # nearest first (including itself when it is a main topic). Walking the
+        # materialised path upward in fixed ``steplen`` chunks yields the
+        # ancestors; this is the backbone for both the condensed parent links and
+        # the cumulative coverage tally.
+        main_chain: dict[int, list[int]] = {}
+        for c in chapters:
+            chain = []
+            path = c.path
+            while path:
+                node = by_path.get(path)
+                if node is not None and node.is_main_topic:
+                    chain.append(node.id)
+                path = path[:-steplen]  # step to the parent path
+            main_chain[c.id] = chain
+
+        # Distinct topic-fitted evidence per main-topic node, in one pass over the
+        # mention↔chapter pairs: a mention at chapter ``c`` counts toward every
+        # main-topic node on ``c``'s path, so subtree subsumption falls out for
+        # free (and a node inherits all its descendants' evidence).
+        coverage: dict[int, set[int]] = defaultdict(set)
+        pairs = EvidenceMention.objects.filter(
+            evidence__topic_fit_at__isnull=False, chapter__isnull=False
+        ).values_list("evidence_id", "chapter_id")
+        for ev_id, ch_id in pairs:
+            for mt_id in main_chain.get(ch_id, ()):
+                coverage[mt_id].add(ev_id)
+        counts = {mt_id: len(ev_ids) for mt_id, ev_ids in coverage.items()}
+
+        # Condensed parent links among the evidence-bearing main-topic nodes:
+        # a node's parent is the second entry of its chain (the first being
+        # itself); a node with no main-topic ancestor is a root.
+        children: dict[int, list[int]] = defaultdict(list)
+        roots: list[int] = []
+        for c in chapters:
+            if not c.is_main_topic or counts.get(c.id, 0) == 0:
+                continue
+            chain = main_chain[c.id]
+            parent_id = chain[1] if len(chain) > 1 else None
+            if parent_id is None:
+                roots.append(c.id)
+            else:
+                children[parent_id].append(c.id)
+
+        # Drop a stale/empty selection so the active state stays honest.
+        if selected_chapter_id is not None and counts.get(selected_chapter_id, 0) == 0:
+            selected_chapter_id = None
+
+        # Collapsed by default: expand only the selected node and its ancestors
+        # (its whole main-chain), so the drilled-into path stays open and the
+        # selected node's children are revealed; everything else starts closed.
+        expanded_ids: set[int] = set()
+        if selected_chapter_id is not None:
+            expanded_ids = set(main_chain.get(selected_chapter_id, ()))
+
+        # Pre-order flatten, siblings by coverage then label. Each node carries
+        # its depth (indentation rails), parent id and child/expanded/visible
+        # flags (collapse state) for the template + client toggle.
+        nodes: list[dict] = []
+
+        def _walk(node_id, depth, parent_id, parent_visible, parent_expanded):
+            visible = depth == 0 or (parent_visible and parent_expanded)
+            expanded = node_id in expanded_ids
+            nodes.append(
+                {
+                    "id": node_id,
+                    "parent_id": parent_id,
+                    "label": label_of.get(node_id, ""),
+                    "count": counts.get(node_id, 0),
+                    "depth": depth,
+                    # One guide cell per ancestor level, so the template can draw
+                    # a vertical connector rail at each level of indentation.
+                    "guides": list(range(depth)),
+                    "has_children": bool(children[node_id]),
+                    "expanded": expanded,
+                    "visible": visible,
+                    "selected": node_id == selected_chapter_id,
+                }
+            )
+            for kid in sorted(
+                children[node_id], key=lambda cid: (-counts[cid], label_of[cid])
+            ):
+                _walk(kid, depth + 1, node_id, visible, expanded)
+
+        for root_id in sorted(roots, key=lambda cid: (-counts[cid], label_of[cid])):
+            _walk(root_id, 0, None, True, True)
+
+        return selected_chapter_id, nodes
 
     def _assign_theme_colors(self, theme_options):
         """Give each theme its identity colour — used on its chip and its dots.
@@ -1258,6 +1416,14 @@ class EvidenceTopicCloudView(TemplateView):
         theme_order = dict(Theme.objects.values_list("id", "order"))
         _mark("theme colours")
 
+        # Main-topic bar: a hierarchical, single-select filter over the report's
+        # `is_main_topic` chapters (condensed so each node hangs off its nearest
+        # main-topic ancestor). Independent of the theme bar — the two stack
+        # (AND). Coverage is corpus-wide and cumulative, so the order/counts
+        # don't reshuffle as the user drills in.
+        selected_chapter_id, main_topics = self._build_main_topic_tree(self.request.GET)
+        _mark(f"main topics ({len(main_topics)})")
+
         # Cloud points — keep dotted only if we have coordinates. Colouring is a
         # lens: when a theme is selected, every visible dot belongs to it (the
         # set was already narrowed to that theme), so they all take the selected
@@ -1446,6 +1612,8 @@ class EvidenceTopicCloudView(TemplateView):
                 "max_evidence": self.MAX_EVIDENCE,
                 "themes": theme_options,
                 "selected_theme_id": selected_theme_id,
+                "main_topics": main_topics,
+                "selected_chapter_id": selected_chapter_id,
                 "facets": facets,
                 "selected_keywords": selected_keywords,
                 "selected_facets": selected_facets,
@@ -1473,6 +1641,7 @@ class EvidenceTopicCloudView(TemplateView):
                     for p in (
                         "q",
                         "theme",
+                        "chapter",
                         "keyword",
                         "platform",
                         "posted_after",

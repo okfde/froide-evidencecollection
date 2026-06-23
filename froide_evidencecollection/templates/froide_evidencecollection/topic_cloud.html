@@ -52,6 +52,13 @@
                     <span id="tf-themes">
                         {% if selected_theme_id %}<input type="hidden" name="theme" value="{{ selected_theme_id }}">{% endif %}
                     </span>
+                    {# Selected main-topic chapter (single-select), managed by the   #}
+                    {# main-topic tree below: at most one hidden input, narrowing the #}
+                    {# cloud to evidence under that chapter's subtree. Independent of #}
+                    {# the theme select — the two stack (AND).                        #}
+                    <span id="tf-chapters">
+                        {% if selected_chapter_id %}<input type="hidden" name="chapter" value="{{ selected_chapter_id }}">{% endif %}
+                    </span>
                     <div class="topic-filter-field topic-filter-field--search">
                         <label for="tf-q" class="topic-filter-label">{% trans "Search" %}</label>
                         <input type="search"
@@ -229,6 +236,7 @@
             {# (JS swaps them from the partial response) so counts and the        #}
             {# co-occurring set stay current.                                     #}
             <div id="topic-groups-host">{% include "froide_evidencecollection/_topic_themes.html" %}</div>
+            <div id="topic-chapters-host">{% include "froide_evidencecollection/_topic_chapters.html" %}</div>
             <div id="topic-facets-host">{% include "froide_evidencecollection/_topic_facets.html" %}</div>
         </div>
         {# /.topic-cloud-filters #}
@@ -852,6 +860,110 @@
         margin-left: .4em;
     }
     .topic-group-chip.is-active .topic-group-chip__count { opacity: .85; }
+    /* ── Main-topic tree (report chapters) ──────────────────────────────
+       A hierarchical, single-select filter rendered as a plain indented
+       category tree (no surrounding frame, no chip pills). It is collapsed by
+       default: each parent node carries a disclosure chevron, and only the path
+       to a selected node starts expanded. Each row is prefixed by one guide cell
+       per ancestor level, each drawing a vertical connector rail that runs the
+       full row height so consecutive rows form a continuous line down the tree.
+       The selected node gets a left accent bar rather than a filled background,
+       so the tree stays light. The panel is framed like the other filters
+       (keyword facets, actors). */
+    .topic-chapters {
+        border: 1px solid #e7e2db;
+        border-radius: .5rem;
+        padding: .5rem .75rem;
+        background: #fcfbf9;
+    }
+    .topic-chapters__head { margin-bottom: .2rem; }
+    .topic-chapters__title {
+        font-size: .8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: #6b5d4f;
+    }
+    .topic-chapters__tree {
+        display: flex;
+        flex-direction: column;
+        gap: .02rem;
+    }
+    .topic-chapter-row { display: flex; align-items: stretch; }
+    .topic-chapter-row.is-hidden { display: none; }
+    /* One fixed-width cell per ancestor level, each carrying a centred vertical
+       rail so consecutive rows form a continuous line down each tree level. */
+    .topic-chapter-guide {
+        flex: 0 0 16px;
+        position: relative;
+    }
+    .topic-chapter-guide::before {
+        content: "";
+        position: absolute;
+        left: 7px;
+        top: 0;
+        bottom: 0;
+        border-left: 1px solid #d8cdbd;
+    }
+    /* Disclosure chevron: a right-pointing triangle that rotates to point down
+       when its node is expanded. Leaves render an empty same-width spacer so
+       every label aligns regardless of whether the node has children. */
+    .topic-chapter-toggle {
+        flex: 0 0 16px;
+        align-self: stretch;
+        position: relative;
+        border: 0;
+        background: none;
+        padding: 0;
+        cursor: pointer;
+    }
+    .topic-chapter-toggle--leaf { cursor: default; }
+    .topic-chapter-toggle:not(.topic-chapter-toggle--leaf)::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 0;
+        height: 0;
+        border-left: 5px solid #8a7d6c;
+        border-top: 4px solid transparent;
+        border-bottom: 4px solid transparent;
+        transition: transform .12s ease;
+    }
+    .topic-chapter-toggle.is-expanded::before { transform: rotate(90deg); }
+    .topic-chapter-toggle:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 1px; border-radius: .2rem; }
+    .topic-chapter-node {
+        position: relative;
+        display: flex;
+        align-items: baseline;
+        gap: .5em;
+        flex: 1 1 auto;
+        text-align: left;
+        border: 0;
+        border-left: 2px solid transparent;
+        background: none;
+        cursor: pointer;
+        padding: .12rem .4rem;
+        border-radius: .2rem;
+        color: #4a3f33;
+        font-size: .9rem;
+        line-height: 1.45;
+        transition: background .12s, color .12s;
+    }
+    .topic-chapter-node:hover { background: #f1ece5; }
+    .topic-chapter-node:focus-visible { outline: 2px solid #8a6d3b; outline-offset: 1px; }
+    .topic-chapter-node.is-active {
+        color: #6b4f2c;
+        font-weight: 600;
+        background: #f3ece2;
+        border-left-color: #6b4f2c;
+    }
+    .topic-chapter-node__count {
+        font-size: .75em;
+        opacity: .5;
+        font-variant-numeric: tabular-nums;
+    }
+    .topic-chapter-node.is-active .topic-chapter-node__count { opacity: .7; }
     /* ── "Actors in view" side panel ──────────────────────────────────── */
     .topic-actors {
         border: 1px solid #e7e2db;

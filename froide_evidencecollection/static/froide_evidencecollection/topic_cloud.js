@@ -791,6 +791,19 @@
             else if (!existing && incoming) host.appendChild(incoming);
         }
 
+        // The main-topic tree narrows on every filter change too (the counts and
+        // the active node), so swap it wholesale from the partial response just
+        // like the group bar.
+        function updateChaptersHost(fresh) {
+            var host = document.getElementById('topic-chapters-host');
+            if (!host) return;
+            var existing = host.querySelector('.topic-chapters');
+            var incoming = fresh ? fresh.querySelector('.topic-chapters') : null;
+            if (existing && incoming) existing.replaceWith(incoming);
+            else if (existing && !incoming) existing.remove();
+            else if (!existing && incoming) host.appendChild(incoming);
+        }
+
         // The "Actors in view" panel is recomputed over the filtered set on
         // every change, so swap it wholesale from the partial response like the
         // facet/group bars.
@@ -994,6 +1007,7 @@
             // #topic-cloud-results, so swap them explicitly from the partial
             // response, then re-assert the actor highlight over the new dots.
             updateGroupsHost(tmp);
+            updateChaptersHost(tmp);
             updateFacetsHost(tmp);
             updateActorsHost(tmp);
             syncActorHighlight();
@@ -1102,6 +1116,102 @@
             });
         }
 
+        // Main-topic tree → the hidden #tf-chapters input (the single selected
+        // chapter). Single-select drill-down: clicking a node narrows the cloud
+        // to evidence under that chapter's subtree; clicking the active node
+        // again clears it. Independent of the keyword facets and the theme bar —
+        // all three stack. Delegated on the stable host because
+        // updateChaptersHost replaces the tree wholesale.
+        var chaptersBox = document.getElementById('tf-chapters');
+        var chaptersHost = document.getElementById('topic-chapters-host');
+        function selectedChapters() {
+            if (!chaptersBox) return [];
+            return Array.prototype.map.call(
+                chaptersBox.querySelectorAll('input[name="chapter"]'),
+                function (i) { return i.value; }
+            );
+        }
+        function setChapters(values) {
+            if (!chaptersBox) return;
+            chaptersBox.innerHTML = '';
+            values.forEach(function (v) {
+                var inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'chapter';
+                inp.value = v;
+                chaptersBox.appendChild(inp);
+            });
+            form.requestSubmit();
+        }
+
+        // ── Collapsible tree (client-side) ──────────────────────────────
+        // The tree is a flat list of rows linked by data-node-id / data-parent-id
+        // and starts collapsed (the server unhides only the path to a selected
+        // node). The chevron toggles a node's direct children in/out; collapsing
+        // also hides every descendant so a reopened branch starts tidy. This is
+        // purely DOM state — no request — so it stays snappy and independent of
+        // the filter selection.
+        function chapterRowEls() {
+            return chaptersHost
+                ? chaptersHost.querySelectorAll('.topic-chapter-row')
+                : [];
+        }
+        function directChildRows(id) {
+            var out = [];
+            Array.prototype.forEach.call(chapterRowEls(), function (row) {
+                if (row.getAttribute('data-parent-id') === id) out.push(row);
+            });
+            return out;
+        }
+        function setToggleExpanded(toggle, expanded) {
+            toggle.classList.toggle('is-expanded', expanded);
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        }
+        function collapseDescendants(row) {
+            directChildRows(row.getAttribute('data-node-id')).forEach(function (child) {
+                child.classList.add('is-hidden');
+                var t = child.querySelector('.topic-chapter-toggle');
+                if (t && t.classList.contains('is-expanded')) {
+                    setToggleExpanded(t, false);
+                }
+                collapseDescendants(child);
+            });
+        }
+        function toggleChapterNode(toggle) {
+            var row = toggle.closest('.topic-chapter-row');
+            if (!row) return;
+            if (toggle.classList.contains('is-expanded')) {
+                setToggleExpanded(toggle, false);
+                collapseDescendants(row);
+            } else {
+                setToggleExpanded(toggle, true);
+                directChildRows(row.getAttribute('data-node-id')).forEach(
+                    function (child) { child.classList.remove('is-hidden'); }
+                );
+            }
+        }
+
+        if (chaptersHost && chaptersBox) {
+            chaptersHost.addEventListener('click', function (ev) {
+                // Chevron → expand/collapse (no filter change). The leaf spacer
+                // shares the class but carries the --leaf modifier, so skip it.
+                var toggle = ev.target.closest('.topic-chapter-toggle');
+                if (toggle && !toggle.classList.contains('topic-chapter-toggle--leaf')) {
+                    toggleChapterNode(toggle);
+                    return;
+                }
+                var node = ev.target.closest('.topic-chapter-node');
+                if (!node) return;
+                var cid = node.getAttribute('data-chapter') || '';
+                if (!cid) return;
+                // Single-select: re-clicking the active node clears it, any
+                // other click replaces the selection with just that chapter.
+                var current = selectedChapters();
+                var active = current.length === 1 && current[0] === cid;
+                setChapters(active ? [] : [cid]);
+            });
+        }
+
         // "Actors in view" panel → in-cloud highlight (no filtering). Clicking a
         // row marks that actor's dots and dims the rest; clicking the active row
         // again clears it. Delegated on the stable host because updateActorsHost
@@ -1136,6 +1246,7 @@
                 // re-submit once below). form.reset() leaves hidden inputs as-is.
                 if (keywordsBox) keywordsBox.innerHTML = '';
                 if (groupsBox) groupsBox.innerHTML = '';
+                if (chaptersBox) chaptersBox.innerHTML = '';
                 if (actorCombobox) actorCombobox.reset();
                 if (yearSlider) yearSlider.reset();
                 updateResetVisibility();
