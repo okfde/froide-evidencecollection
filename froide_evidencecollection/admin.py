@@ -529,22 +529,26 @@ class CategoryAdmin(ReadOnlyAdmin):
 
 @admin.register(Chapter)
 class ChapterAdmin(ReadOnlyAdmin):
-    # `theme` is the bulk-assignment surface ("everything in chapter X belongs
-    # to theme Y"): editable straight from the changelist via list_editable, and
-    # kept writable on the change form too (the rest of the chapter is imported
-    # and stays read-only).
+    # Chapters are seeded by the JSON import, but curators maintain them by hand
+    # on prod: the label, the main-topic flag, and the bulk `theme` assignment
+    # ("everything in chapter X belongs to theme Y", also editable straight from
+    # the changelist via list_editable). Only treebeard's structural fields stay
+    # locked so the materialised tree can't be corrupted from the form.
     list_display = ["indented_label", "is_main_topic", "theme", "evidence_count"]
-    list_editable = ["theme"]
+    list_editable = ["is_main_topic", "theme"]
     list_filter = ["is_main_topic", "depth", "theme"]
     search_fields = ["custom_label"]
     autocomplete_fields = ["theme"]
     readonly_fields = ["subsumed_evidences"]
 
+    # treebeard internals: never hand-editable, regardless of DEBUG.
+    structural_fields = ("path", "depth", "numchild")
+
     def get_readonly_fields(self, request, obj=None):
-        # Keep `theme` editable even on an existing chapter (ReadOnlyAdmin would
-        # otherwise lock every field outside DEBUG).
-        fields = super().get_readonly_fields(request, obj=obj)
-        return tuple(f for f in fields if f != "theme")
+        # Override ReadOnlyAdmin's blanket prod lock: keep only treebeard's
+        # structural fields (plus the computed `subsumed_evidences`) read-only,
+        # so `custom_label`, `is_main_topic` and `theme` stay editable on prod.
+        return tuple(self.structural_fields) + tuple(self.readonly_fields)
 
     def get_queryset(self, request):
         # Order by materialised path so the tree reads top-down in the list.
