@@ -87,9 +87,9 @@
         </article>
         <div class="px-1 px-md-2">
             {# ── Identity details ─────────────────────────────────────── #}
-            {% if actor.person.title or actor.person.also_known_as or actor.organization.institutional_level or actor.organization.also_known_as %}
-                <section class="detail-section">
-                    <h2 class="detail-heading">{% trans "Details" %}</h2>
+            <section class="detail-section">
+                <h2 class="detail-heading">{% trans "Details" %}</h2>
+                {% if actor.person.title or actor.person.also_known_as or actor.organization.institutional_level or actor.organization.also_known_as %}
                     <dl class="row mb-0">
                         {% if actor.person %}
                             {% if actor.person.title %}
@@ -119,23 +119,25 @@
                             {% endif %}
                         {% endif %}
                     </dl>
-                    {% if actor.person.wikidata_url or actor.person.aw_url or actor.organization.wikidata_url %}
-                        <div class="mt-2 d-flex flex-wrap gap-3 small">
-                            {% if actor.person.wikidata_url %}
-                                <a href="{{ actor.person.wikidata_url }}" target="_blank" rel="noopener">Wikidata</a>
-                            {% endif %}
-                            {% if actor.person.aw_url %}
-                                <a href="{{ actor.person.aw_url }}" target="_blank" rel="noopener">abgeordnetenwatch.de</a>
-                            {% endif %}
-                            {% if actor.organization.wikidata_url %}
-                                <a href="{{ actor.organization.wikidata_url }}"
-                                   target="_blank"
-                                   rel="noopener">Wikidata</a>
-                            {% endif %}
-                        </div>
-                    {% endif %}
-                </section>
-            {% endif %}
+                {% endif %}
+                {% if actor.person.wikidata_url or actor.person.aw_url or actor.organization.wikidata_url %}
+                    <div class="mt-2 d-flex flex-wrap gap-3 small">
+                        {% if actor.person.wikidata_url %}
+                            <a href="{{ actor.person.wikipedia_redirect_url }}"
+                               target="_blank"
+                               rel="noopener">Wikipedia</a>
+                        {% endif %}
+                        {% if actor.person.aw_url %}
+                            <a href="{{ actor.person.aw_url }}" target="_blank" rel="noopener">abgeordnetenwatch.de</a>
+                        {% endif %}
+                        {% if actor.organization.wikidata_url %}
+                            <a href="{{ actor.organization.wikipedia_redirect_url }}"
+                               target="_blank"
+                               rel="noopener">Wikipedia</a>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </section>
             {# ── Social media accounts ────────────────────────────────── #}
             {% if actor.social_media_accounts.all %}
                 <section class="detail-section">

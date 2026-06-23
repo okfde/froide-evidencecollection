@@ -123,6 +123,12 @@ class AbstractActor(SyncableModel):
             return f"https://www.wikidata.org/wiki/{self.wikidata_id}"
         return None
 
+    @cached_property
+    def wikipedia_redirect_url(self):
+        if self.wikidata_id:
+            return f"https://www.wikidata.org/wiki/Special:GoToLinkedPage/de/{self.wikidata_id}"
+        return ""
+
 
 class Person(AbstractActor):
     first_name = models.CharField(
