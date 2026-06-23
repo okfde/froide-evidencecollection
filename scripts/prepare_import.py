@@ -795,7 +795,48 @@ def normalize_single_value_fields(post: dict) -> dict:
     return post
 
 
-def clean_social_media(social_media: dict) -> dict:
+def load_alt_texts(path: Path) -> dict[str, str]:
+    """Map image id -> generated alt text from an external LLM batch file.
+
+    The file is a list of ``{"id", "image_path", "status", "alt_text", "error"}``
+    records; `id` is the image filename stem (e.g. "1007517490730855" for
+    images/1007517490730855.jpg). Only successful, non-empty descriptions are
+    kept, so a failed or blank row leaves the post's alt text untouched.
+    """
+    alt_map: dict[str, str] = {}
+    for entry in load(path):
+        if entry.get("status") != "OK":
+            continue
+        text = (entry.get("alt_text") or "").strip()
+        key = entry.get("id")
+        if text and key is not None:
+            alt_map[str(key)] = text
+    return alt_map
+
+
+def attach_alt_text(post: dict, alt_map: dict[str, str]) -> dict:
+    """Fill a post's generated `image_alt_text.alt_text` from `alt_map`, keyed by
+    the image filename stem. A matched external text wins over any inline one;
+    other keys (e.g. `text_bezug_zum_bild`) are preserved. Posts without an image
+    or without a match pass through unchanged. Runs after
+    `normalize_single_value_fields`, so `image_file` is a bare path or None."""
+    image_file = post.get("image_file")
+    if not image_file:
+        return post
+    text = alt_map.get(Path(image_file).stem)
+    if not text:
+        return post
+    alt = post.get("image_alt_text")
+    if not isinstance(alt, dict):
+        alt = post["image_alt_text"] = {}
+    alt["alt_text"] = text
+    return post
+
+
+def clean_social_media(
+    social_media: dict, alt_map: dict[str, str] | None = None
+) -> dict:
+    alt_map = alt_map or {}
     cleaned = {}
     for platform, posts in social_media.items():
         config = PLATFORM_CONFIG.get(platform)
@@ -803,8 +844,11 @@ def clean_social_media(social_media: dict) -> dict:
             continue
         transform = config.get("transform", lambda p: p)
         cleaned[platform] = [
-            normalize_single_value_fields(
-                transform(filter_fields(post, platform, config))
+            attach_alt_text(
+                normalize_single_value_fields(
+                    transform(filter_fields(post, platform, config))
+                ),
+                alt_map,
             )
             for post in dedupe_posts(posts)
         ]
@@ -896,6 +940,13 @@ def main() -> None:
         help="Output path (default: scripts/data/import.json).",
     )
     parser.add_argument(
+        "--alt-texts",
+        type=Path,
+        default=None,
+        help="External LLM alt-text JSON (list of {id, status, alt_text, …}); "
+        "its descriptions fill image_alt_text on posts matched by image filename.",
+    )
+    parser.add_argument(
         "--survey",
         nargs="?",
         const=True,
@@ -926,6 +977,8 @@ def main() -> None:
                 print(f"  {value!r}")
         return
 
+    alt_map = load_alt_texts(args.alt_texts) if args.alt_texts else {}
+
     result = {}
     for item_id, item in items.items():
         if "Label" in item:
@@ -934,7 +987,10 @@ def main() -> None:
                 for key, value in item.items()
             }
         if "social_media" in item:
-            item = {**item, "social_media": clean_social_media(item["social_media"])}
+            item = {
+                **item,
+                "social_media": clean_social_media(item["social_media"], alt_map),
+            }
         # if "functions" in item:
         #    item = {**item, "functions": clean_functions(item["functions"])}
         result[item_id] = item
