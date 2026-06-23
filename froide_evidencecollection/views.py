@@ -487,10 +487,13 @@ class EvidenceTopicCloudView(TemplateView):
 
     template_name = "froide_evidencecollection/topic_cloud.html"
 
-    # Hard cap on rows fetched from the DB. The cloud SVG renders one
+    # Safety bound on rows fetched from the DB. The cloud SVG renders one
     # circle per row; the screen-reader outline is further trimmed by
-    # OUTLINE_MAX_EVIDENCE so the hidden HTML payload stays small.
-    MAX_EVIDENCE = 2000
+    # OUTLINE_MAX_EVIDENCE so the hidden HTML payload stays small. Set well
+    # above the fitted corpus so it never trips in practice — it only exists
+    # so the page degrades gracefully (via the "Result capped at…" notice)
+    # should the corpus grow by an order of magnitude.
+    MAX_EVIDENCE = 5000
 
     # Evidence listed in the SR-only / mobile outline. Keeps the hidden DOM
     # bounded even when the filtered set is large; users hunting a specific
