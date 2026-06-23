@@ -47,6 +47,18 @@ class TestParseRole:
             ("Abgeordneter des Landtags Sachsen-Anhalt", "Abgeordnete*r"),
             ("Präsident des Bundesschiedsgerichts", "Präsident*in"),
             ("Stadtrat Erfurt", "Stadtrat*rätin"),
+            # Dump acronyms for parliamentary mandates.
+            ("MdB aus Bayern", "Abgeordnete*r"),
+            ("MdL in Thüringen", "Abgeordnete*r"),
+            ("MdEP", "Abgeordnete*r"),
+            ("MdA Berlin", "Abgeordnete*r"),
+            ("ehem. MdB aus Hessen", "Abgeordnete*r"),
+            # Council seats keep their own role rather than "Abgeordnete*r".
+            ("Kreisrat im Ostalbkreis in Baden-Württemberg", "Kreisrat*rätin"),
+            ("Kreistagsabgeordneter in Vorpommern-Rügen", "Kreisrat*rätin"),
+            ("Gemeinderat in Stuttgart", "Gemeinderat*rätin"),
+            ("Bezirksrat Oberbayern", "Bezirksrat*rätin"),
+            ("Stadtbezirksbeirat Plauen in Sachsen", "Beirat*rätin"),
         ],
     )
     def test_canonical_role(self, label, expected):
@@ -78,10 +90,42 @@ class TestParseLevel:
             ("Mitglied des Kreistags Görlitz", "AfD-Kreisverbände"),
             ("Bürgermeister der Stadt Altenberg", "AfD-Kreisverbände"),
             ("Mitglied des Gemeinderats Finsing", "AfD-Kreisverbände"),
+            # Dump acronyms pin the level.
+            ("MdEP", "AfD-Europafraktion"),
+            ("MdB aus Sachsen", "AfD-Bundespartei"),
+            ("MdL in Bayern", "AfD-Landesverbände"),
+            ("MdA Berlin", "AfD-Landesverbände"),
+            ("Vorsitzende KV Rotenburg (Wümme) in Niedersachsen", "AfD-Kreisverbände"),
+            ("Vorsitzender OV Haar in Bayern", "AfD-Kreisverbände"),
+            ("Vorsitzender BV Berlin-Lichtenberg", "AfD-Kreisverbände"),
+            ("Bürgermeister von Altenberg in Sachsen", "AfD-Kreisverbände"),
+            # Abgeordnetenhaus candidacy without the MdA acronym.
+            (
+                "Kanditat zur Wahl des Abgeordnetenhauses in Berlin",
+                "AfD-Landesverbände",
+            ),
         ],
     )
     def test_canonical_level(self, label, expected):
         assert parse_level(label) == expected
+
+    def test_mandate_acronym_beats_secondary_office(self):
+        # An MdB who also chairs a Kreisverband stays at the federal level.
+        assert (
+            parse_level("MdB aus Bayern und Vorsitzender des KV Ebersberg")
+            == "AfD-Bundespartei"
+        )
+
+    def test_local_office_beats_abgeordnetenhaus_candidacy(self):
+        # A Bezirksverband chair who is merely a candidate for the Abgeordnetenhaus
+        # keeps the local level rather than being pulled up to Land.
+        assert (
+            parse_level(
+                "Vorsitzender BV Berlin-Lichtenberg, Kandidat bei der Wahl "
+                "zum Berliner Abgeordnetenhaus 2026"
+            )
+            == "AfD-Kreisverbände"
+        )
 
     def test_bund_beats_kreis_for_federal_seat_in_a_district(self):
         # "Landkreis" must not pull a Bundestag candidacy down to Kreis/Land.

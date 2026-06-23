@@ -82,24 +82,49 @@ ROLE_RULES = [
     (r"sprecher", "Sprecher*in"),
     (r"bürgermeister", "Bürgermeister*in"),
     (r"kandidat", "Kandidat*in"),
-    (r"abgeordnete", "Abgeordnete*r"),
+    # Council seats (kommunale Mandate) are distinct roles, *not* "Abgeordnete*r"
+    # (that title is reserved for parliaments). Matched before the generic
+    # abgeordnete/mitglied rules below so "Kreistagsabgeordneter" and "Mitglied
+    # des Stadtrats" resolve to their seat, not to Abgeordnete*r/Mitglied.
+    (r"stadtrat|stadträt", "Stadtrat*rätin"),
+    (r"kreisrat|kreisrät|kreistag", "Kreisrat*rätin"),
+    (r"gemeinderat|gemeinderät", "Gemeinderat*rätin"),
+    (r"bezirksrat|bezirksrät", "Bezirksrat*rätin"),
+    # Advisory council bodies (Bezirks-/Stadtbezirksbeirat).
+    (r"beirat|beirät", "Beirat*rätin"),
+    # Parliamentary mandates: the dump's acronyms (MdB/MdL/MdEP/MdA/MdHB/MEP)
+    # alongside the spelled-out form.
+    (r"\bmd(b|l|a|ep|hb)\b|\bmep\b|abgeordnete", "Abgeordnete*r"),
     (r"präsident", "Präsident*in"),
     (r"vorstandsmitglied", "Vorstandsmitglied"),
     (r"mitglied", "Mitglied"),
-    (r"stadtrat|stadträt", "Stadtrat*rätin"),
 ]
 ROLE_RULES = [(re.compile(pattern), name) for pattern, name in ROLE_RULES]
 
 # Heuristic mapping from a label to a canonical institutional-level name. Order
-# matters: "Bund" is checked before "Kreis" so a federal candidacy "im
+# matters: a mandate acronym (MdB/MdL/…) pins the governing level first, so an
+# MdB who also chairs a Kreisverband lands on Bund rather than Kreis. Among the
+# keyword rules, "Bund" is checked before "Kreis" so a federal candidacy "im
 # Landkreis …" lands on Bund, and "Kreis" before "Land" so "Landkreis …" (a
 # place qualifier) lands on Kreis rather than Land. The names must match existing
 # `InstitutionalLevel` rows — `_resolve_level` only links, never creates — so if
 # the level vocabulary differs in the database, adjust the names here.
 LEVEL_RULES = [
+    (r"\bmdep\b|\bmep\b", "AfD-Europafraktion"),
+    (r"\bmdb\b", "AfD-Bundespartei"),
+    # MdL (Landtag), MdA (Berlin Abgeordnetenhaus), MdHB (Hamburger Bürgerschaft).
+    (r"\bmdl\b|\bmda\b|\bmdhb\b", "AfD-Landesverbände"),
     (r"europ", "AfD-Europafraktion"),
     (r"bund", "AfD-Bundespartei"),
-    (r"kreis|bezirk|stadt|gemeinde|ortschaft|kommun", "AfD-Kreisverbände"),
+    (
+        r"kreis|bezirk|stadt|gemeinde|ortschaft|kommun"
+        r"|bürgermeister|bürgerschaft|\bkv\b|\bov\b|\bbv\b",
+        "AfD-Kreisverbände",
+    ),
+    # Below the Kommune rule so a local office (e.g. a Bezirksverband chair) that
+    # merely mentions a future Abgeordnetenhaus candidacy keeps its local level;
+    # a bare candidacy with no local token still lands on Land here.
+    (r"abgeordnetenhaus", "AfD-Landesverbände"),
     (r"land", "AfD-Landesverbände"),
 ]
 LEVEL_RULES = [(re.compile(pattern), name) for pattern, name in LEVEL_RULES]
