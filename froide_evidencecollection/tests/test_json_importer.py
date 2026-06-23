@@ -414,6 +414,84 @@ class TestJSONImporter:
         assert "SocialMediaAccount" not in importer.log_stats()
 
     @pytest.mark.django_db
+    def test_account_upserted_once_from_freshest_snapshot(self, person, tmp_path):
+        # Two posts of the same account in one run carry disagreeing snapshots:
+        # a dateless one (listed first) and a dated one. The account must be
+        # written once from the dated (freshest) snapshot, not flapped between
+        # the two — and its collected_at must not be wiped by the dateless post.
+        dateless = _make_post(
+            platform_post_id="1",
+            url="https://t.me/example/1",
+            collected_at=None,
+            account=_make_account(follower_count=999, display_name="Stale"),
+        )
+        dated = _make_post(
+            platform_post_id="2",
+            url="https://t.me/example/2",
+            collected_at="2024-05-01T12:00:00+00:00",
+            account=_make_account(follower_count=2000, display_name="Fresh"),
+        )
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {"telegram": [dateless, dated]},
+                }
+            },
+        )
+        importer = JSONImporter(path)
+        importer.run()
+
+        account = SocialMediaAccount.objects.get()
+        assert account.follower_count == 2000
+        assert account.display_name == "Fresh"
+        assert account.collected_at.isoformat() == "2024-05-01T12:00:00+00:00"
+
+        stats = importer.log_stats()
+        # Created exactly once, never updated-then-reverted within the run.
+        assert len(stats["SocialMediaAccount"]["created"]) == 1
+        assert stats["SocialMediaAccount"]["updated"] == []
+
+    @pytest.mark.django_db
+    def test_dateless_repost_does_not_wipe_stored_collected_at(self, person, tmp_path):
+        # Regression: a later dateless dump used to overwrite the stored
+        # collected_at (and profile) with None / its own values.
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {"telegram": [_make_post()]},
+                }
+            },
+        )
+        JSONImporter(path).run()
+
+        dateless = _make_post(
+            collected_at=None,
+            account=_make_account(display_name="Should Not Win", follower_count=7),
+        )
+        path2 = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {"telegram": [dateless]},
+                }
+            },
+            name="import2.json",
+        )
+        importer = JSONImporter(path2)
+        importer.run()
+
+        account = SocialMediaAccount.objects.get()
+        assert account.collected_at.isoformat() == "2024-01-02T12:00:00+00:00"
+        assert account.display_name == "Example"
+        assert account.follower_count == 1000
+        assert "SocialMediaAccount" not in importer.log_stats()
+
+    @pytest.mark.django_db
     def test_post_field_change_is_tracked(self, person, tmp_path):
         path = _write_dump(
             tmp_path,
@@ -973,6 +1051,60 @@ class TestJSONImporter:
         quoted_post = SocialMediaPost.objects.get(platform_post_id="500")
 
         assert main_post.redistributes_id == quoted_post.id
+
+    @pytest.mark.django_db
+    def test_redistributes_links_single_reference_without_flapping(
+        self, person, tmp_path
+    ):
+        # A post that both quotes and retweets carries two linkable references.
+        # `redistributes` is a single FK, so only one is linked (the last),
+        # written once — not set to the first and then overwritten by the second.
+        post = _make_post(
+            url="https://t.me/example/200",
+            platform_post_id="200",
+            references=[
+                {
+                    "platform_post_id": "900",
+                    "url": "https://t.me/somebody/900",
+                    "created_at": "2024-01-01T01:00:00+00:00",
+                    "text": "Quoted",
+                    "account": {"platform_user_id": "987"},
+                },
+                {
+                    "platform_post_id": "901",
+                    "url": "https://t.me/somebody/901",
+                    "created_at": "2024-01-01T02:00:00+00:00",
+                    "text": "Retweeted",
+                    "account": {"platform_user_id": "987"},
+                },
+            ],
+        )
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {"telegram": [post]},
+                }
+            },
+        )
+        importer = JSONImporter(path)
+        importer.run()
+
+        main_post = SocialMediaPost.objects.get(platform_post_id="200")
+        winner = SocialMediaPost.objects.get(platform_post_id="901")
+        assert main_post.redistributes_id == winner.id
+        # The unlinked reference is not materialized as an orphan stub.
+        assert not SocialMediaPost.objects.filter(platform_post_id="900").exists()
+
+        stats = importer.log_stats()
+        # The main post is linked exactly once (one update), not twice.
+        redistribute_updates = [
+            u
+            for u in stats["SocialMediaPost"].get("updated", [])
+            if u["id"] == main_post.id
+        ]
+        assert len(redistribute_updates) == 1
 
     @pytest.mark.django_db
     def test_dry_run_makes_no_changes_to_posts_or_accounts(self, person, tmp_path):

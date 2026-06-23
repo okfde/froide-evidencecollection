@@ -179,9 +179,10 @@ class JSONImporter:
     post, and a `references` list for quote/repost relationships).
 
     Each post becomes one SocialMediaPost and (if not yet curated) one
-    Evidence linked via Evidence.social_media_post. Profile fields on
-    SocialMediaAccount are updated only when the post's `collected_at` is
-    newer than the account's `collected_at`.
+    Evidence linked via Evidence.social_media_post. Each SocialMediaAccount is
+    upserted once per run from its freshest snapshot across all of its posts
+    (see `_upsert_accounts`), and its profile is refreshed only when that
+    snapshot is at least as new as the account's stored `collected_at`.
 
     Quote/repost references are materialized inline from each post's
     `references` list (stub accounts/posts via get_or_create). Replies are
@@ -210,6 +211,9 @@ class JSONImporter:
         self._written_media_files = []
         # (account_id, platform_post_id) -> SocialMediaPost.id
         self._post_index = {}
+        # (platform, platform_user_id) -> SocialMediaAccount, upserted once per
+        # run from each account's freshest snapshot (see `_upsert_accounts`).
+        self._account_index = {}
         # SocialMediaPost.id -> (reply_to_platform_post_id, account_id)
         self._pending_replies = {}
         # verband (Bundesland) name -> GeoRegion or None
@@ -265,6 +269,10 @@ class JSONImporter:
         # each post once with the union of all its mentions and originators.
         merged_items = {}
         order = []
+        # Freshest account snapshot per account, collected while walking the
+        # dump so each account row is written exactly once (see
+        # `_record_account_snapshot` / `_upsert_accounts`).
+        account_snapshots = {}
         for entry in data.values():
             target = self._resolve_target(entry, actor_index, ambiguous)
             if target is None:
@@ -285,6 +293,7 @@ class JSONImporter:
 
                 for item in items:
                     key = self._post_identity(platform, item)
+                    self._record_account_snapshot(account_snapshots, platform, item)
                     # One originator id per report_data row, so a merged post's
                     # mentions can be attributed to whoever they were grouped
                     # under (see `_upsert_mentions`). The rows of one occurrence
@@ -304,6 +313,8 @@ class JSONImporter:
                         self._merge_report_data(existing["item"], item)
                         existing["originator_ids"].add(actor.id)
                         existing["mention_originators"].extend([actor.id] * row_count)
+
+        self._upsert_accounts(account_snapshots)
 
         for key in order:
             merged = merged_items[key]
@@ -329,6 +340,53 @@ class JSONImporter:
             str(account.get("platform_user_id")),
             str(item.get("platform_post_id")),
         )
+
+    @staticmethod
+    def _account_key(platform, account_data):
+        """Identity of the account a post belongs to, matching `_upsert_account`."""
+        return (platform, str((account_data or {}).get("platform_user_id")))
+
+    @staticmethod
+    def _is_newer(candidate, current):
+        """True if ``candidate`` collected_at is strictly newer than ``current``.
+
+        A missing collected_at (``None``) carries no freshness signal and ranks
+        oldest, so a dateless snapshot never displaces a dated one and ties keep
+        the incumbent.
+        """
+        if candidate is None:
+            return False
+        return current is None or candidate > current
+
+    def _record_account_snapshot(self, snapshots, platform, item):
+        """Keep the freshest snapshot of the account that posted ``item``.
+
+        Each post carries its own snapshot of its account (``item["account"]``),
+        and the same account recurs across many posts with differing follower
+        counts, names and ``collected_at``. Upserting the row once per post would
+        let those disagreeing snapshots overwrite each other — flapping in the
+        stats and leaving whichever post happened to be processed last as the
+        winner. Instead keep only the newest snapshot per account here and write
+        it once in `_upsert_accounts`.
+        """
+        account_data = item.get("account") or {}
+        key = self._account_key(platform, account_data)
+        collected_at = _parse_dt(item.get("collected_at"))
+        current = snapshots.get(key)
+        if current is None or self._is_newer(collected_at, current["collected_at"]):
+            snapshots[key] = {"data": account_data, "collected_at": collected_at}
+
+    def _upsert_accounts(self, snapshots):
+        """Upsert each account once from its freshest snapshot, indexing the rows.
+
+        `_import_item` then looks the account up by `_account_key` instead of
+        re-upserting it per post.
+        """
+        self._account_index = {}
+        for (platform, _puid), snap in snapshots.items():
+            self._account_index[(platform, _puid)] = self._upsert_account(
+                platform, snap["data"], snap["collected_at"]
+            )
 
     @staticmethod
     def _merge_report_data(base, extra):
@@ -639,7 +697,9 @@ class JSONImporter:
         edited_at = _parse_dt(item.get("edited_at"))
         collected_at = _parse_dt(item.get("collected_at"))
 
-        account = self._upsert_account(platform, account_data, collected_at)
+        # The account row was already upserted once per run from its freshest
+        # snapshot (see `_upsert_accounts`); reuse it rather than writing again.
+        account = self._account_index[self._account_key(platform, account_data)]
 
         if self.dry_run:
             return
@@ -689,12 +749,15 @@ class JSONImporter:
 
         self._post_index[(account.id, post.platform_post_id)] = post.id
 
-        # Redistributed posts — repost/quote/forward (inline stub creation).
-        for ref in references:
+        # Redistributed post — repost/quote/forward (inline stub creation).
+        # `redistributes` is a single FK, but a tweet can carry both a quote and
+        # a retweet reference; link only one so the slot isn't written twice
+        # (which flapped in the stats and left the loser as an orphan stub).
+        ref = self._select_redistribution(references)
+        if ref is not None:
             stub_post = self._upsert_stub_post(platform, ref)
-            if not stub_post:
-                continue
-            self._link_reference(post, stub_post, ref)
+            if stub_post:
+                self._link_reference(post, stub_post, ref)
 
         # Replies are resolved in a second pass (target may not yet exist).
         reply_id = self._extract_reply_id(platform, item)
@@ -824,6 +887,19 @@ class JSONImporter:
             self.stats.track_updated(Evidence, old_data, evidence)
         return evidence
 
+    @staticmethod
+    def _select_redistribution(references):
+        """The single reference to link via `redistributes`, or None.
+
+        Only references carrying a ``platform_post_id`` can become a linkable
+        stub (see `_upsert_stub_post`); among those the last one wins, preserving
+        the target the former link-every-reference loop ended on for tweets that
+        both quote and retweet. Id-less references are handled separately via the
+        post's ``unresolved_redistribution`` field.
+        """
+        linkable = [ref for ref in references if ref.get("platform_post_id")]
+        return linkable[-1] if linkable else None
+
     def _link_reference(self, post, stub_post, ref):
         self.stats.reset_instance(SocialMediaPost)
         if equals(post.redistributes_id, stub_post.id):
@@ -914,14 +990,17 @@ class JSONImporter:
 
         update = False
 
-        # Profile fields are written on first sight (including platforms like
-        # telegram/youtube that carry no collected_at) and otherwise refreshed
-        # unless this dump is strictly older than what we already stored.
-        should_refresh = not (
-            collected_at is not None
-            and account.collected_at is not None
-            and collected_at < account.collected_at
-        )
+        # Refresh the profile (and advance collected_at) only when this snapshot
+        # is at least as fresh as what we stored. A dateless snapshot
+        # (collected_at None, e.g. telegram/youtube) carries no freshness
+        # signal: it may fill in a still-dateless account — a stub seen for the
+        # first time, or a brand-new row — but must never overwrite, let alone
+        # blank out, values a dated import already wrote.
+        stored = account.collected_at
+        if collected_at is None:
+            should_refresh = stored is None
+        else:
+            should_refresh = stored is None or collected_at >= stored
         if should_refresh:
             for field, value in self._account_profile_values(account_data).items():
                 if not equals(getattr(account, field), value):
