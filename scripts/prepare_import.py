@@ -858,9 +858,8 @@ def clean_social_media(
 # Misspellings in the source's `functions` text, given as the shortest
 # distinctive substring -> fix. Keeping them minimal makes each entry reusable:
 # "Bundestagsg" -> "Bundestags" repairs the typo in any label built from it,
-# not just one full phrase. Applied to both the `Funktion` and `verband` fields
-# (a fix that can't occur in a field is simply a no-op there). A few carry one
-# word of context where the bare token would be ambiguous ("das" is a real word;
+# not just one full phrase. A few carry one word of context where the bare
+# token would be ambiguous ("das" is a real word;
 # only "Vorsitzender das" is wrong). Extend as new typos surface (use `--survey`).
 CORRECTIONS = {
     "Miglied": "Mitglied",
@@ -889,16 +888,10 @@ def _normalize_function_text(value: str) -> str:
 
 
 def clean_functions(functions: list) -> list:
-    # Normalise and typo-correct each function entry's `Funktion` and `verband`
-    # in place; other fields pass through untouched. Linking these clean labels
-    # to roles / institutional levels happens later, in the JSON importer.
-    cleaned = []
-    for func in functions:
-        func = dict(func)
-        func["Funktion"] = _normalize_function_text(func.get("Funktion", ""))
-        func["verband"] = _normalize_function_text(func.get("verband", ""))
-        cleaned.append(func)
-    return cleaned
+    # `functions` is a list of free-text label strings. Normalise and
+    # typo-correct each. Linking these clean labels to roles / institutional
+    # levels (and keeping only the first) happens later, in the JSON importer.
+    return [_normalize_function_text(func) for func in functions]
 
 
 def survey_social_media(items: dict) -> dict[str, set[str]]:
@@ -991,8 +984,8 @@ def main() -> None:
                 **item,
                 "social_media": clean_social_media(item["social_media"], alt_map),
             }
-        # if "functions" in item:
-        #    item = {**item, "functions": clean_functions(item["functions"])}
+        if "functions" in item:
+            item = {**item, "functions": clean_functions(item["functions"])}
         result[item_id] = item
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

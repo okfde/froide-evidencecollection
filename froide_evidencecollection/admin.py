@@ -228,17 +228,12 @@ class PoliticalPositionInline(admin.TabularInline):
     model = PoliticalPosition
     extra = 0
     fields = [
-        "type",
         "label",
         "role",
         "institutional_level",
-        "region",
-        "organization",
-        "start_date_display",
-        "end_date_display",
     ]
     readonly_fields = fields
-    ordering = ("start_date",)
+    ordering = ("label",)
 
 
 @admin.register(Person)
@@ -462,36 +457,22 @@ class AffiliationAdmin(SyncableMixin, ReadOnlyAdmin):
 class PoliticalPositionAdmin(admin.ModelAdmin):
     list_display = [
         "person",
-        "type",
         "label",
         "role",
         "institutional_level",
-        "region",
-        "start_date_display",
-        "end_date_display",
     ]
-    list_filter = ["type", "institutional_level", "region", "role"]
+    list_filter = ["institutional_level", "role"]
     search_fields = [
         "person__first_name",
         "person__last_name",
         "label",
         "role__name",
     ]
-    raw_id_fields = ["person", "role", "organization", "region"]
+    raw_id_fields = ["person", "role"]
     readonly_fields = [
         "created_at",
         "updated_at",
-        "start_date_display",
-        "end_date_display",
     ]
-
-    @admin.display(description=_("start date"), ordering="start_date")
-    def start_date_display(self, obj):
-        return obj.start_date_display
-
-    @admin.display(description=_("end date"), ordering="end_date")
-    def end_date_display(self, obj):
-        return obj.end_date_display
 
 
 class AttachmentInline(admin.TabularInline):

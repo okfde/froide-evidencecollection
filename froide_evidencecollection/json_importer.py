@@ -2,8 +2,7 @@ import json
 import logging
 import os
 import re
-from calendar import monthrange
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from itertools import zip_longest
 
 from django.core.files import File
@@ -45,13 +44,6 @@ PLATFORM_MAP = {
     "youtube": SocialMediaAccount.Platform.YOUTUBE,
 }
 
-
-# Maps the dump's "Partei/Parlament" discriminator onto PoliticalPosition.Type.
-FUNCTION_TYPE_MAP = {
-    "Mandat": PoliticalPosition.Type.MANDATE,
-    "Parlament": PoliticalPosition.Type.PARLIAMENT,
-    "Partei": PoliticalPosition.Type.PARTY,
-}
 
 # Heuristic mapping from a (typo-cleaned) function label to a canonical,
 # gender-neutral role name. Ordered most-specific first; the first pattern that
@@ -148,51 +140,10 @@ def parse_level(label):
     return ""
 
 
-# Extracts the party sub-organization ("Verband") a party-function label refers
-# to, so it can be matched against an existing Organization. The label names the
-# *board* ("Landesvorstand …") or the *association* ("Landesverband …"); both
-# denote the same Organization, which is named as the Verband — so "vorstand" is
-# normalised to "verband". A required level prefix (landes/kreis/…) anchors the
-# match on the real body and skips a bare leading "des Vorstands …". The trailing
-# place ("Thüringen", "Konstanz") is kept. Returns "" when nothing matches.
-_ORG_BODY_RE = re.compile(
-    r"(landes|bundes|kreis|bezirks|stadt|orts|regional)"
-    r"(?:verband|vorstand)(?:e?s)?\b\s*(.*)$"
-)
-
-
-def parse_organization_name(label):
-    """Candidate Verband name for a party-function label, or "" if none."""
-    match = _ORG_BODY_RE.search((label or "").lower())
-    if not match:
-        return ""
-    prefix, tail = match.group(1), match.group(2).strip()
-    name = f"{prefix}verband"
-    return f"{name} {tail}" if tail else name
-
-
 def _parse_dt(value):
     if not value:
         return None
     return datetime.fromisoformat(value)
-
-
-def _parse_month(value, end=False):
-    """Parse a month-precision "YYYY-MM" string to a date.
-
-    The day is the first of the month for a start date and the last for an end
-    date, so the stored DateField round-trips to the same month. Returns None for
-    blank or unparseable input (data cleanup is handled in a separate step).
-    """
-    if not value:
-        return None
-    try:
-        year, month = (int(part) for part in value.split("-"))
-    except (ValueError, AttributeError):
-        logger.warning("Unparseable month %r; storing None.", value)
-        return None
-    day = monthrange(year, month)[1] if end else 1
-    return date(year, month, day)
 
 
 class JSONImporter:
@@ -247,12 +198,6 @@ class JSONImporter:
         self._role_cache = {}
         # canonical institutional-level name -> InstitutionalLevel or None
         self._level_cache = {}
-        # normalized Verband candidate -> Organization or None
-        self._org_match_cache = {}
-        # normalized name -> Person/Organization, plus the ambiguous-name set;
-        # populated in run() and reused to match functions to existing orgs.
-        self._actor_index = {}
-        self._ambiguous_names = set()
         # Same dump-label corrections align_org_names applies, so an org's
         # abbreviated dump label resolves to its expanded Organization name.
         self._org_label_replacements = load_org_label_replacements()
@@ -278,9 +223,6 @@ class JSONImporter:
     def _run(self):
         data = self.load()
         actor_index, ambiguous = self._build_actor_index()
-        # Reused by `_resolve_organization` to link functions to existing orgs.
-        self._actor_index = actor_index
-        self._ambiguous_names = ambiguous
 
         # The dump groups posts by scrape target, but one and the same post can
         # be grouped under several targets (e.g. a person and their party's
@@ -310,8 +252,8 @@ class JSONImporter:
             # `_upsert_account`); the grouping only attests authorship/origin.
             actor = self._get_or_create_actor(target)
             self._set_verband(target, entry)
-            # if isinstance(target, Person):
-            #    self._import_functions(target, entry)
+            if isinstance(target, Person):
+                self._import_functions(target, entry)
             for platform, items in (entry.get("social_media") or {}).items():
                 if platform not in PLATFORM_MAP:
                     logger.warning("Unknown platform %r; skipping", platform)
@@ -560,127 +502,51 @@ class JSONImporter:
     # Political positions (per-person "functions" list)
     # ------------------------------------------------------------------
     def _import_functions(self, person, entry):
-        # Map each entry of the person's `functions` list to a PoliticalPosition.
-        # Idempotent: existing rows are matched on (type, label, start_date) and
-        # only updated when an import-owned field changed. The start date is part
-        # of the key (not the end date) because a person can hold the same
-        # position in two separate terms — distinguished only by when it started
-        # — while the end date floats: ongoing positions carry the current month
-        # as their end, so keying on it would spawn a duplicate on every re-run.
-        # `organization` is linked to an *existing* Verband only (never created).
+        # The dump lists a person's functions as free-text strings, most relevant
+        # first; we keep only the first as that person's single PoliticalPosition.
+        # Idempotent: matched on label and only updated when an import-owned field
+        # changed. Add/update-only (never deletes), so a curator's own positions
+        # and manual fixes survive re-runs.
         functions = entry.get("functions") or []
         if not functions or self.dry_run:
             return
 
-        existing = {
-            (p.type, p.label, p.start_date): p for p in person.political_positions.all()
-        }
+        label = (functions[0] or "").strip()
+        if not label:
+            return
 
-        for func in functions:
-            type_ = FUNCTION_TYPE_MAP.get(func.get("Partei/Parlament"))
-            if type_ is None:
-                msg = (
-                    f"Unknown function type {func.get('Partei/Parlament')!r} for "
-                    f"{person}; skipping"
-                )
-                logger.warning(msg)
-                self.stats.track_skipped(PoliticalPosition, msg)
-                continue
+        # Heuristic, curator-correctable links: set on create and only filled in
+        # later if still empty, so a re-import never clobbers a manual fix.
+        role = self._resolve_role(label)
+        level = self._resolve_level(label)
 
-            label = (func.get("Funktion") or "").strip()
-            start_date = _parse_month(func.get("start_datum"))
-            quelle = func.get("quelle") or []
-            # Source-authoritative scalar fields: refreshed from the dump on every
-            # run (type/label/start_date form the match key, so they're equal by
-            # construction).
-            source_fields = {
-                "end_date": _parse_month(func.get("end_datum"), end=True),
-                "start_source_url": quelle[0] if len(quelle) > 0 else "",
-                "end_source_url": quelle[1] if len(quelle) > 1 else "",
-            }
-            region = self._resolve_region(func.get("verband"))
-            # Heuristic, curator-correctable links: set on create and only filled
-            # in later if still empty, so a re-import never clobbers a manual fix.
-            role = self._resolve_role(label)
-            level = self._resolve_level(label)
-            # Only party functions name a Verband; a mandate's body is a
-            # parliament, not an Organization.
-            organization = (
-                self._resolve_organization(label)
-                if type_ == PoliticalPosition.Type.PARTY
-                else None
+        existing = {p.label: p for p in person.political_positions.all()}
+        position = existing.get(label)
+        if position is None:
+            self.stats.reset_instance(PoliticalPosition)
+            position = PoliticalPosition.objects.create(
+                person=person,
+                label=label,
+                role=role,
+                institutional_level=level,
             )
+            self.stats.track_created(PoliticalPosition, position)
+            return
 
-            key = (type_, label, start_date)
-            position = existing.get(key)
-            if position is None:
-                self.stats.reset_instance(PoliticalPosition)
-                position = PoliticalPosition.objects.create(
-                    person=person,
-                    type=type_,
-                    label=label,
-                    start_date=start_date,
-                    region=region,
-                    role=role,
-                    institutional_level=level,
-                    organization=organization,
-                    **source_fields,
-                )
-                self.stats.track_created(PoliticalPosition, position)
-                existing[key] = position
-                continue
-
-            old_data = to_dict(position)
-            update = False
-            for field, value in source_fields.items():
-                if not equals(getattr(position, field), value):
-                    setattr(position, field, value)
-                    update = True
-            # Never overwrite a resolved region with None (an unresolved verband
-            # shouldn't wipe a value a curator already set).
-            if region is not None and position.region_id != region.id:
-                position.region = region
-                update = True
-            # Override policy: only populate the heuristic / matched links while
-            # empty, so a re-import never clobbers a manual fix.
-            if role is not None and position.role_id is None:
-                position.role = role
-                update = True
-            if level is not None and position.institutional_level_id is None:
-                position.institutional_level = level
-                update = True
-            if organization is not None and position.organization_id is None:
-                position.organization = organization
-                update = True
-            if update:
-                self.stats.reset_instance(PoliticalPosition)
-                position.save()
-                self.stats.track_updated(PoliticalPosition, old_data, position)
-
-    def _resolve_organization(self, label):
-        # Match the label's Verband to an *existing* Organization via the actor
-        # index (names + aliases), never creating one. An unmatched or ambiguous
-        # name resolves to None (logged) so no junk orgs are introduced. Cached
-        # per run. Relies on organizations already being imported (e.g. from
-        # NocoDB) before this run.
-        candidate = parse_organization_name(label)
-        if not candidate:
-            return None
-        key = normalize_name(candidate)
-        if not key:
-            return None
-        if key not in self._org_match_cache:
-            org = None
-            if key not in self._ambiguous_names:
-                target = self._actor_index.get(key)
-                if isinstance(target, Organization):
-                    org = target
-            if org is None:
-                logger.warning(
-                    "No organization match for label %r (tried %r)", label, candidate
-                )
-            self._org_match_cache[key] = org
-        return self._org_match_cache[key]
+        old_data = to_dict(position)
+        update = False
+        # Override policy: only populate the heuristic / matched links while
+        # empty, so a re-import never clobbers a manual fix.
+        if role is not None and position.role_id is None:
+            position.role = role
+            update = True
+        if level is not None and position.institutional_level_id is None:
+            position.institutional_level = level
+            update = True
+        if update:
+            self.stats.reset_instance(PoliticalPosition)
+            position.save()
+            self.stats.track_updated(PoliticalPosition, old_data, position)
 
     def _resolve_role(self, label):
         # Parse a canonical role name from the (clean) label and link it to a Role

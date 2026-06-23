@@ -1,7 +1,7 @@
 """Tests for the topic cloud's originator filters: narrowing the evidence set
-by the role (function) and institutional level of the political position the
-posting person held *when the evidence was posted*, and by the originator's
-Verband (a direct actor attribute, not function- or time-bound).
+by the role (function) and institutional level of a political position the
+posting person held, and by the originator's Verband (a direct actor
+attribute).
 """
 
 import datetime
@@ -67,81 +67,67 @@ class TestPoliticalPositionFilter:
         self.role_a = RoleFactory()
         self.role_b = RoleFactory()
         self.level = InstitutionalLevelFactory()
-        self.region = GeoRegionFactory()
 
-        # Person held role_a from 2020 through 2021; the evidence below is
-        # posted inside (2020-06) and outside (2023-06) that window.
+        # Person holds role_a at self.level; the two evidences below are posted
+        # on different dates, but the filter is not time-bound, so both match.
         self.person = PersonFactory(first_name="Ada", last_name="Lovelace")
         self.actor = Actor.objects.create(person=self.person)
         self.position = PoliticalPosition.objects.create(
             person=self.person,
-            type=PoliticalPosition.Type.MANDATE,
             label="Member",
             role=self.role_a,
             institutional_level=self.level,
-            region=self.region,
-            start_date=datetime.date(2020, 1, 1),
-            end_date=datetime.date(2021, 12, 31),
         )
 
         tz = timezone.get_current_timezone()
-        self.inside = _posted_evidence(
+        self.ev1 = _posted_evidence(
             self.actor, datetime.datetime(2020, 6, 1, 12, tzinfo=tz), 1
         )
-        self.outside = _posted_evidence(
+        self.ev2 = _posted_evidence(
             self.actor, datetime.datetime(2023, 6, 1, 12, tzinfo=tz), 2
         )
 
-    def test_role_matches_only_while_position_was_active(self):
+    def test_role_matches_all_posts_of_the_holder(self):
         ids = _filtered_ids({"role": str(self.role_a.id)})
-        assert ids == {self.inside.pk}
+        assert ids == {self.ev1.pk, self.ev2.pk}
 
     def test_unheld_role_matches_nothing(self):
         assert _filtered_ids({"role": str(self.role_b.id)}) == set()
 
-    def test_level_is_time_bounded_too(self):
+    def test_level_matches_all_posts_of_the_holder(self):
         ids = _filtered_ids({"level": str(self.level.id)})
-        assert ids == {self.inside.pk}
+        assert ids == {self.ev1.pk, self.ev2.pk}
 
-    def test_combined_params_bind_to_the_same_active_position(self):
+    def test_combined_params_bind_to_the_same_position(self):
         ids = _filtered_ids(
             {
                 "role": str(self.role_a.id),
                 "level": str(self.level.id),
             }
         )
-        assert ids == {self.inside.pk}
+        assert ids == {self.ev1.pk, self.ev2.pk}
 
     def test_role_and_level_from_different_positions_do_not_match(self):
-        # A second position carries a different role but no level, and the
-        # first carries the role and the level. Selecting role_b + level must
+        # A second position carries a different role and its own level, while the
+        # first carries role_a and self.level. Selecting role_b + self.level must
         # not match by stitching the two positions together — the filter binds
         # all attributes to one position.
         other_level = InstitutionalLevelFactory()
         PoliticalPosition.objects.create(
             person=self.person,
-            type=PoliticalPosition.Type.PARTY,
             label="Spokesperson",
             role=self.role_b,
             institutional_level=other_level,
-            start_date=datetime.date(2020, 1, 1),
-            end_date=datetime.date(2021, 12, 31),
         )
         # role_b lives on the second position, self.level on the first.
         ids = _filtered_ids({"role": str(self.role_b.id), "level": str(self.level.id)})
         assert ids == set()
-        # role_b with its own level does match (inside the window).
+        # role_b with its own level does match.
         ids = _filtered_ids({"role": str(self.role_b.id), "level": str(other_level.id)})
-        assert ids == {self.inside.pk}
-
-    def test_open_ended_position_has_no_upper_bound(self):
-        self.position.end_date = None
-        self.position.save()
-        ids = _filtered_ids({"role": str(self.role_a.id)})
-        assert ids == {self.inside.pk, self.outside.pk}
+        assert ids == {self.ev1.pk, self.ev2.pk}
 
     def test_no_function_params_leaves_set_unfiltered(self):
-        assert _filtered_ids({}) == {self.inside.pk, self.outside.pk}
+        assert _filtered_ids({}) == {self.ev1.pk, self.ev2.pk}
 
 
 @pytest.mark.django_db

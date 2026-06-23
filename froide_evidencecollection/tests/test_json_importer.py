@@ -13,7 +13,13 @@ from froide_evidencecollection.models import (
     SocialMediaPost,
 )
 
-from .factories import GeoRegionFactory, OrganizationFactory, PersonFactory
+from .factories import (
+    GeoRegionFactory,
+    InstitutionalLevelFactory,
+    OrganizationFactory,
+    PersonFactory,
+    RoleFactory,
+)
 
 
 def _make_account(**overrides):
@@ -117,6 +123,61 @@ class TestJSONImporter:
             assert model_stats["updated"] == []
             assert model_stats["skipped"] == []
             assert model_stats["deleted"] == []
+
+    @pytest.mark.django_db
+    def test_import_functions_keeps_only_first_as_political_position(
+        self, person, tmp_path
+    ):
+        # `functions` is a list of free-text label strings; only the first
+        # becomes a PoliticalPosition, with role/level parsed from the label.
+        InstitutionalLevelFactory(name="AfD-Landesverbände")
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "functions": [
+                        "MdL in Rheinland-Pfalz",
+                        "Mitglied im Bundesvorstand",
+                    ],
+                    "social_media": {"telegram": [_make_post()]},
+                }
+            },
+        )
+
+        JSONImporter(path).run()
+
+        position = person.political_positions.get()
+        assert position.label == "MdL in Rheinland-Pfalz"
+        assert position.role.name == "Abgeordnete*r"
+        assert position.institutional_level.name == "AfD-Landesverbände"
+
+    @pytest.mark.django_db
+    def test_import_functions_is_idempotent_and_keeps_manual_role(
+        self, person, tmp_path
+    ):
+        # Re-importing matches on label and never clobbers a curator's edit: a
+        # manually changed role survives, and no duplicate position is created.
+        dump = {
+            str(person.pk): {
+                "label": "Max Mustermann",
+                "functions": ["MdL in Rheinland-Pfalz"],
+                "social_media": {"telegram": [_make_post()]},
+            }
+        }
+        path = _write_dump(tmp_path, dump)
+        JSONImporter(path).run()
+
+        position = person.political_positions.get()
+        manual_role = RoleFactory(name="Hand-picked role")
+        position.role = manual_role
+        position.save()
+
+        JSONImporter(path).run()
+
+        position.refresh_from_db()
+        assert person.political_positions.count() == 1
+        assert position.role == manual_role
 
     @pytest.mark.django_db
     def test_import_creates_post_media(self, person, tmp_path, settings):

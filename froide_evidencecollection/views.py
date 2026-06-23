@@ -10,7 +10,6 @@ from django.conf import settings
 from django.core.exceptions import BadRequest, FieldDoesNotExist
 from django.db.models import Max, Min, Prefetch, Q, QuerySet, Sum
 from django.db.models.fields.related import ManyToManyField
-from django.db.models.functions import TruncDate
 from django.http import Http404, HttpResponse
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -685,51 +684,31 @@ class EvidenceTopicCloudView(TemplateView):
 
     @classmethod
     def _political_position_q(cls, params):
-        """Filter on the *function the originator held when the evidence was
-        posted* — an originator person's political position, narrowed by
-        either of two params:
+        """Filter on a *function the originator held* — an originator person's
+        political position, narrowed by either of two params:
 
         * ``role`` — the function/role of that position (a ``Role`` pk),
         * ``level`` — its institutional level (an ``InstitutionalLevel`` pk).
 
-        Both bind to a *single* position (one join), and that position
-        must have been active on the post's date: its start on or before and
-        its end on or after it, with an open-ended (null) start or end counting
-        as unbounded. Combining them therefore narrows to one position that
-        matches both at post time — "the same function". A position's
-        ``start_date`` / ``end_date`` are month-precision day markers, so the
-        comparison is against the post's calendar date (``TruncDate``), making
-        both day boundaries inclusive.
+        Both bind to a *single* position (one join), so combining them narrows
+        to one position that matches both — "the same function".
 
         Returns a ``Q`` to AND into the queryset, or ``None`` when neither
-        param is set. Only evidence with a person originator can match
-        (the path runs through originators → person); the active-at-post-time
-        test still uses the social-media post's date, so the caller applies it
-        with ``distinct()`` to fold the to-many originators join.
+        param is set. Only evidence with a person originator can match (the
+        path runs through originators → person); the caller applies it with
+        ``distinct()`` to fold the to-many originators join.
         """
         pp = cls.POLITICAL_POSITION_PREFIX
-        attr_conds = []
+        position_q = None
         for name, field in (
             ("role", "role_id"),
             ("level", "institutional_level_id"),
         ):
             raw = (params.get(name) or "").strip()
             if raw.isdigit():
-                attr_conds.append(Q(**{f"{pp}__{field}": int(raw)}))
-        if not attr_conds:
-            return None
-
-        posted_date = TruncDate("social_media_post__posted_at")
-        active = (
-            Q(**{f"{pp}__start_date__isnull": True})
-            | Q(**{f"{pp}__start_date__lte": posted_date})
-        ) & (
-            Q(**{f"{pp}__end_date__isnull": True})
-            | Q(**{f"{pp}__end_date__gte": posted_date})
-        )
-        for cond in attr_conds:
-            active &= cond
-        return active
+                cond = Q(**{f"{pp}__{field}": int(raw)})
+                position_q = cond if position_q is None else position_q & cond
+        return position_q
 
     @staticmethod
     def _verband_q(params):
@@ -929,9 +908,9 @@ class EvidenceTopicCloudView(TemplateView):
             except ValueError:
                 pass
 
-        # Originator-function filters (role / institutional level of the
-        # political position the posting person held at post time). Bound to a
-        # single active position via one join, so distinct() to fold the to-many.
+        # Originator-function filters (role / institutional level of a political
+        # position the posting person held). Bound to a single position via one
+        # join, so distinct() to fold the to-many.
         pp_q = self._political_position_q(params)
         if pp_q is not None:
             qs = qs.filter(pp_q).distinct()
@@ -1584,9 +1563,9 @@ class EvidenceTopicCloudView(TemplateView):
         # that actually occur on a political position of some person who has
         # posted topic-fitted evidence. Bounding to occurring values keeps each
         # dropdown to options that can yield a non-empty result (like the actor
-        # list above). The filters select against the *active* position at post
-        # time (see `_political_position_q`); the options here are just the
-        # universe of values, not time-bounded.
+        # list above). The filters select against a matching position (see
+        # `_political_position_q`); the options here are just the universe of
+        # values.
         pp_qs = PoliticalPosition.objects.filter(
             person__actor__originated_evidence__topic_fit_at__isnull=False
         )

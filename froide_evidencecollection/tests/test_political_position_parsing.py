@@ -1,11 +1,7 @@
-from datetime import date
-
 import pytest
 
 from froide_evidencecollection.json_importer import (
-    _parse_month,
     parse_level,
-    parse_organization_name,
     parse_role,
 )
 
@@ -142,57 +138,3 @@ class TestParseLevel:
 
     def test_no_level_token_returns_empty(self):
         assert parse_level("Fraktionsvorsitzender") == ""
-
-
-class TestParseOrganizationName:
-    @pytest.mark.parametrize(
-        "label,expected",
-        [
-            ("Vorsitzender des Kreisverbands Cottbus", "kreisverband cottbus"),
-            ("Vorsitzender des Bezirksverbands Schwaben", "bezirksverband schwaben"),
-            (
-                "Stellvertretender Vorsitzender des Landesverbands Bayern",
-                "landesverband bayern",
-            ),
-            # The board ("Landesvorstand") denotes the same org as the Verband.
-            ("Mitglied im Landesvorstand Bayern", "landesverband bayern"),
-            ("Mitglied des Bundesvorstands", "bundesverband"),
-            # Genitive "-es" form.
-            ("Stellvertretender Sprecher des Bundesverbandes", "bundesverband"),
-            # A bare leading "Vorstands" is skipped; the prefixed body wins.
-            (
-                "Mitglied des Vorstands des Kreisverbands Dachau",
-                "kreisverband dachau",
-            ),
-        ],
-    )
-    def test_candidate_name(self, label, expected):
-        assert parse_organization_name(label) == expected
-
-    @pytest.mark.parametrize(
-        "label",
-        [
-            "Bundessprecher",
-            "Landesvorsitzender",
-            "Mitglied der Bundesprogrammkommission",
-            "Präsident des Bundesschiedsgerichts",
-            "",
-        ],
-    )
-    def test_no_verband_returns_empty(self, label):
-        assert parse_organization_name(label) == ""
-
-
-class TestParseMonth:
-    def test_start_is_first_of_month(self):
-        assert _parse_month("2017-10") == date(2017, 10, 1)
-
-    def test_end_is_last_of_month(self):
-        assert _parse_month("2025-03", end=True) == date(2025, 3, 31)
-
-    def test_end_handles_leap_year(self):
-        assert _parse_month("2024-02", end=True) == date(2024, 2, 29)
-
-    @pytest.mark.parametrize("value", ["", None, "2017", "2017-10-05", "garbage"])
-    def test_unparseable_is_none(self, value):
-        assert _parse_month(value) is None
