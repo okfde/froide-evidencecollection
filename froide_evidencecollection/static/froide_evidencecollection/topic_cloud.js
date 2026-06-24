@@ -446,6 +446,7 @@
 
             var sourceEl = tooltip.querySelector('.topic-cloud-tooltip__source');
             var metaEl = tooltip.querySelector('.topic-cloud-tooltip__meta');
+            var statsEl = tooltip.querySelector('.topic-cloud-tooltip__stats');
 
             // One "Label: value" row for the tooltip's metadata block, built
             // with DOM nodes (not innerHTML) so the values stay text-safe.
@@ -466,6 +467,7 @@
                 var postedOn = circle.getAttribute('data-posted-on') || '';
                 var originators = circle.getAttribute('data-originators') || '';
                 var chapters = circle.getAttribute('data-chapters') || '';
+                var stats = circle.getAttribute('data-stats') || '';
 
                 // Header line: the table's Platform / Account / Date columns.
                 var source = platform;
@@ -482,6 +484,9 @@
                 if (chapters) {
                     metaEl.appendChild(metaRow(I18N.i18nChapters || 'Chapters', chapters));
                 }
+
+                // Engagement line (views · likes · …), pre-formatted server-side.
+                statsEl.textContent = stats;
             }
 
             function positionTooltip(ev) {
