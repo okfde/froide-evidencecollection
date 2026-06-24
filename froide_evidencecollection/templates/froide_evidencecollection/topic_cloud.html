@@ -7,7 +7,9 @@
 <script src="{% static 'froide_evidencecollection/htmx.min.js' %}" defer></script>
 <script src="{% static 'froide_evidencecollection/topic_cloud.js' %}" defer></script>
 <div class="container-fluid my-4 topic-cloud-page topic-view-cloud"
-     data-i18n-reset-zoom="{% trans 'Reset zoom' %}">
+     data-i18n-reset-zoom="{% trans 'Reset zoom' %}"
+     data-i18n-zoom-in="{% trans 'Zoom in' %}"
+     data-i18n-zoom-out="{% trans 'Zoom out' %}">
     {# ── Sticky filter region ──────────────────────────────────── #}
     {# The whole filter stack — compact toolbar row, theme bar and   #}
     {# main-topic tree — is pinned together so it                    #}
@@ -573,7 +575,7 @@
     .topic-cloud-svg svg.is-panning circle[data-href] { cursor: grabbing; }
     .topic-cloud-zoom-reset {
         position: absolute;
-        top: .5rem;
+        top: 2.75rem;
         right: .5rem;
         z-index: 5;
         background: rgba(255, 255, 255, .92);
@@ -586,6 +588,39 @@
     }
     .topic-cloud-zoom-reset:hover { background: #fff; }
     .topic-cloud-zoom-reset[hidden] { display: none; }
+    .topic-cloud-zoom-controls {
+        position: absolute;
+        top: .5rem;
+        right: .5rem;
+        z-index: 5;
+        display: flex;
+        flex-direction: row;
+    }
+    .topic-cloud-zoom-controls button {
+        width: 2rem;
+        height: 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, .92);
+        border: 1px solid #ccc;
+        font-size: 1.1rem;
+        line-height: 1;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+    }
+    .topic-cloud-zoom-controls button:first-child {
+        border-radius: 3px 0 0 3px;
+    }
+    .topic-cloud-zoom-controls button:last-child {
+        border-radius: 0 3px 3px 0;
+        border-left: none;
+    }
+    .topic-cloud-zoom-controls button:hover { background: #fff; }
+    .topic-cloud-zoom-controls button:disabled {
+        opacity: .5;
+        cursor: default;
+    }
     .topic-cloud-tooltip {
         position: absolute;
         z-index: 10;
