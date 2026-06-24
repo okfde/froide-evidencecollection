@@ -415,7 +415,8 @@
     top: 2.75rem;
     right: .5rem;
     z-index: 5;
-    background: rgba(255, 255, 255, .92);
+    color: var(--bs-body-color);
+    background: var(--bs-body-bg);
     border: 1px solid #ccc;
     border-radius: 3px;
     padding: .2rem .5rem;
@@ -425,7 +426,7 @@
 }
 
 .topic-cloud-zoom-reset:hover {
-    background: #fff;
+    background: var(--bs-secondary-bg);
 }
 
 .topic-cloud-zoom-reset[hidden] {
@@ -447,7 +448,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, .92);
+    color: var(--bs-body-color);
+    background: var(--bs-body-bg);
     border: 1px solid #ccc;
     font-size: 1.1rem;
     line-height: 1;
@@ -465,7 +467,7 @@
 }
 
 .topic-cloud-zoom-controls button:hover {
-    background: #fff;
+    background: var(--bs-secondary-bg);
 }
 
 .topic-cloud-zoom-controls button:disabled {
