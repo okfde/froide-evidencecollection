@@ -752,9 +752,22 @@ class EvidenceTopicCloudView(TemplateView):
 
         # One query for the verband label of every originator in view; the FK
         # may sit on the person or the organization side of the Actor.
+        # `verband` is a GeoRegion, whose geometry columns (`geom`,
+        # `geom_detail`, `gov_seat`) are large multipolygons GEOS-deserialized
+        # per row — defer them, since `verband_label` only reads `kind`/`name`.
+        # Without this the join dominates the topic-cloud render (seconds).
         label_by_actor = {}
-        for actor in Actor.objects.filter(id__in=actor_ids).select_related(
-            "person__verband", "organization__verband"
+        for actor in (
+            Actor.objects.filter(id__in=actor_ids)
+            .select_related("person__verband", "organization__verband")
+            .defer(
+                "person__verband__geom",
+                "person__verband__geom_detail",
+                "person__verband__gov_seat",
+                "organization__verband__geom",
+                "organization__verband__geom_detail",
+                "organization__verband__gov_seat",
+            )
         ):
             target = actor.person or actor.organization
             label = target.verband_label if target else ""
@@ -1565,16 +1578,22 @@ class EvidenceTopicCloudView(TemplateView):
         # list above). The filters select against a matching position (see
         # `_political_position_q`); the options here are just the universe of
         # values.
+        # `.distinct()` is load-bearing: the `originated_evidence` join multiplies
+        # each position by every topic-fitted evidence its person originated, so
+        # without it the DB streams that full (heavily duplicated) row set back
+        # just to collapse it into a `set()` here. DISTINCT collapses it in the DB.
         pp_qs = PoliticalPosition.objects.filter(
             person__actor__originated_evidence__topic_fit_at__isnull=False
         )
         role_ids = set(
-            pp_qs.filter(role__isnull=False).values_list("role_id", flat=True)
+            pp_qs.filter(role__isnull=False)
+            .values_list("role_id", flat=True)
+            .distinct()
         )
         level_ids = set(
-            pp_qs.filter(institutional_level__isnull=False).values_list(
-                "institutional_level_id", flat=True
-            )
+            pp_qs.filter(institutional_level__isnull=False)
+            .values_list("institutional_level_id", flat=True)
+            .distinct()
         )
         roles = list(Role.objects.filter(id__in=role_ids).order_by("name"))
         levels = list(
@@ -1591,12 +1610,19 @@ class EvidenceTopicCloudView(TemplateView):
                 model.objects.filter(
                     actor__originated_evidence__topic_fit_at__isnull=False,
                     verband__isnull=False,
-                ).values_list("verband_id", flat=True)
+                )
+                # Same join-multiplication as above; dedupe in the DB.
+                .values_list("verband_id", flat=True)
+                .distinct()
             )
+        # `verband` is a GeoRegion; defer its large geometry columns since only
+        # `kind`/`name` are read here (see `_verbande_by_evidence`).
         verbaende = sorted(
             (
                 {"id": r.id, "label": "Bund" if r.kind == "country" else r.name}
-                for r in GeoRegion.objects.filter(id__in=verband_ids)
+                for r in GeoRegion.objects.filter(id__in=verband_ids).defer(
+                    "geom", "geom_detail", "gov_seat"
+                )
             ),
             key=lambda v: (v["label"] != "Bund", v["label"]),
         )

@@ -160,7 +160,11 @@ def equals(old_value, new_value):
 
 def selectable_regions():
     config = CONFIG.get("selectable_regions")
-    queryset = GeoRegion.objects.all()
+    # Callers (the importer's name→pk map, the admin M2M widget) read only
+    # scalar fields; defer GeoRegion's large geometry columns (`geom`,
+    # `geom_detail`, `gov_seat`) so they aren't fetched and GEOS-deserialized
+    # per region.
+    queryset = GeoRegion.objects.defer("geom", "geom_detail", "gov_seat")
 
     if config and "ids" in config:
         queryset = queryset.filter(id__in=config["ids"])
