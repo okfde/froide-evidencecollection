@@ -98,10 +98,7 @@
                             {% endif %}
                             {% if actor.person.political_positions.all %}
                                 <dd class="col-sm-9 mb-1">
-                                    {% for position in actor.person.political_positions.all %}
-                                        {{ position.label }}
-                                        {% if not forloop.last %}<br>{% endif %}
-                                    {% endfor %}
+                                    {{ actor.political_position_label }}
                                 </dd>
                             {% endif %}
                             {% if actor.person.also_known_as %}

@@ -132,8 +132,7 @@
                                                class="fw-semibold d-block text-decoration-none">{{ actor.name }}</a>
                                             <span class="text-muted small">
                                                 {% if actor.person %}
-                                                    {% if actor.person.status %}{{ actor.person.status }} ·{% endif %}
-                                                    {% trans "Person" %}
+                                                    {{ actor.political_position_label }}
                                                 {% elif actor.organization %}
                                                     {% if actor.organization.institutional_level %}{{ actor.organization.institutional_level }} ·{% endif %}
                                                     {% trans "Organization" %}

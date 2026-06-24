@@ -327,6 +327,13 @@ class Actor(TrackableModel):
             return self.organization
         raise AssertionError("Neither 'person' nor 'organization' is set.")
 
+    @property
+    def political_position_label(self):
+        if self.person_id is None:
+            return None
+        position = self.person.political_positions.first()
+        return f"{position.label} (Stand 24. Juni 2026)" if position else None
+
 
 class InstitutionalLevel(models.Model):
     name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
