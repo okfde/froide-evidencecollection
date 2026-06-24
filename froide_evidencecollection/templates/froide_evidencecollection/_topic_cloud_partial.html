@@ -1,6 +1,7 @@
 {# HTMX response wrapper: results block + theme bar + main-topic tree, so the  #}
 {# swap updates the theme bar and main-topic tree even though they             #}
 {# live outside #topic-cloud-results.                                          #}
+{% include "froide_evidencecollection/_topic_cloud_count.html" %}
 {% include "froide_evidencecollection/_topic_cloud_results.html" %}
 {% include "froide_evidencecollection/_topic_themes.html" %}
 {% include "froide_evidencecollection/_topic_chapters.html" %}

@@ -264,6 +264,9 @@
                 aria-selected="false"
                 data-view="table">{% trans "Table" %}</button>
     </div>
+    {# Evidence count, full-width above both columns so the cloud canvas and  #}
+    {# the actor panel line up at the top. Swapped via #topic-count-host.     #}
+    <div id="topic-count-host">{% include "froide_evidencecollection/_topic_cloud_count.html" %}</div>
     <main class="topic-cloud-main">
         <div class="topic-cloud-main__cloud">{% include "froide_evidencecollection/_topic_cloud_results.html" %}</div>
         <div id="topic-actors-host" class="topic-cloud-main__actors">

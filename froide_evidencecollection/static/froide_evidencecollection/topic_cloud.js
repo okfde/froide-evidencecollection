@@ -810,11 +810,23 @@
         // we keep the SVG element and diff its circles so dots can fade
         // in/out instead of the whole block snapping.
         var TOP_LEVEL_SELECTORS = [
-            'p.text-muted',
             'div.topic-cloud-outline',
             'div.topic-cloud-table',
             'div.alert',
         ];
+
+        // The evidence count lives full-width above both columns (so the
+        // canvas and actor panel align at the top), not inside the cloud
+        // column, so swap it from its own host like the actor panel.
+        function updateCountHost(fresh) {
+            var host = document.getElementById('topic-count-host');
+            if (!host) return;
+            var existing = host.querySelector('.topic-cloud-count');
+            var incoming = fresh ? fresh.querySelector('.topic-cloud-count') : null;
+            if (existing && incoming) existing.replaceWith(incoming);
+            else if (existing && !incoming) existing.remove();
+            else if (!existing && incoming) host.appendChild(incoming);
+        }
 
         // The theme bar narrows on every filter change too (counts and
         // the active chip), so swap it wholesale from the partial response just
@@ -1041,9 +1053,11 @@
             var fresh = tmp.querySelector('#topic-cloud-results');
             if (!fresh) return;
             applyUpdate(fresh);
-            // The theme bar, main-topic tree and actor panel live outside
-            // #topic-cloud-results, so swap them explicitly from the partial
-            // response, then re-assert the actor highlight over the new dots.
+            // The count line, theme bar, main-topic tree and actor panel live
+            // outside #topic-cloud-results, so swap them explicitly from the
+            // partial response, then re-assert the actor highlight over the
+            // new dots.
+            updateCountHost(tmp);
             updateGroupsHost(tmp);
             updateChaptersHost(tmp);
             updateActorsHost(tmp);
