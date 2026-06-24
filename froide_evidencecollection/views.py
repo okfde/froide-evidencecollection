@@ -8,7 +8,7 @@ from collections import defaultdict
 
 from django.conf import settings
 from django.core.exceptions import BadRequest
-from django.db.models import Max, Min, Prefetch, Q, QuerySet, Sum
+from django.db.models import F, Max, Min, Prefetch, Q, QuerySet, Sum
 from django.http import Http404, HttpResponse
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -302,28 +302,35 @@ class ActorDetailView(NoIndexMixin, DetailView):
 
         # "Originated by this actor" vs. "Related" — the two plain M2M fields
         # on Evidence (`originators` / `related_actors`). The actor profile
-        # lists each piece by date / platform / theme(s) / keywords, so the
-        # rows carry `themes` and `keywords` on top of the shared card prefetch.
-        list_prefetch = (*EVIDENCE_CARD_PREFETCH_RELATED, "themes", "keywords")
+        # lists each piece by date / platform / chapter, so the rows carry the
+        # mentions' chapters on top of the shared card prefetch.
+        list_prefetch = (*EVIDENCE_CARD_PREFETCH_RELATED, "mentions__chapter")
+        # Most recent first, by the same date the rows show (the post's
+        # `posted_at`); undated pieces sort last, with `-pk` as a stable
+        # tiebreaker.
+        date_ordering = (
+            F("social_media_post__posted_at").desc(nulls_last=True),
+            "-pk",
+        )
         originated = (
             Evidence.objects.filter(originators=actor)
             .select_related(*EVIDENCE_CARD_SELECT_RELATED)
             .prefetch_related(*list_prefetch)
-            .order_by("-pk")
+            .order_by(*date_ordering)
             .distinct()
         )
         related = (
             Evidence.objects.filter(related_actors=actor)
             .select_related(*EVIDENCE_CARD_SELECT_RELATED)
             .prefetch_related(*list_prefetch)
-            .order_by("-pk")
+            .order_by(*date_ordering)
             .distinct()
         )
-        context["originated_evidence"] = self._with_full_themes(
+        context["originated_evidence"] = self._with_chapters(
             originated[:ACTOR_PROFILE_EVIDENCE_LIMIT]
         )
         context["originated_total"] = originated.count()
-        context["related_evidence"] = self._with_full_themes(
+        context["related_evidence"] = self._with_chapters(
             related[:ACTOR_PROFILE_EVIDENCE_LIMIT]
         )
         context["related_total"] = related.count()
@@ -333,29 +340,28 @@ class ActorDetailView(NoIndexMixin, DetailView):
         return context
 
     @staticmethod
-    def _with_full_themes(evidence_iterable):
-        """Attach each evidence's *full* theme set as ``full_themes``.
+    def _with_chapters(evidence_iterable):
+        """Attach each evidence's distinct chapter labels as ``chapters``.
 
-        A piece belongs to a theme either directly (the ``themes`` M2M) or via a
-        chapter it's filed under that maps to the theme or a descendant (resolved
-        through ``Chapter.chapter_theme_map``) — the same union
-        ``Theme.evidence_queryset`` builds in the other direction. Reads only the
-        prefetched ``themes`` and ``mentions``, deduplicates, and orders by
-        ``Theme.order`` so the chips read in the curator's order.
+        A piece is filed under a chapter through each of its mentions. We show
+        the leaf chapter the piece is filed under: the linked ``chapter`` node,
+        falling back to the last label of the mention's ``chapter_structure``
+        (the root-to-leaf path) when no node is linked. Reads only the
+        prefetched ``mentions`` and deduplicates while preserving order.
         """
-        theme_by_chapter = Chapter.chapter_theme_map()
-        themes_by_id = {t.id: t for t in Theme.objects.all()}
         evidence_list = list(evidence_iterable)
         for evidence in evidence_list:
-            ids = {t.id for t in evidence.themes.all()}
+            chapters = []
             for mention in evidence.mentions.all():
-                theme_id = theme_by_chapter.get(mention.chapter_id)
-                if theme_id is not None:
-                    ids.add(theme_id)
-            evidence.full_themes = sorted(
-                (themes_by_id[i] for i in ids if i in themes_by_id),
-                key=lambda t: (t.order, t.id),
-            )
+                if mention.chapter_id:
+                    label = str(mention.chapter)
+                elif mention.chapter_structure:
+                    label = mention.chapter_structure[-1]
+                else:
+                    label = ""
+                if label and label not in chapters:
+                    chapters.append(label)
+            evidence.chapters = chapters
         return evidence_list
 
 

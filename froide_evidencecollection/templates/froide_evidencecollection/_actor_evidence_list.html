@@ -1,13 +1,13 @@
 {% load i18n %}
-{% load evidence_tags %}
-{# Compact list of an actor's evidence: one row per piece, showing date, platform and theme(s). Expects `evidence_list` in context. #}
+{# Compact list of an actor's evidence: one row per piece, showing date, platform, posting account and chapter(s). Expects `evidence_list` in context. #}
 <div class="table-responsive">
     <table class="table align-middle mb-0 actor-evidence-table">
         <thead>
             <tr>
                 <th style="width: 8rem;">{% trans "Date" %}</th>
                 <th style="width: 9rem;">{% trans "Platform" %}</th>
-                <th>{% trans "Theme(s)" %}</th>
+                <th style="width: 11rem;">{% trans "Posted by" %}</th>
+                <th>{% trans "Chapter" %}</th>
                 <th style="width: 5rem;"></th>
             </tr>
         </thead>
@@ -31,11 +31,24 @@
                         {% endwith %}
                     </td>
                     <td>
-                        {% for theme in evidence.full_themes %}
-                            <span class="badge rounded-pill border fw-normal"
-                                  style="background-color: {{ theme|palette_color }}26;
-                                         color: #222;
-                                         border-color: {{ theme|palette_color }}">{{ theme.label }}</span>
+                        {% with account=evidence.social_media_post.account %}
+                            {% if account %}
+                                {% if account.profile_url %}
+                                    <a href="{{ account.profile_url }}"
+                                       target="_blank"
+                                       rel="noopener"
+                                       class="text-decoration-none">@{{ account.username }}</a>
+                                {% else %}
+                                    @{{ account.username }}
+                                {% endif %}
+                            {% else %}
+                                <span class="text-body-secondary">—</span>
+                            {% endif %}
+                        {% endwith %}
+                    </td>
+                    <td>
+                        {% for chapter in evidence.chapters %}
+                            <div>{{ chapter }}</div>
                         {% empty %}
                             <span class="text-body-secondary">—</span>
                         {% endfor %}

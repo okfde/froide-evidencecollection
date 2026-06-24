@@ -6,12 +6,12 @@
     <style>
     .actor-detail { font-size: 1.0625rem; }
 
-    /* Section heading + hairline divider, mirroring the evidence detail page
-       so the two views read as one family. */
-    .detail-section { padding-top: 1.75rem; margin-top: 1.75rem; border-top: 1px solid #e7e7e7; }
+    /* Section spacing + heading, mirroring the evidence detail page so the
+       two views read as one family: sections flow on whitespace rather than
+       boxed dividers, with a large, dark heading. */
+    .detail-section { padding-top: 1.75rem; margin-top: 1.75rem; }
     .detail-heading {
-        font-size: .82rem; letter-spacing: .07em; text-transform: uppercase;
-        font-weight: 600; color: #6c757d; margin-bottom: 1rem;
+        font-size: 1.4rem; font-weight: 600; margin-bottom: 1rem;
     }
 
     /* Person / organisation glyph sitting before the name. */
@@ -87,15 +87,9 @@
             {# ── Identity details ─────────────────────────────────────── #}
             <section class="detail-section">
                 <h2 class="detail-heading">{% trans "Details" %}</h2>
-                {% if actor.person.title or actor.person.also_known_as or actor.person.political_positions.all or actor.organization.institutional_level or actor.organization.also_known_as %}
+                {% if actor.person.also_known_as or actor.person.political_positions.all or actor.organization.institutional_level or actor.organization.also_known_as %}
                     <dl class="row mb-0">
                         {% if actor.person %}
-                            {% if actor.person.title %}
-                                <dt class="col-sm-3">{% trans "Title" %}</dt>
-                                <dd class="col-sm-9 mb-1">
-                                    {{ actor.person.title }}
-                                </dd>
-                            {% endif %}
                             {% if actor.person.political_positions.all %}
                                 <dd class="col-sm-9 mb-1">
                                     {{ actor.political_position_label }}
@@ -159,10 +153,10 @@
                     </div>
                 </section>
             {% endif %}
-            {# ── Evidence as originator ───────────────────────────────── #}
+            {# ── Evidence ───────────────────────────────── #}
             <section class="detail-section">
                 <div class="d-flex flex-wrap justify-content-between align-items-baseline mb-3 gap-2">
-                    <h2 class="detail-heading mb-0">{% trans "Evidence — as originator" %}</h2>
+                    <h2 class="detail-heading mb-0">{% trans "Pieces of evidence" %}</h2>
                     <span class="text-body-secondary small">
                         {% blocktrans count counter=originated_total %}{{ counter }} total{% plural %}{{ counter }} total{% endblocktrans %}
                     </span>
@@ -176,25 +170,6 @@
                                 {% blocktrans with name=actor.name %}View all evidence originated by {{ name }} →{% endblocktrans %}
                             </a>
                         </div>
-                    {% endif %}
-                {% else %}
-                    <p class="text-body-secondary mb-0">{% trans "No evidence yet." %}</p>
-                {% endif %}
-            </section>
-            {# ── Evidence as related actor ────────────────────────────── #}
-            <section class="detail-section">
-                <div class="d-flex flex-wrap justify-content-between align-items-baseline mb-3 gap-2">
-                    <h2 class="detail-heading mb-0">{% trans "Evidence — as related actor" %}</h2>
-                    <span class="text-body-secondary small">
-                        {% blocktrans count counter=related_total %}{{ counter }} total{% plural %}{{ counter }} total{% endblocktrans %}
-                    </span>
-                </div>
-                {% if related_evidence %}
-                    {% include "froide_evidencecollection/_actor_evidence_list.html" with evidence_list=related_evidence %}
-                    {% if related_total > evidence_limit %}
-                        <p class="text-body-secondary small mt-3">
-                            {% blocktrans with shown=evidence_limit total=related_total %}Showing the first {{ shown }} of {{ total }}. A related-actor filter in the topics view will come next.{% endblocktrans %}
-                        </p>
                     {% endif %}
                 {% else %}
                     <p class="text-body-secondary mb-0">{% trans "No evidence yet." %}</p>
