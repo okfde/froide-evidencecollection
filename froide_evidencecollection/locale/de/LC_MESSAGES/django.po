@@ -96,6 +96,10 @@ msgctxt "froide-evidencecollection"
 msgid "Import"
 msgstr "Import"
 
+#: froide_evidencecollection/admin.py
+msgid "No"
+msgstr ""
+
 #: froide_evidencecollection/views.py
 #, python-format
 msgid "No %(verbose_name)s found matching the query"
@@ -149,6 +153,10 @@ msgstr "Wikidata"
 #: froide_evidencecollection/models.py
 msgid "Wikidata ID"
 msgstr "Wikidata-ID"
+
+#: froide_evidencecollection/admin.py
+msgid "Yes"
+msgstr ""
 
 #: froide_evidencecollection/models.py
 msgid "abgeordnetenwatch.de"
@@ -294,7 +302,7 @@ msgstr "institutionelle Ebene"
 msgid "institutional levels"
 msgstr "Institutionelle Ebenen"
 
-#: froide_evidencecollection/admin.py froide_evidencecollection/models.py
+#: froide_evidencecollection/admin.py
 msgid "is synced"
 msgstr "ist synchronisiert"
 
