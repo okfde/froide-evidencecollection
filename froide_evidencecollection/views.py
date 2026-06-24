@@ -249,6 +249,8 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
             # everywhere, including this listing (mirrors the topic cloud).
             Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
             "mentions__category",
+            "mentions__originator",
+            "mentions__chapter",
             "attachments",
         )
 
