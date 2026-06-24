@@ -10,7 +10,7 @@ from .views import (
 )
 
 urlpatterns = [
-    path("", EvidenceTopicCloudView.as_view(), name="evidence-topic-cloud"),
+    path("cloud/", EvidenceTopicCloudView.as_view(), name="evidence-topic-cloud"),
     path(
         pgettext_lazy("url part", "export/"),
         EvidenceExportView.as_view(),

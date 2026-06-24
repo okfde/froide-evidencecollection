@@ -15,6 +15,7 @@ from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import pgettext_lazy
 
+from cms.models import CMSPlugin
 from treebeard.mp_tree import MP_Node
 
 from froide.georegion.models import GeoRegion
@@ -1822,3 +1823,8 @@ class LegislativePeriod(ParliamentPeriod):
     class Meta(ParliamentPeriod.Meta):
         verbose_name = _("🏛️ Legislative period")
         verbose_name_plural = _("🏛️ Legislative periods")
+
+
+class TopicCloudCMSPlugin(CMSPlugin):
+    class Meta:
+        verbose_name = _("topic cloud")

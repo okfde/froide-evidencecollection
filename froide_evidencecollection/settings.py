@@ -5,8 +5,12 @@ from froide.settings import Test as FroideTest
 
 class Test(FroideTest):
     INSTALLED_APPS = FroideTest.INSTALLED_APPS.default + [
+        "cms",
+        "menus",
         "froide_evidencecollection",
     ]
+
+    CMS_CONFIRM_VERSION4 = True
 
     DATABASES = {
         "default": {

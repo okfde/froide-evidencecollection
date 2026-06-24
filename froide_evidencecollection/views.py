@@ -239,6 +239,14 @@ class NoIndexMixin:
         return response
 
 
+def apphook_page_url(request):
+    """Absolute URL of the CMS page the evidencecollection apphook is attached
+    to, i.e. the overview page that hosts the topic-cloud plugin
+    """
+    page = getattr(request, "current_page", None)
+    return page.get_absolute_url() if page else ""
+
+
 class EvidenceMixin(BreadcrumbView):
     def get_breadcrumbs(self, context):
         if "request" in context:
@@ -346,6 +354,7 @@ class ActorDetailView(NoIndexMixin, DetailView):
         )
         context["related_total"] = related.count()
         context["evidence_limit"] = ACTOR_PROFILE_EVIDENCE_LIMIT
+        context["topic_cloud_page_url"] = apphook_page_url(self.request)
 
         return context
 
@@ -503,8 +512,6 @@ class EvidenceTopicCloudView(TemplateView):
     by a document instead has no account and falls out of those filters.
     """
 
-    template_name = "froide_evidencecollection/topic_cloud.html"
-
     # Safety bound on rows fetched from the DB. The cloud SVG renders one
     # circle per row; the screen-reader outline is further trimmed by
     # OUTLINE_MAX_EVIDENCE so the hidden HTML payload stays small. Set well
@@ -563,24 +570,15 @@ class EvidenceTopicCloudView(TemplateView):
     # covers the count line, the cloud, the legend, and the SR-only outline.
     PARTIAL_TEMPLATE = "froide_evidencecollection/_topic_cloud_partial.html"
 
+    def get(self, request, *args, **kwargs):
+        if request.headers.get("HX-Request") != "true":
+            raise Http404
+        return super().get(request, *args, **kwargs)
+
     def render_to_response(self, context, **response_kwargs):
-        _t0 = time.perf_counter()
-        # Detect htmx via the request header rather than django-htmx's
-        # middleware, so the host project doesn't have to install it.
-        if self.request.headers.get("HX-Request") == "true":
-            resp = HttpResponse(
-                render_to_string(self.PARTIAL_TEMPLATE, context, request=self.request)
-            )
-        else:
-            resp = super().render_to_response(context, **response_kwargs)
-            # Force template rendering now so the timing covers it.
-            resp.render()
-        print(
-            f"topiccloud[render_to_response] {(time.perf_counter() - _t0) * 1000:.1f} ms",
-            file=sys.stderr,
-            flush=True,
+        return HttpResponse(
+            render_to_string(self.PARTIAL_TEMPLATE, context, request=self.request)
         )
-        return resp
 
     # Query params that narrow the evidence set in `_filter_qs`. If any is
     # present the facet ranking switches from frequency to keyness, since the
@@ -1679,7 +1677,8 @@ class EvidenceTopicCloudView(TemplateView):
                         "verband",
                     )
                 ),
-                "reset_url": reverse("evidencecollection:evidence-topic-cloud"),
+                "reset_url": apphook_page_url(self.request),
+                "topic_cloud_url": reverse("evidencecollection:evidence-topic-cloud"),
             }
         )
         _mark("context.update")
