@@ -29,17 +29,35 @@
         <div class="topic-cloud-outline">
             <h2>{% trans "Matching evidence" %}</h2>
             <ol>
+                {# A compact metadata card per evidence — the same columns as   #}
+                {# the table view (date, originator+Verband, account, platform, #}
+                {# chapters, link), stacked to fit a phone. Deliberately no text #}
+                {# snippet: this is a metadata index, not a content preview.     #}
                 {% for item in outline_items %}
                     <li>
-                        <p>
-                            {{ item.post.account.get_platform_display }}
-                            {% if item.post.account.username %}@{{ item.post.account.username }}{% endif %}
+                        <p class="topic-cloud-outline__meta">
                             {% if item.posted_on %}
                                 <time datetime="{{ item.posted_on|date:'Y-m-d' }}">{{ item.posted_on|date:"Y-m-d" }}</time>
                             {% endif %}
+                            {% if item.post.account.get_platform_display %}
+                                <span class="topic-cloud-outline__platform">{{ item.post.account.get_platform_display }}</span>
+                            {% endif %}
+                            {% if item.post.account.username %}
+                                <span class="topic-cloud-outline__account">@{{ item.post.account.username }}</span>
+                            {% endif %}
                         </p>
-                        {% if item.post.title %}<p>{{ item.post.title }}</p>{% endif %}
-                        <p>{{ item.snippet }}</p>
+                        {% if item.originators %}
+                            <p class="topic-cloud-outline__line">
+                                <span class="topic-cloud-outline__label">{% trans "Originator" %}:</span>
+                                {{ item.originators }}
+                            </p>
+                        {% endif %}
+                        {% if item.chapters %}
+                            <p class="topic-cloud-outline__line">
+                                <span class="topic-cloud-outline__label">{% trans "Chapters" %}:</span>
+                                {{ item.chapters }}
+                            </p>
+                        {% endif %}
                         <p>
                             <a href="{{ item.url }}" target="_blank" rel="noopener">
                                 {% trans "View evidence" %}

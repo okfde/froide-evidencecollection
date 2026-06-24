@@ -291,10 +291,12 @@
         flex: 0 0 15rem;
     }
     @media (max-width: 767.98px) {
-        /* The scatter is hidden on phones (the outline is the list there), so
-           drop the panel below the results as a plain full-width list. */
+        /* The scatter is hidden on phones (the outline is the metadata list
+           there), so stack the main column. The "Actors in view" panel is
+           dropped entirely on phones — it only steers the (hidden) scatter
+           highlight, so it has nothing to act on here and just adds bulk. */
         .topic-cloud-main { flex-direction: column; }
-        .topic-cloud-main__actors { flex: 1 1 auto; width: 100%; }
+        .topic-cloud-main__actors { display: none; }
     }
     /* ── View tabs (Cloud ⇆ Table) ─────────────────────────────────────
        A small two-button tablist above the results. The active tab keeps a
@@ -720,6 +722,14 @@
            goes with it (nothing left to colour-code). */
         .topic-cloud-svg { display: none; }
         .topic-cloud-legend { display: none; }
+        /* The Cloud ⇆ Table switch is a desktop affair: the scatter never
+           shows here, so there's nothing to switch between. The compact
+           outline is the single mobile view, so drop the tab bar and pin it
+           visible regardless of which tab was active on desktop (the table
+           stays hidden so the two lists don't double up). */
+        .topic-cloud-tabs { display: none; }
+        .topic-cloud-page.topic-view-table .topic-cloud-table { display: none; }
+        .topic-cloud-page.topic-view-table .topic-cloud-outline { display: block; }
         .topic-cloud-outline {
             position: static;
             width: auto;
@@ -741,10 +751,30 @@
         .topic-cloud-outline ol > li {
             padding: .5rem .25rem;
             border-bottom: 1px solid #eee;
-            font-size: .9rem;
+            font-size: .85rem;
         }
-        .topic-cloud-outline ol > li p { margin: 0 0 .25rem; }
+        .topic-cloud-outline ol > li p { margin: 0 0 .2rem; }
         .topic-cloud-outline ol > li p:last-child { margin: 0; }
+        /* Top line: date · platform · account, run together with separators
+           so the primary identifiers sit on one compact row. */
+        .topic-cloud-outline__meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .15rem .5rem;
+            font-weight: 600;
+            color: #4a3f33;
+        }
+        .topic-cloud-outline__account { color: #6b5d4f; font-weight: 400; }
+        /* Originator / chapters rows: a muted inline label then the value,
+           wrapping naturally on a narrow screen. */
+        .topic-cloud-outline__line { color: #5a5048; }
+        .topic-cloud-outline__label {
+            font-size: .7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .03em;
+            color: #8a7d6c;
+        }
     }
     /* Theme bar: the single browse axis above the main-topic tree. Each chip
        carries its theme's identity colour (via the inline --topic-color), so
