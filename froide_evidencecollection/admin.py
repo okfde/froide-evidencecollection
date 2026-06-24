@@ -4,11 +4,13 @@ import re
 from django import forms
 from django.conf import settings
 from django.contrib import admin
-from django.db.models import F, Q
+from django.db.models import F, Prefetch, Q
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
+
+from froide.georegion.models import GeoRegion
 
 from .models import (
     Actor,
@@ -359,6 +361,22 @@ class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
                 f'<a href="{obj.wikidata_url}" target="_blank">{obj.wikidata_id}</a>'
             )
         return ""
+
+    def get_queryset(self, request):
+        # `region_list` reads each region's name in the changelist; prefetch the
+        # regions (avoids an N+1) and defer GeoRegion's large geometry columns
+        # so they aren't fetched/GEOS-deserialized per row.
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("institutional_level")
+            .prefetch_related(
+                Prefetch(
+                    "regions",
+                    queryset=GeoRegion.objects.defer("geom", "geom_detail", "gov_seat"),
+                )
+            )
+        )
 
     def region_list(self, obj):
         return ", ".join([region.name for region in obj.regions.all()])
