@@ -104,6 +104,16 @@ def palette_color(obj):
 
 
 @register.filter
+def defang_url(value):
+    """Render a URL as plain, non-clickable text with ``https`` → ``httpx``.
+
+    Used for the original-post URL on the evidence detail page: we want the
+    address shown verbatim but not turned into a live link.
+    """
+    return (value or "").replace("https", "httpx")
+
+
+@register.filter
 def compact_number(value):
     """Format an int compactly: 1500 → '1.5K', 2_400_000 → '2.4M'."""
     if value is None or value == "":

@@ -11,12 +11,11 @@
     /* Slightly larger, more readable body type for the whole detail page. */
     .evidence-detail { font-size: 1.0625rem; }
 
-    /* Section heading + hairline divider, so the page reads as one flow
-       rather than a stack of boxes. */
-    .detail-section { padding-top: 1.75rem; margin-top: 1.75rem; border-top: 1px solid #e7e7e7; }
+    /* Section spacing, so the page reads as one flow rather than a stack
+       of boxes. */
+    .detail-section { padding-top: 1.75rem; margin-top: 1.75rem; }
     .detail-heading {
-        font-size: .82rem; letter-spacing: .07em; text-transform: uppercase;
-        font-weight: 600; color: #6c757d; margin-bottom: 1rem;
+        font-size: 1.4rem; font-weight: 600; margin-bottom: 1rem;
     }
 
     /* ── Originator ──────────────────────────────────────────────── */
@@ -40,13 +39,13 @@
 
     /* a quoted citation — the curated, on-the-record words */
     .seg-citation .seg-body {
-        border-left: 4px solid #8B4513; padding: .15rem 0 .15rem 1rem;
-        font-size: 1.25rem; color: #1a1a1a;
+        border-left: 4px solid #8B4513; padding: .5rem 1rem;
+        background: #faf6f1; font-size: 1.25rem; color: #1a1a1a;
     }
     /* the post's own running text */
     .seg-body-post {
-        border-left: 4px solid #8B4513; padding: .15rem 0 .15rem 1rem;
-        font-size: 1.25rem; color: #1a1a1a;
+        border-left: 4px solid #8B4513; padding: .5rem 1rem;
+        background: #faf6f1; font-size: 1.25rem; color: #1a1a1a;
     }
     /* a post/media title — set like a small heading */
     .seg-title .seg-body { font-size: 1.2rem; font-weight: 600; }
@@ -75,9 +74,9 @@
             <div class="card-body p-3 p-md-4">
                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                     <div>
-                        <span class="text-uppercase text-muted small fw-semibold d-block">
+                        <span class="text-muted small fw-semibold d-block">
                             {% if object.evidence_type %}{{ object.evidence_type }} ·{% endif %}
-                            {% blocktrans with ref=object.slug %}Reference {{ ref }}{% endblocktrans %}
+                            {% blocktrans with ref=object.slug %}Evidence {{ ref }}{% endblocktrans %}
                         </span>
                         <h1 class="h3 mb-0">
                             {% if object.originator_actors %}
@@ -114,7 +113,7 @@
         <div class="px-1 px-md-2">
             {# ── Originated by + Source (side by side) ─────────────────── #}
             {% with post=object.social_media_post %}
-                <div class="detail-section row g-4">
+                <div class="detail-section row g-4 mt-0">
                     <div class="{% if post %}col-md-7{% else %}col-12{% endif %}">
                         <h2 class="detail-heading">{% trans "Originated by" %}</h2>
                         {% if object.originator_actors %}
@@ -182,9 +181,7 @@
                                     </li>
                                 {% endif %}
                             </ul>
-                            {% if post.url %}
-                                <a href="{{ post.url }}" target="_blank" rel="noopener" class="small">{% trans "Open original post" %} ↗</a>
-                            {% endif %}
+                            {% if post.url %}<p class="small text-break mb-0">{{ post.url|defang_url }}</p>{% endif %}
                         </div>
                     {% endif %}
                 </div>
@@ -201,44 +198,50 @@
                     </div>
                 </section>
             {% endif %}
-            {# ── Classification: categories (with footnotes) ───────────── #}
-            {# Categories are the curated classification, each carrying its    #}
-            {# footnote references.                                            #}
-            {% if object.categories_with_footnotes %}
-                <section class="detail-section">
-                    <h2 class="detail-heading">{% trans "Categories" %}</h2>
-                    <ul class="list-unstyled mb-0">
-                        {% for cat, footnotes in object.categories_with_footnotes %}
-                            <li class="mb-2 d-flex flex-wrap align-items-baseline gap-2">
-                                <span class="badge rounded-pill border fw-normal bg-light text-dark">{{ cat }}</span>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                </section>
-            {% endif %}
             {# ── Collected text ───────────────────────────────────────── #}
             {# Each segment is styled by its kind so the look reflects what it #}
             {# is: a quoted citation, the post's running text, a caption,      #}
             {# on-screen image text, or a transcript. `description` segments   #}
             {# are rendered in the Visual material section (next to the media  #}
-            {# they belong to), so they're skipped here.                      #}
+            {# they belong to), so they're skipped here. For a video the post  #}
+            {# has no single running body, so its own title, caption and       #}
+            {# description are grouped into one "Post text" block.             #}
             {% if object.text_segments %}
                 <section class="detail-section">
-                    <h2 class="detail-heading">{% trans "Collected text" %}</h2>
-                    {% for seg in object.text_segments %}
-                        {% if seg.base_kind != 'description' or seg.is_redistributed %}
-                            <div class="seg seg-{{ seg.base_kind }}{% if seg.is_redistributed %} seg-redistributed{% endif %}">
-                                <div class="seg-label">
-                                    {% if seg.is_redistributed %}<span aria-hidden="true">↻</span>{% endif %}
-                                    <span>{{ seg.label }}</span>
-                                    {% if seg.attribution %}<span class="seg-attr">· {{ seg.attribution }}</span>{% endif %}
-                                </div>
-                                {# For a video the title and description take the post-text     #}
-                                {# (citation) styling, since the video has no running body text. #}
-                                <div class="seg-body{% if seg.base_kind == 'body' or seg.base_kind == 'video_description' or object.social_media_post.is_video and seg.base_kind == 'title' %} seg-body-post{% endif %}">
-                                    {{ seg.text|plain_text }}
+                    {% if object.social_media_post.is_video %}
+                        {% if object.social_media_post.title or object.social_media_post.text or object.social_media_post.description %}
+                            <div class="seg seg-post-text">
+                                <h2 class="detail-heading">
+                                    <span>{% trans "Video description" %}</span>
+                                </h2>
+                                <div class="seg-body seg-body-post">
+                                    {% for seg in object.text_segments %}
+                                        {% if not seg.is_redistributed and seg.base_kind == 'title' %}
+                                            <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
+                                        {% elif not seg.is_redistributed and seg.base_kind == 'body' %}
+                                            <div class="mb-2">{{ seg.text|plain_text }}</div>
+                                        {% elif not seg.is_redistributed and seg.base_kind == 'video_description' %}
+                                            <div>{{ seg.text|plain_text }}</div>
+                                        {% endif %}
+                                    {% endfor %}
                                 </div>
                             </div>
+                        {% endif %}
+                    {% endif %}
+                    {% for seg in object.text_segments %}
+                        {% if seg.base_kind != 'description' or seg.is_redistributed %}
+                            {# A video's own title/caption/description are shown in the grouped #}
+                            {# "Post text" block above, so skip them in the per-segment list.   #}
+                            {% if not object.social_media_post.is_video or seg.is_redistributed or seg.base_kind != 'title' and seg.base_kind != 'body' and seg.base_kind != 'video_description' %}
+                                <div class="seg seg-{{ seg.base_kind }}{% if seg.is_redistributed %} seg-redistributed{% endif %}">
+                                    <h3 class="seg-label">
+                                        {% if seg.is_redistributed %}<span aria-hidden="true">↻</span>{% endif %}
+                                        <span>{{ seg.label }}</span>
+                                        {% if seg.attribution %}<span class="seg-attr">· {{ seg.attribution }}</span>{% endif %}
+                                    </h3>
+                                    <div class="seg-body{% if seg.base_kind == 'body' %} seg-body-post{% endif %}">{{ seg.text|plain_text }}</div>
+                                </div>
+                            {% endif %}
                         {% endif %}
                     {% endfor %}
                 </section>
@@ -251,7 +254,7 @@
             {% if object.mentions.all %}
                 <section class="detail-section">
                     <h2 class="detail-heading">
-                        {% blocktrans count counter=object.mentions.all|length %}{{ counter }} mention{% plural %}{{ counter }} mentions{% endblocktrans %}
+                        {% blocktrans count counter=object.mentions.all|length %}{{ counter }} mention in the report{% plural %}{{ counter }} mentions in the report{% endblocktrans %}
                     </h2>
                     <div class="row g-3">
                         {% for m in object.mentions.all %}
@@ -288,17 +291,17 @@
                                         </dl>
                                         {% if m.citation and object.social_media_post.is_video %}
                                             <div class="seg seg-citation mt-3 mb-0">
-                                                <div class="seg-label">
-                                                    <span>{% trans "Citation" %}</span>
-                                                </div>
+                                                <h3 class="detail-heading">
+                                                    <span>{% trans "Citation from transcript" %}</span>
+                                                </h3>
                                                 <div class="seg-body">{{ m.citation|plain_text }}</div>
                                             </div>
                                         {% endif %}
                                         {% if m.raw_transcript %}
                                             <div class="seg seg-transcription mt-3 mb-0">
-                                                <div class="seg-label">
+                                                <h3 class="detail-heading">
                                                     <span>{% trans "Raw transcript" %}</span>
-                                                </div>
+                                                </h3>
                                                 <div class="seg-body">{{ m.raw_transcript|plain_text }}</div>
                                             </div>
                                         {% endif %}
@@ -313,7 +316,7 @@
             {% with post=object.social_media_post %}
                 {% if post.screenshot or post.media_descriptions %}
                     <section class="detail-section">
-                        <h2 class="detail-heading">{% trans "Visual material" %}</h2>
+                        <h2 class="detail-heading">{% trans "Screenshot of the original post" %}</h2>
                         {% if post.screenshot %}
                             <div class="row g-3 mb-3">
                                 <div class="col-md-6">
@@ -323,7 +326,6 @@
                                                  class="img-fluid rounded border"
                                                  alt="{% trans 'Screenshot of the original post' %}">
                                         </a>
-                                        <figcaption class="text-muted small mt-1">{% trans "Screenshot of the original post" %}</figcaption>
                                     </figure>
                                 </div>
                             </div>
@@ -358,65 +360,6 @@
                     </section>
                 {% endif %}
             {% endwith %}
-            {# ── Attachments (per-item gated) ─────────────────────────── #}
-            {% if object.attachments.all %}
-                <section class="detail-section">
-                    <h2 class="detail-heading">
-                        {% blocktrans count counter=object.attachments.all|length %}{{ counter }} attachment{% plural %}{{ counter }} attachments{% endblocktrans %}
-                    </h2>
-                    <p class="text-muted small mb-3">{% trans "Each item is hidden by default. Click to reveal." %}</p>
-                    <div class="row g-3">
-                        {% for att in object.attachments.all %}
-                            <div class="col-md-6">
-                                <details class="attachment-gate border rounded">
-                                    <summary class="d-flex align-items-baseline gap-2 p-2 bg-light">
-                                        <span aria-hidden="true" style="font-size: 1.2em;">
-                                            {% if att.kind == 'image' %}
-                                                🖼
-                                            {% elif att.kind == 'video' %}
-                                                🎬
-                                            {% elif att.kind == 'audio' %}
-                                                🔊
-                                            {% elif att.kind == 'pdf' %}
-                                                📄
-                                            {% else %}
-                                                📎
-                                            {% endif %}
-                                        </span>
-                                        <span class="fw-semibold text-truncate">{{ att.title|default:att.file.name }}</span>
-                                        <span class="text-muted small ms-auto">
-                                            {% if att.size %}{{ att.size|filesizeformat }}{% endif %}
-                                        </span>
-                                    </summary>
-                                    <div class="p-2">
-                                        {% if att.kind == 'image' %}
-                                            <img src="{{ att.file.url }}" alt="{{ att.title }}" class="img-fluid">
-                                        {% elif att.kind == 'video' %}
-                                            <video controls preload="none" class="w-100">
-                                                <source src="{{ att.file.url }}" type="{{ att.mimetype }}">
-                                            </video>
-                                        {% elif att.kind == 'audio' %}
-                                            <audio controls preload="none" class="w-100">
-                                                <source src="{{ att.file.url }}" type="{{ att.mimetype }}">
-                                            </audio>
-                                        {% elif att.kind == 'pdf' %}
-                                            <a href="{{ att.file.url }}"
-                                               target="_blank"
-                                               rel="noopener"
-                                               class="btn btn-sm btn-outline-primary">{% trans "Open PDF" %} ↗</a>
-                                        {% else %}
-                                            <a href="{{ att.file.url }}"
-                                               target="_blank"
-                                               rel="noopener"
-                                               class="btn btn-sm btn-outline-primary">{% trans "Download" %} ↗</a>
-                                        {% endif %}
-                                    </div>
-                                </details>
-                            </div>
-                        {% endfor %}
-                    </div>
-                </section>
-            {% endif %}
         </div>
     </div>
 {% endblock app_body %}
