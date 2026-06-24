@@ -312,6 +312,7 @@ class ActorDetailView(NoIndexMixin, DetailView):
         ).prefetch_related(
             "social_media_accounts",
             "organization__regions",
+            "person__political_positions",
         )
 
     def get_context_data(self, **kwargs):
