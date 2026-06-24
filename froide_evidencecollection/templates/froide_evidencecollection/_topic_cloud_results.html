@@ -2,14 +2,6 @@
 {# Wrapped in #topic-cloud-results so the AJAX swap can replace just the   #}
 {# results without rebuilding the filter form (which holds caret state).   #}
 <div id="topic-cloud-results">
-    <p class="text-muted">
-        {% blocktrans count counter=evidence_count %}{{ counter }} piece of evidence.{% plural %}{{ counter }} pieces of evidence.{% endblocktrans %}
-        {% if truncated %}
-            <span class="ms-1">·
-                {% blocktrans with limit=max_evidence %}Result capped at {{ limit }} pieces of evidence — narrow the filters to see the rest.{% endblocktrans %}
-            </span>
-        {% endif %}
-    </p>
     {% if outline_items %}
         {# ── Visible cloud ──────────────────────────────────────── #}
         {# Each dot is tinted by its dominant topic; the colour key is the    #}
