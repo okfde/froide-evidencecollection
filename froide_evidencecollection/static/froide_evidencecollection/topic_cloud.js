@@ -445,19 +445,43 @@
             if (!tooltip) return;
 
             var sourceEl = tooltip.querySelector('.topic-cloud-tooltip__source');
-            var snippetEl = tooltip.querySelector('.topic-cloud-tooltip__snippet');
+            var metaEl = tooltip.querySelector('.topic-cloud-tooltip__meta');
+
+            // One "Label: value" row for the tooltip's metadata block, built
+            // with DOM nodes (not innerHTML) so the values stay text-safe.
+            function metaRow(label, value) {
+                var row = document.createElement('div');
+                row.className = 'topic-cloud-tooltip__meta-row';
+                var labelEl = document.createElement('span');
+                labelEl.className = 'topic-cloud-tooltip__meta-label';
+                labelEl.textContent = label + ':';
+                row.appendChild(labelEl);
+                row.appendChild(document.createTextNode(value));
+                return row;
+            }
 
             function fillTooltip(circle) {
                 var platform = circle.getAttribute('data-platform') || '';
                 var username = circle.getAttribute('data-username') || '';
                 var postedOn = circle.getAttribute('data-posted-on') || '';
-                var snippet = circle.getAttribute('data-snippet') || '';
+                var originators = circle.getAttribute('data-originators') || '';
+                var chapters = circle.getAttribute('data-chapters') || '';
 
+                // Header line: the table's Platform / Account / Date columns.
                 var source = platform;
                 if (username) source += (source ? ' ' : '') + '@' + username;
                 if (postedOn) source += (source ? ' · ' : '') + postedOn;
                 sourceEl.textContent = source;
-                snippetEl.textContent = snippet;
+
+                // Remaining table columns (originator with Verband, chapters)
+                // as labelled rows — no text snippet.
+                metaEl.textContent = '';
+                if (originators) {
+                    metaEl.appendChild(metaRow(I18N.i18nOriginator || 'Originator', originators));
+                }
+                if (chapters) {
+                    metaEl.appendChild(metaRow(I18N.i18nChapters || 'Chapters', chapters));
+                }
             }
 
             function positionTooltip(ev) {
