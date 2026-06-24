@@ -2,7 +2,7 @@ import logging
 import re
 import textwrap
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
@@ -576,6 +576,30 @@ class TextSegment:
         # view can pick a per-kind style (quote / post / caption / …) without
         # branching on provenance. Mirrors `_topic_sort_key`'s split.
         return self.kind.split(":", 1)[1] if self.is_redistributed else self.kind
+
+
+@dataclass
+class TextSegmentGroup:
+    """A run of `TextSegment`s shown together as one block in the detail view.
+
+    `kind` selects how the block is rendered:
+
+    - ``"post"`` — the source's own authored components (title, body and, for a
+      video, its display-only description) merged into a single "Post text" /
+      "Video description" block. Any reposted sources the post shares hang off
+      ``reposts`` and are shown nested inside this block.
+    - ``"redistributed"`` — one reposted source, kept indented and labelled with
+      the ``attribution`` (the account it was lifted from). Only appears as a
+      member of a post group's ``reposts``.
+    - ``"standalone"`` — any other segment (a video transcript, on-image text, a
+      caption) rendered on its own with its segment label.
+    """
+
+    kind: str
+    heading: str
+    segments: list[TextSegment]
+    attribution: str = ""
+    reposts: list["TextSegmentGroup"] = field(default_factory=list)
 
 
 class EvidenceSource:
@@ -1302,6 +1326,62 @@ class Evidence(TrackableModel):
             replace(seg, text=apply_redactions(seg.text, post=source))
             for seg in segments
         ]
+
+    @property
+    def grouped_text_segments(self) -> list[TextSegmentGroup]:
+        """`text_segments` arranged into display blocks for the detail view.
+
+        The source's own authored components (title, body and — for a video —
+        its display-only description) are merged into one block. A reposted
+        source is shown nested *inside* that block (the post is quoting it),
+        kept indented and attributed via the post group's ``reposts``. Anything
+        else (a video transcript, on-image text, a caption) stays a standalone
+        block. Non-redistributed `description` segments are dropped — they
+        appear in the Visual material section next to the media they describe.
+        """
+        source = self.source
+        is_video = bool(source and source.is_video)
+        post_heading = _("Video description") if is_video else _("Post text")
+        post_kinds = {"title", "body", "video_description"}
+
+        groups: list[TextSegmentGroup] = []
+        post_group: TextSegmentGroup | None = None
+        repost_group: TextSegmentGroup | None = None
+
+        def ensure_post_group() -> TextSegmentGroup:
+            nonlocal post_group
+            if post_group is None:
+                post_group = TextSegmentGroup("post", post_heading, [])
+                groups.append(post_group)
+            return post_group
+
+        for seg in self.text_segments:
+            if not seg.is_redistributed:
+                if seg.base_kind == "description":
+                    continue  # shown in the Visual material section
+                if seg.base_kind in post_kinds:
+                    ensure_post_group().segments.append(seg)
+                    continue
+                groups.append(
+                    TextSegmentGroup(
+                        "standalone", seg.label, [seg], attribution=seg.attribution
+                    )
+                )
+                continue
+            # Redistributed: nest the reposted source inside the post that
+            # shares it, grouping consecutive segments from the same account so
+            # the repost reads as one quotation.
+            reposts = ensure_post_group().reposts
+            if repost_group is None or repost_group.attribution != seg.attribution:
+                repost_group = TextSegmentGroup(
+                    "redistributed",
+                    seg.attribution,
+                    [],
+                    attribution=seg.attribution,
+                )
+                reposts.append(repost_group)
+            repost_group.segments.append(seg)
+        return groups
 
     @property
     def search_text(self) -> str:

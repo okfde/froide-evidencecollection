@@ -180,6 +180,73 @@ class TestPostTextSegments:
 
 
 @pytest.mark.django_db
+class TestGroupedTextSegments:
+    def test_own_components_merged_into_one_post_block(self):
+        # Title and body collapse into a single "Post text" block; the
+        # description is left for the Visual material section.
+        post = _make_post(title="the title", description="a description")
+        evidence = Evidence.objects.create(social_media_post=post)
+
+        groups = evidence.grouped_text_segments
+        assert [g.kind for g in groups] == ["post"]
+        post_group = groups[0]
+        assert post_group.heading == "Post text"
+        assert [s.base_kind for s in post_group.segments] == ["title", "body"]
+
+    def test_video_post_block_is_headed_video_description(self):
+        post = _make_post(
+            text="caption", description="promo", video_source_path="./video/b.mp4"
+        )
+        evidence = Evidence.objects.create(social_media_post=post)
+
+        post_group = next(g for g in evidence.grouped_text_segments if g.kind == "post")
+        assert post_group.heading == "Video description"
+        # The display-only description rides along inside the same block.
+        assert "video_description" in [s.base_kind for s in post_group.segments]
+
+    def test_transcript_is_a_standalone_block(self):
+        post = _make_post(
+            text="caption",
+            video_source_path="./video/b.mp4",
+            transcription="the whole transcript",
+        )
+        evidence = Evidence.objects.create(social_media_post=post)
+
+        kinds = [g.kind for g in evidence.grouped_text_segments]
+        assert "standalone" in kinds
+        standalone = next(
+            g for g in evidence.grouped_text_segments if g.kind == "standalone"
+        )
+        assert standalone.segments[0].base_kind == "transcription"
+
+    def test_repost_is_its_own_attributed_block(self):
+        inner = _make_post(
+            platform_post_id="inner",
+            url="https://t.me/x/2",
+            title="inner title",
+            text="quoted text",
+        )
+        outer = _make_post(
+            platform_post_id="outer", url="https://t.me/x/3", text="my take"
+        )
+        outer.redistributes = inner
+        outer.save(update_fields=["redistributes"])
+        evidence = Evidence.objects.create(social_media_post=outer)
+
+        groups = evidence.grouped_text_segments
+        assert [g.kind for g in groups] == ["post"]
+        # The repost is nested inside the post that shares it, not a sibling.
+        post_group = groups[0]
+        assert [s.base_kind for s in post_group.segments] == ["body"]
+        assert len(post_group.reposts) == 1
+        repost = post_group.reposts[0]
+        # The reposted source's components are grouped together, and the block
+        # keeps the reference to the account it was lifted from.
+        assert repost.attribution == str(inner.account)
+        assert [s.base_kind for s in repost.segments] == ["title", "body"]
+
+
+@pytest.mark.django_db
 class TestRedaction:
     def test_global_rule_masks_everywhere(self):
         post = _make_post(text="the Badword appears here")

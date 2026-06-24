@@ -31,7 +31,7 @@
     .seg:last-child { margin-bottom: 0; }
     .seg-label {
         display: inline-flex; align-items: baseline; gap: .4em;
-        font-size: .7rem; letter-spacing: .06em; text-transform: uppercase;
+        font-size: 1rem; letter-spacing: .06em;
         font-weight: 600; color: #6c757d; margin-bottom: .4rem;
     }
     .seg-attr { font-weight: 400; text-transform: none; letter-spacing: 0; }
@@ -199,49 +199,55 @@
                 </section>
             {% endif %}
             {# ── Collected text ───────────────────────────────────────── #}
-            {# Each segment is styled by its kind so the look reflects what it #}
-            {# is: a quoted citation, the post's running text, a caption,      #}
-            {# on-screen image text, or a transcript. `description` segments   #}
-            {# are rendered in the Visual material section (next to the media  #}
-            {# they belong to), so they're skipped here. For a video the post  #}
-            {# has no single running body, so its own title, caption and       #}
-            {# description are grouped into one "Post text" block.             #}
+            {# `grouped_text_segments` arranges the segments into display       #}
+            {# blocks: the post's own components (title/body and, for a video,   #}
+            {# its description) merged into one "Post text" / "Video             #}
+            {# description" block; each reposted source as its own indented,     #}
+            {# attributed block; and anything else (transcript, on-image text,   #}
+            {# a caption) as a standalone, individually-styled block.            #}
             {% if object.text_segments %}
                 <section class="detail-section">
-                    {% if object.social_media_post.is_video %}
-                        {% if object.social_media_post.title or object.social_media_post.text or object.social_media_post.description %}
+                    {% for group in object.grouped_text_segments %}
+                        {% if group.kind == 'post' %}
                             <div class="seg seg-post-text">
-                                <h2 class="detail-heading">
-                                    <span>{% trans "Video description" %}</span>
-                                </h2>
+                                <h2 class="detail-heading">{{ group.heading }}</h2>
                                 <div class="seg-body seg-body-post">
-                                    {% for seg in object.text_segments %}
-                                        {% if not seg.is_redistributed and seg.base_kind == 'title' %}
+                                    {% for seg in group.segments %}
+                                        {% if seg.base_kind == 'title' %}
                                             <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
-                                        {% elif not seg.is_redistributed and seg.base_kind == 'body' %}
+                                        {% else %}
                                             <div class="mb-2">{{ seg.text|plain_text }}</div>
-                                        {% elif not seg.is_redistributed and seg.base_kind == 'video_description' %}
-                                            <div>{{ seg.text|plain_text }}</div>
                                         {% endif %}
+                                    {% endfor %}
+                                    {# A reposted source is quoted within the post box, indented. #}
+                                    {% for repost in group.reposts %}
+                                        <div class="seg-redistributed mt-3">
+                                            <h3 class="seg-label">
+                                                <span aria-hidden="true">↻</span>
+                                                <span>{% trans "Reposted from" %}</span>
+                                                {% if repost.attribution %}<span class="seg-attr">{{ repost.attribution }}</span>{% endif %}
+                                            </h3>
+                                            {% for seg in repost.segments %}
+                                                {% if seg.base_kind == 'title' %}
+                                                    <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
+                                                {% else %}
+                                                    <div class="mb-2">{{ seg.text|plain_text }}</div>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
                                     {% endfor %}
                                 </div>
                             </div>
-                        {% endif %}
-                    {% endif %}
-                    {% for seg in object.text_segments %}
-                        {% if seg.base_kind != 'description' or seg.is_redistributed %}
-                            {# A video's own title/caption/description are shown in the grouped #}
-                            {# "Post text" block above, so skip them in the per-segment list.   #}
-                            {% if not object.social_media_post.is_video or seg.is_redistributed or seg.base_kind != 'title' and seg.base_kind != 'body' and seg.base_kind != 'video_description' %}
-                                <div class="seg seg-{{ seg.base_kind }}{% if seg.is_redistributed %} seg-redistributed{% endif %}">
+                        {% else %}
+                            {% with seg=group.segments.0 %}
+                                <div class="seg seg-{{ seg.base_kind }}">
                                     <h3 class="seg-label">
-                                        {% if seg.is_redistributed %}<span aria-hidden="true">↻</span>{% endif %}
                                         <span>{{ seg.label }}</span>
                                         {% if seg.attribution %}<span class="seg-attr">· {{ seg.attribution }}</span>{% endif %}
                                     </h3>
-                                    <div class="seg-body{% if seg.base_kind == 'body' %} seg-body-post{% endif %}">{{ seg.text|plain_text }}</div>
+                                    <div class="seg-body">{{ seg.text|plain_text }}</div>
                                 </div>
-                            {% endif %}
+                            {% endwith %}
                         {% endif %}
                     {% endfor %}
                 </section>
