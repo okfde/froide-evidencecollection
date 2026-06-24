@@ -37,16 +37,20 @@
                 {# below: at most one hidden input, narrowing the cloud to that  #}
                 {# theme's evidence. Lives in the form so it rides every filter  #}
                 {# submit.                                                        #}
-                <span id="tf-themes">
-                    {% if selected_theme_id %}<input type="hidden" name="theme" value="{{ selected_theme_id }}">{% endif %}
-                </span>
+                {% if selected_theme_id %}
+                    <span id="tf-themes">
+                        <input type="hidden" name="theme" value="{{ selected_theme_id }}">
+                    </span>
+                {% endif %}
                 {# Selected main-topic chapter (single-select), managed by the   #}
                 {# main-topic tree below: at most one hidden input, narrowing the #}
                 {# cloud to evidence under that chapter's subtree. Independent of #}
                 {# the theme select — the two stack (AND).                        #}
-                <span id="tf-chapters">
-                    {% if selected_chapter_id %}<input type="hidden" name="chapter" value="{{ selected_chapter_id }}">{% endif %}
-                </span>
+                {% if selected_chapter_id %}
+                    <span id="tf-chapters">
+                        <input type="hidden" name="chapter" value="{{ selected_chapter_id }}">
+                    </span>
+                {% endif %}
                 <div class="topic-filter-field topic-filter-field--search">
                     <label for="tf-q" class="topic-filter-label">{% trans "Search" %}</label>
                     <input type="search"
