@@ -64,16 +64,6 @@
                            placeholder="{% trans 'Text in evidence…' %}"
                            value="{{ request.GET.q|default_if_none:'' }}">
                 </div>
-                <div class="topic-filter-field">
-                    <label for="tf-platform" class="topic-filter-label">{% trans "Platform" %}</label>
-                    <select id="tf-platform" name="platform" class="form-select form-select-sm">
-                        <option value="">{% trans "any" %}</option>
-                        {% for value, label in platforms %}
-                            <option value="{{ value }}"
-                                    {% if request.GET.platform == value %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
                 <div class="topic-filter-field topic-actor-field">
                     <label for="tf-actor-button" class="topic-filter-label">{% trans "Actor" %}</label>
                     {# Combobox: real dropdown — clicking the button     #}
@@ -163,6 +153,16 @@
                                     {% if request.GET.verband == verband.id|stringformat:'s' %}selected{% endif %}>
                                 {{ verband.label }}
                             </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="topic-filter-field">
+                    <label for="tf-platform" class="topic-filter-label">{% trans "Platform" %}</label>
+                    <select id="tf-platform" name="platform" class="form-select form-select-sm">
+                        <option value="">{% trans "any" %}</option>
+                        {% for value, label in platforms %}
+                            <option value="{{ value }}"
+                                    {% if request.GET.platform == value %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
                 </div>
