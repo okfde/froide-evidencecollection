@@ -128,9 +128,10 @@ class TestPostTextSegments:
         assert seg.for_search is True
         assert "the whole transcript" in evidence.topic_text
 
-    def test_video_post_excludes_description(self):
-        # A video post's (often promotional) description is dropped from the
-        # segments — the transcript carries the content.
+    def test_video_post_description_is_display_only(self):
+        # A video post's (often promotional) description rides along as a
+        # display-only segment — shown in the detail view but kept out of
+        # search/topics, where the transcript carries the content.
         post = _make_post(
             text="caption",
             description="promo blurb",
@@ -139,7 +140,12 @@ class TestPostTextSegments:
         )
         evidence = Evidence.objects.create(social_media_post=post)
 
+        seg = next(s for s in evidence.text_segments if s.kind == "video_description")
+        assert seg.text == "promo blurb"
+        assert seg.for_search is False
+        assert seg.for_topics is False
         assert "promo blurb" not in evidence.search_text
+        assert "promo blurb" not in evidence.topic_text
         assert "caption" in evidence.search_text
 
     def test_citation_is_not_wired_into_segments(self):

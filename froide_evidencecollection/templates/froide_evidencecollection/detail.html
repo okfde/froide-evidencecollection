@@ -233,7 +233,11 @@
                                     <span>{{ seg.label }}</span>
                                     {% if seg.attribution %}<span class="seg-attr">· {{ seg.attribution }}</span>{% endif %}
                                 </div>
-                                <div class="seg-body{% if seg.base_kind == 'body' %} seg-body-post{% endif %}">{{ seg.text|plain_text }}</div>
+                                {# For a video the title and description take the post-text     #}
+                                {# (citation) styling, since the video has no running body text. #}
+                                <div class="seg-body{% if seg.base_kind == 'body' or seg.base_kind == 'video_description' or object.social_media_post.is_video and seg.base_kind == 'title' %} seg-body-post{% endif %}">
+                                    {{ seg.text|plain_text }}
+                                </div>
                             </div>
                         {% endif %}
                     {% endfor %}

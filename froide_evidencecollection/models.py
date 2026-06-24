@@ -754,24 +754,47 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
         return bool(self.video_source_path)
 
     def _own_text_segments(self) -> list[TextSegment]:
-        # This post's own authored text, excluding anything redistributed. For a
-        # video post the (often promotional) `description` is dropped — the
-        # transcript carries the content — but the title and body still ride
-        # along; non-video posts keep their whole text. The image's alt-text
-        # `image_description` is included where present. The video transcript is
-        # not here: it is emitted at the Evidence level
-        # (`Evidence._video_transcript_segments`).
-        fields = [
+        # This post's own authored text, excluding anything redistributed. Title
+        # and body always ride along; the image's alt-text `image_description` is
+        # included where present. The video transcript is not here: it is emitted
+        # at the Evidence level (`Evidence._video_transcript_segments`).
+        segments = []
+        for kind, label, value in (
             ("title", _("Post title"), self.title),
             ("body", _("Post text"), self.text),
-        ]
-        if not self.is_video:
-            fields.append(("description", _("Description"), self.description))
-        fields.append(("description", _("Image description"), self.image_description))
-        segments = []
-        for kind, label, value in fields:
+        ):
             if value and value.strip():
                 segments.append(TextSegment(kind, label, value.strip()))
+        # The post `description`: for a non-video post it is ordinary authored
+        # text (searched and topic-modelled). For a video the (often promotional)
+        # description is display-only — the transcript carries the content into
+        # search/topics — so it rides along for the detail view (where it's shown
+        # like the post text) but is kept out of both via a distinct kind.
+        if self.description and self.description.strip():
+            if self.is_video:
+                segments.append(
+                    TextSegment(
+                        "video_description",
+                        _("Description"),
+                        self.description.strip(),
+                        for_search=False,
+                        for_topics=False,
+                    )
+                )
+            else:
+                segments.append(
+                    TextSegment(
+                        "description", _("Description"), self.description.strip()
+                    )
+                )
+        if self.image_description and self.image_description.strip():
+            segments.append(
+                TextSegment(
+                    "description",
+                    _("Image description"),
+                    self.image_description.strip(),
+                )
+            )
         return segments
 
     def text_segments(
