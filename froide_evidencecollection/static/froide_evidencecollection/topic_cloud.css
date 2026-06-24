@@ -1,0 +1,1027 @@
+/* Two-column main: scatter on the left, "Actors in view" panel on the
+    right. The panel takes a fixed sliver; the cloud column flexes to fill
+    the rest (min-width:0 lets the SVG shrink instead of overflowing). */
+.topic-cloud-main {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.topic-cloud-main__cloud {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.topic-cloud-main__actors {
+    flex: 0 0 15rem;
+}
+
+@media (max-width: 767.98px) {
+
+    /* The scatter is hidden on phones (the outline is the metadata list
+        there), so stack the main column. The "Actors in view" panel is
+        dropped entirely on phones — it only steers the (hidden) scatter
+        highlight, so it has nothing to act on here and just adds bulk. */
+    .topic-cloud-main {
+        flex-direction: column;
+    }
+
+    .topic-cloud-main__actors {
+        display: none;
+    }
+}
+
+/* ── View tabs (Cloud ⇆ Table) ─────────────────────────────────────
+    A small two-button tablist above the results. The active tab keeps a
+    solid underline; switching flips a class on .topic-cloud-page which the
+    rules below read to show one view and hide the other. */
+.topic-cloud-tabs {
+    display: flex;
+    gap: .25rem;
+    margin-bottom: .75rem;
+    border-bottom: 1px solid #e2e2e2;
+}
+
+.topic-cloud-tab {
+    border: 0;
+    background: none;
+    padding: .35rem .85rem;
+    font-size: .9rem;
+    color: #6b5d4f;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.topic-cloud-tab:hover {
+    color: #4a3f33;
+}
+
+.topic-cloud-tab:focus-visible {
+    outline: 2px solid #8a6d3b;
+    outline-offset: 2px;
+}
+
+.topic-cloud-tab.is-active {
+    color: #6b4f2c;
+    font-weight: 600;
+    border-bottom-color: #6b4f2c;
+}
+
+/* The table view is hidden until its tab is active; the cloud view is the
+    default. In table mode the scatter and the "Actors in view" side panel
+    step aside so the table spans the full width, and the SR-only outline is
+    dropped since the table is now the accessible representation. */
+.topic-cloud-table {
+    display: none;
+}
+
+.topic-cloud-page.topic-view-table .topic-cloud-table {
+    display: block;
+}
+
+/* Give the columns breathing room — wider horizontal padding than the
+    Bootstrap default on every header/body cell. */
+.topic-cloud-table__table th,
+.topic-cloud-table__table td {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+}
+
+.topic-cloud-table__table th:first-child,
+.topic-cloud-table__table td:first-child {
+    padding-left: 0;
+}
+
+.topic-cloud-table__table th:last-child,
+.topic-cloud-table__table td:last-child {
+    padding-right: 0;
+}
+
+.topic-cloud-page.topic-view-table .topic-cloud-svg {
+    display: none;
+}
+
+.topic-cloud-page.topic-view-table .topic-cloud-main__actors {
+    display: none;
+}
+
+.topic-cloud-page.topic-view-table .topic-cloud-outline {
+    display: none;
+}
+
+.topic-cloud-svg {
+    margin: 0;
+    background: #fafafa;
+    overflow: hidden;
+}
+
+/* Dominant-group colour key above the cloud: a row of swatch + label
+    chips, one per coloured group. */
+.topic-cloud-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .3rem .9rem;
+    align-items: center;
+    margin-bottom: .5rem;
+    font-size: .8rem;
+    color: #5a5048;
+}
+
+.topic-cloud-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+}
+
+.topic-cloud-legend__swatch {
+    width: .75rem;
+    height: .75rem;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
+}
+
+.topic-cloud-svg svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 60vh;
+}
+
+/* Sticky filter region: the whole filter stack (toolbar + theme bar +
+    main-topic tree) stays pinned to the top while the
+    canvas scrolls behind it. The wrapper carries its own background and
+    a bottom shadow so the whole block reads as one layer above the cloud.
+    Drops sticky on mobile because the stack is tall enough to feel
+    oppressive when pinned. */
+.topic-cloud-filters {
+    background: var(--bs-body-bg, #fff);
+}
+
+@media (min-width: 768px) {
+    .topic-cloud-filters {
+        position: sticky;
+        top: .5rem;
+        z-index: 20;
+        /* A little bottom padding + shadow so dots scrolling underneath
+            don't kiss the last filter row. */
+        padding-bottom: .5rem;
+        box-shadow: 0 6px 6px -4px rgba(0, 0, 0, .12);
+    }
+}
+
+.topic-cloud-toolbar {
+    background: var(--bs-body-bg, #fff);
+    border: 1px solid #e2e2e2;
+    border-radius: .375rem;
+    padding: .5rem .75rem;
+}
+
+.topic-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: .5rem .75rem;
+}
+
+.topic-filter-field {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    /* Fields share leftover space evenly but won't shrink past
+        ~9rem so labels + values stay readable. */
+    flex: 1 1 9rem;
+}
+
+.topic-filter-field--search {
+    flex: 2 1 14rem;
+}
+
+.topic-filter-label {
+    font-size: .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: #555;
+    margin-bottom: .1rem;
+    line-height: 1.2;
+}
+
+.topic-filter-actions {
+    display: flex;
+    align-items: end;
+    gap: .25rem;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+/* ── Year range slider ─────────────────────────────────────────────
+    Two native range inputs overlaid on one track: the left thumb is
+    the earliest year, the right the latest. Both inputs are stretched
+    across the full track with transparent tracks so only their thumbs
+    show; pointer-events are disabled on the inputs and re-enabled on the
+    thumbs so either handle stays grabbable. A coloured bar between the
+    thumbs and a row of clickable year ticks sit underneath. */
+.topic-year-field {
+    flex: 1 1 13rem;
+}
+
+.topic-year-slider {
+    display: flex;
+    flex-direction: column;
+    /* Match the ~31px height of the sibling form-control-sm fields so
+        the slider lines up on the toolbar's baseline-aligned row. */
+    padding-top: .15rem;
+}
+
+.topic-year-slider__track {
+    position: relative;
+    height: 1.4rem;
+}
+
+.topic-year-slider__rail,
+.topic-year-slider__range {
+    position: absolute;
+    top: 9px;
+    height: 4px;
+    border-radius: 2px;
+}
+
+.topic-year-slider__rail {
+    left: 0;
+    right: 0;
+    background: #ddd2c4;
+}
+
+.topic-year-slider__range {
+    background: #6b4f2c;
+}
+
+.topic-year-slider__ticks {
+    position: absolute;
+    top: 6px;
+    left: 0;
+    right: 0;
+    height: 10px;
+}
+
+.topic-year-slider__tick {
+    position: absolute;
+    top: 0;
+    width: 9px;
+    height: 10px;
+    margin-left: -4.5px;
+    /* centre the hit area on the tick */
+    cursor: pointer;
+}
+
+/* The visible mark; the wider element above is just the click target. */
+.topic-year-slider__tick::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 1px;
+    height: 8px;
+    background: #c3b6a4;
+}
+
+.topic-year-slider__tick:hover::before {
+    background: #6b4f2c;
+}
+
+/* Both range inputs occupy the same box; only the thumbs are visible
+    and interactive. */
+.topic-year-slider__input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 1.4rem;
+    margin: 0;
+    background: none;
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: none;
+}
+
+.topic-year-slider__input::-webkit-slider-runnable-track {
+    background: none;
+    border: none;
+}
+
+.topic-year-slider__input::-moz-range-track {
+    background: none;
+    border: none;
+}
+
+.topic-year-slider__input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: #6b4f2c;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+    cursor: grab;
+    pointer-events: auto;
+}
+
+.topic-year-slider__input::-moz-range-thumb {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: #6b4f2c;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+    cursor: grab;
+    pointer-events: auto;
+}
+
+.topic-year-slider__input:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid #8a6d3b;
+    outline-offset: 1px;
+}
+
+.topic-year-slider__input:focus-visible::-moz-range-thumb {
+    outline: 2px solid #8a6d3b;
+    outline-offset: 1px;
+}
+
+.topic-year-slider__ends {
+    display: flex;
+    justify-content: space-between;
+    font-size: .68rem;
+    color: #8a7d6c;
+    line-height: 1;
+    margin-top: .05rem;
+}
+
+.topic-cloud-svg circle[data-href] {
+    cursor: pointer;
+}
+
+.topic-cloud-svg circle[data-href]:hover {
+    fill-opacity: 1;
+}
+
+/* Transition lets circles fade in when filters add dots and fade
+    out before being removed when filters drop them. `opacity` rides the
+    same transition so the actor highlight dims/undims smoothly. */
+.topic-cloud-svg circle {
+    transition: fill-opacity 200ms ease, opacity 200ms ease;
+}
+
+/* Glide dots to their settled (collision-relaxed) positions so the
+    layout eases into place on load and after filter changes. Motion-
+    sensitive users get the static result with no animated settle. */
+@media (prefers-reduced-motion: no-preference) {
+    .topic-cloud-svg circle {
+        transition: fill-opacity 200ms ease, opacity 200ms ease,
+            cx 400ms ease, cy 400ms ease;
+    }
+}
+
+/* Actor highlight: clicking a name in the side panel dims every dot
+    except that actor's, which stay full strength and gain a dark ring.
+    Uses `opacity` (whole-element) so it composes cleanly with the
+    fade-in/out logic that animates `fill-opacity`. */
+.topic-cloud-svg svg.has-actor-highlight circle[data-href] {
+    opacity: .1;
+}
+
+.topic-cloud-svg svg.has-actor-highlight circle.is-actor-hit {
+    opacity: 1;
+    stroke: #2f2a23;
+    stroke-width: 1.2;
+}
+
+.topic-cloud-svg svg.is-pannable {
+    cursor: grab;
+}
+
+.topic-cloud-svg svg.is-panning {
+    cursor: grabbing;
+}
+
+.topic-cloud-svg svg.is-panning circle[data-href] {
+    cursor: grabbing;
+}
+
+.topic-cloud-zoom-reset {
+    position: absolute;
+    top: 2.75rem;
+    right: .5rem;
+    z-index: 5;
+    background: rgba(255, 255, 255, .92);
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: .2rem .5rem;
+    font-size: .8rem;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+.topic-cloud-zoom-reset:hover {
+    background: #fff;
+}
+
+.topic-cloud-zoom-reset[hidden] {
+    display: none;
+}
+
+.topic-cloud-zoom-controls {
+    position: absolute;
+    top: .5rem;
+    right: .5rem;
+    z-index: 5;
+    display: flex;
+    flex-direction: row;
+}
+
+.topic-cloud-zoom-controls button {
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, .92);
+    border: 1px solid #ccc;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+.topic-cloud-zoom-controls button:first-child {
+    border-radius: 3px 0 0 3px;
+}
+
+.topic-cloud-zoom-controls button:last-child {
+    border-radius: 0 3px 3px 0;
+    border-left: none;
+}
+
+.topic-cloud-zoom-controls button:hover {
+    background: #fff;
+}
+
+.topic-cloud-zoom-controls button:disabled {
+    opacity: .5;
+    cursor: default;
+}
+
+.topic-cloud-tooltip {
+    position: absolute;
+    z-index: 10;
+    max-width: 340px;
+    pointer-events: none;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+    padding: .5rem .65rem;
+    font-size: .85rem;
+    line-height: 1.35;
+    color: #222;
+}
+
+.topic-cloud-tooltip__source {
+    font-size: .75rem;
+    color: #555;
+    margin-bottom: .25rem;
+}
+
+/* Metadata rows mirror the table's columns (originator with Verband,
+    chapters): a muted uppercase label followed by the value. */
+.topic-cloud-tooltip__meta:empty {
+    display: none;
+}
+
+.topic-cloud-tooltip__meta-row {
+    margin-bottom: .15rem;
+}
+
+.topic-cloud-tooltip__meta-row:last-child {
+    margin-bottom: 0;
+}
+
+.topic-cloud-tooltip__meta-label {
+    font-size: .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: #8a7d6c;
+    margin-right: .35em;
+}
+
+/* Engagement line (views · likes · comments · shares), mirroring the
+    evidence detail page. Sits below the metadata with a hairline above. */
+.topic-cloud-tooltip__stats:empty {
+    display: none;
+}
+
+.topic-cloud-tooltip__stats {
+    margin-top: .3rem;
+    padding-top: .3rem;
+    border-top: 1px solid #eee;
+    font-size: .8rem;
+    color: #555;
+}
+
+/* Actor combobox — looks like a Bootstrap form-select but opens a
+    popup with a search field and a filtered list. */
+.topic-actor-field {
+    position: relative;
+}
+
+.topic-actor-button {
+    cursor: pointer;
+    /* Truncate long actor names so the pill stays the same size
+        as the other compact filter fields. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topic-actor-popup {
+    position: absolute;
+    z-index: 30;
+    top: 100%;
+    left: 0;
+    margin-top: .15rem;
+    /* The pill is narrow; let the popup grow wider than its
+        anchor so full actor names stay readable. */
+    min-width: 16rem;
+    max-width: 22rem;
+    background: #fff;
+    border: 1px solid #ced4da;
+    border-radius: .25rem;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .12);
+    padding: .5rem;
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+    max-height: 320px;
+}
+
+.topic-actor-options {
+    overflow-y: auto;
+    max-height: 240px;
+}
+
+.topic-actor-options li {
+    padding: .25rem .5rem;
+    cursor: pointer;
+    border-radius: 3px;
+    font-size: .9rem;
+}
+
+.topic-actor-options li:hover {
+    background: #f1f4ff;
+}
+
+.topic-actor-options li[aria-selected="true"] {
+    background: #dde6ff;
+    font-weight: 600;
+}
+
+.topic-actor-options li[hidden] {
+    display: none;
+}
+
+/* Topic outline — visually-hidden by default (AT users only). On
+    small screens we hide the cloud and unhide this as the real
+    post list. */
+.topic-cloud-outline {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@media (max-width: 767.98px) {
+    .topic-cloud-svg svg {
+        max-height: 60vh;
+    }
+
+    /* Drop the scatter — the theme bar above acts as the filter,
+        the outline below becomes the visible post list. The colour key
+        goes with it (nothing left to colour-code). */
+    .topic-cloud-svg {
+        display: none;
+    }
+
+    .topic-cloud-legend {
+        display: none;
+    }
+
+    /* The Cloud ⇆ Table switch is a desktop affair: the scatter never
+        shows here, so there's nothing to switch between. The compact
+        outline is the single mobile view, so drop the tab bar and pin it
+        visible regardless of which tab was active on desktop (the table
+        stays hidden so the two lists don't double up). */
+    .topic-cloud-tabs {
+        display: none;
+    }
+
+    .topic-cloud-page.topic-view-table .topic-cloud-table {
+        display: none;
+    }
+
+    .topic-cloud-page.topic-view-table .topic-cloud-outline {
+        display: block;
+    }
+
+    .topic-cloud-outline {
+        position: static;
+        width: auto;
+        height: auto;
+        margin: 0;
+        overflow: visible;
+        clip: auto;
+        white-space: normal;
+    }
+
+    .topic-cloud-outline h2 {
+        font-size: 1.05rem;
+        margin: 1rem 0 .5rem;
+    }
+
+    .topic-cloud-outline ol {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .topic-cloud-outline ol>li {
+        padding: .5rem .25rem;
+        border-bottom: 1px solid #eee;
+        font-size: .85rem;
+    }
+
+    .topic-cloud-outline ol>li p {
+        margin: 0 0 .2rem;
+    }
+
+    .topic-cloud-outline ol>li p:last-child {
+        margin: 0;
+    }
+
+    /* Top line: date · platform · account, run together with separators
+        so the primary identifiers sit on one compact row. */
+    .topic-cloud-outline__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .15rem .5rem;
+        font-weight: 600;
+        color: #4a3f33;
+    }
+
+    .topic-cloud-outline__account {
+        color: #6b5d4f;
+        font-weight: 400;
+    }
+
+    /* Originator / chapters rows: a muted inline label then the value,
+        wrapping naturally on a narrow screen. */
+    .topic-cloud-outline__line {
+        color: #5a5048;
+    }
+
+    .topic-cloud-outline__label {
+        font-size: .7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: #8a7d6c;
+    }
+}
+
+/* Theme bar: the single browse axis above the main-topic tree. Each chip
+    carries its theme's identity colour (via the inline --topic-color), so
+    the bar doubles as the dot colour key. Framed like the main-topic tree
+    and actor panels so the browse surfaces read as a set. */
+.topic-groups {
+    border: 1px solid #e7e2db;
+    border-radius: .5rem;
+    padding: .5rem .75rem;
+    background: #fcfbf9;
+}
+
+.topic-groups__head {
+    margin-bottom: .35rem;
+}
+
+.topic-groups__title {
+    font-size: .8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: #6b5d4f;
+}
+
+.topic-groups__cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem .4rem;
+    align-items: baseline;
+}
+
+.topic-group-chip {
+    display: inline-flex;
+    align-items: baseline;
+    border: 1px solid #d9cfc2;
+    background: #fff;
+    color: #4a3f33;
+    border-radius: 999px;
+    padding: .12rem .7rem;
+    font-size: .92rem;
+    line-height: 1.5;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+}
+
+/* The topic's identity colour, shown as a leading swatch when the chip is
+    idle and as the whole fill when it's active. */
+.topic-group-chip__swatch {
+    width: .6em;
+    height: .6em;
+    border-radius: 50%;
+    margin-right: .45em;
+    background: var(--topic-color, #7a6e60);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
+    align-self: center;
+}
+
+.topic-group-chip:hover {
+    background: #faf7f3;
+    border-color: var(--topic-color, #bcb3a6);
+}
+
+.topic-group-chip:focus-visible {
+    outline: 2px solid var(--topic-color, #8a6d3b);
+    outline-offset: 1px;
+}
+
+.topic-group-chip.is-active {
+    background: var(--topic-color, #6b4f2c);
+    border-color: var(--topic-color, #6b4f2c);
+    color: #fff;
+}
+
+/* On an active chip the swatch sits on its own colour, so fade it to a
+    subtle white ring instead of an invisible same-colour dot. */
+.topic-group-chip.is-active .topic-group-chip__swatch {
+    background: rgba(255, 255, 255, .85);
+    box-shadow: none;
+}
+
+.topic-group-chip__count {
+    font-size: .72em;
+    opacity: .65;
+    margin-left: .4em;
+}
+
+.topic-group-chip.is-active .topic-group-chip__count {
+    opacity: .85;
+}
+
+/* ── Main-topic tree (report chapters) ──────────────────────────────
+    A hierarchical, single-select filter rendered as a plain indented
+    category tree (no surrounding frame, no chip pills). It is collapsed by
+    default: each parent node carries a disclosure chevron, and only the path
+    to a selected node starts expanded. Each row is prefixed by one guide cell
+    per ancestor level, each drawing a vertical connector rail that runs the
+    full row height so consecutive rows form a continuous line down the tree.
+    The selected node gets a left accent bar rather than a filled background,
+    so the tree stays light. The panel is framed like the other filters
+    (theme bar, actors). */
+.topic-chapters {
+    border: 1px solid #e7e2db;
+    border-radius: .5rem;
+    padding: .5rem .75rem;
+    background: #fcfbf9;
+}
+
+.topic-chapters__head {
+    margin-bottom: .2rem;
+}
+
+.topic-chapters__title {
+    font-size: .8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: #6b5d4f;
+}
+
+.topic-chapters__tree {
+    display: flex;
+    flex-direction: column;
+    gap: .02rem;
+}
+
+.topic-chapter-row {
+    display: flex;
+    align-items: stretch;
+}
+
+.topic-chapter-row.is-hidden {
+    display: none;
+}
+
+/* One fixed-width cell per ancestor level, each carrying a centred vertical
+    rail so consecutive rows form a continuous line down each tree level. */
+.topic-chapter-guide {
+    flex: 0 0 16px;
+    position: relative;
+}
+
+.topic-chapter-guide::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid #d8cdbd;
+}
+
+/* Disclosure chevron: a right-pointing triangle that rotates to point down
+    when its node is expanded. Leaves render an empty same-width spacer so
+    every label aligns regardless of whether the node has children. */
+.topic-chapter-toggle {
+    flex: 0 0 16px;
+    align-self: stretch;
+    position: relative;
+    border: 0;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+.topic-chapter-toggle--leaf {
+    cursor: default;
+}
+
+.topic-chapter-toggle:not(.topic-chapter-toggle--leaf)::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 0;
+    height: 0;
+    border-left: 5px solid #8a7d6c;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    transition: transform .12s ease;
+}
+
+.topic-chapter-toggle.is-expanded::before {
+    transform: rotate(90deg);
+}
+
+.topic-chapter-toggle:focus-visible {
+    outline: 2px solid #8a6d3b;
+    outline-offset: 1px;
+    border-radius: .2rem;
+}
+
+.topic-chapter-node {
+    position: relative;
+    display: flex;
+    align-items: baseline;
+    gap: .5em;
+    flex: 1 1 auto;
+    text-align: left;
+    border: 0;
+    border-left: 2px solid transparent;
+    background: none;
+    cursor: pointer;
+    padding: .12rem .4rem;
+    border-radius: .2rem;
+    color: #4a3f33;
+    font-size: .9rem;
+    line-height: 1.45;
+    transition: background .12s, color .12s;
+}
+
+.topic-chapter-node:hover {
+    background: #f1ece5;
+}
+
+.topic-chapter-node:focus-visible {
+    outline: 2px solid #8a6d3b;
+    outline-offset: 1px;
+}
+
+.topic-chapter-node.is-active {
+    color: #6b4f2c;
+    font-weight: 600;
+    background: #f3ece2;
+    border-left-color: #6b4f2c;
+}
+
+.topic-chapter-node__count {
+    font-size: .75em;
+    opacity: .5;
+    font-variant-numeric: tabular-nums;
+}
+
+.topic-chapter-node.is-active .topic-chapter-node__count {
+    opacity: .7;
+}
+
+/* ── "Actors in view" side panel ──────────────────────────────────── */
+.topic-actors {
+    border: 1px solid #e7e2db;
+    border-radius: .5rem;
+    background: #fcfbf9;
+    padding: .5rem .65rem;
+    /* Track the cloud's height and scroll internally for long lists. */
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.topic-actors__head {
+    display: flex;
+    align-items: baseline;
+    gap: .4rem;
+    margin-bottom: .4rem;
+}
+
+.topic-actors__title {
+    font-size: .8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: #6b5d4f;
+}
+
+.topic-actors__count {
+    font-size: .72rem;
+    color: #8a7d6c;
+    background: #efe9e1;
+    border-radius: 999px;
+    padding: 0 .4rem;
+}
+
+.topic-actors__list {
+    display: flex;
+    flex-direction: column;
+    gap: .1rem;
+}
+
+.topic-actor-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: .5rem;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    padding: .2rem .35rem;
+    border-radius: .3rem;
+    color: #4a3f33;
+    font-size: .85rem;
+    line-height: 1.3;
+}
+
+.topic-actor-row:hover {
+    background: #f1ece5;
+}
+
+.topic-actor-row:focus-visible {
+    outline: 2px solid #8a6d3b;
+    outline-offset: 1px;
+}
+
+.topic-actor-row.is-active {
+    background: #6b4f2c;
+    color: #fff;
+}
+
+.topic-actor-row__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topic-actor-row__count {
+    font-variant-numeric: tabular-nums;
+    opacity: .6;
+    font-size: .8em;
+}
+
+.topic-actor-row.is-active .topic-actor-row__count {
+    opacity: .85;
+}
