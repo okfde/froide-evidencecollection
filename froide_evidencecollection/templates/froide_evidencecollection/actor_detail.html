@@ -176,7 +176,7 @@
                     {% include "froide_evidencecollection/_actor_evidence_list.html" with evidence_list=originated_evidence %}
                     {% if originated_total > evidence_limit %}
                         <div class="mt-3">
-                            <a href="{% url 'evidencecollection:evidence-topic-cloud' %}?actor={{ actor.pk }}"
+                            <a href="{{ topic_cloud_page_url }}?actor={{ actor.pk }}"
                                class="btn btn-sm btn-outline-primary">
                                 {% blocktrans with name=actor.name %}View all evidence originated by {{ name }} →{% endblocktrans %}
                             </a>

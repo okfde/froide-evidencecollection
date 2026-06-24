@@ -1006,8 +1006,12 @@
             if (evt.detail.target !== container) return;
             container.removeAttribute('aria-busy');
             if (!evt.detail.successful) return;
-            var path = evt.detail.pathInfo && evt.detail.pathInfo.finalRequestPath;
-            if (path) window.history.replaceState(null, '', path);
+            var requested = evt.detail.pathInfo && evt.detail.pathInfo.finalRequestPath;
+            if (!requested) return;
+            var qsAt = requested.indexOf('?');
+            var qs = qsAt >= 0 ? requested.slice(qsAt) : '';
+            var pageUrl = form.getAttribute('data-reset-url') || window.location.pathname;
+            window.history.replaceState(null, '', pageUrl + qs);
         });
 
         document.body.addEventListener('htmx:beforeRequest', function (evt) {
