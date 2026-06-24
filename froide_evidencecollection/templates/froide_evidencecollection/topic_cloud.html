@@ -362,9 +362,7 @@
         display: block;
         width: 100%;
         height: auto;
-        /* Leave room for the sticky toolbar (~3.5rem filters +
-           legend) plus the page header. */
-        max-height: calc(100vh - 14rem);
+        max-height: 60vh;
     }
     /* Sticky filter region: the whole filter stack (toolbar + theme bar +
        main-topic tree) stays pinned to the top while the
@@ -706,7 +704,7 @@
         border: 0;
     }
     @media (max-width: 767.98px) {
-        .topic-cloud-svg svg { max-height: 50vh; }
+        .topic-cloud-svg svg { max-height: 60vh; }
         /* Drop the scatter — the theme bar above acts as the filter,
            the outline below becomes the visible post list. The colour key
            goes with it (nothing left to colour-code). */
@@ -916,7 +914,7 @@
         background: #fcfbf9;
         padding: .5rem .65rem;
         /* Track the cloud's height and scroll internally for long lists. */
-        max-height: calc(100vh - 14rem);
+        max-height: 60vh;
         overflow-y: auto;
     }
     .topic-actors__head {
