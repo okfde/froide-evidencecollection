@@ -38,6 +38,7 @@ from .models import (
     SocialMediaAccount,
     Theme,
 )
+from .templatetags.evidence_tags import compact_number
 
 
 def get_by_key(obj, key):
@@ -773,6 +774,26 @@ class EvidenceTopicCloudView(TemplateView):
         return result
 
     @staticmethod
+    def _post_interaction_stats(post):
+        """Compact engagement line for a dot tooltip — the same view / like /
+        comment / share counts the evidence detail page shows, each formatted
+        with ``compact_number`` (1500 → "1.5K") and joined with separators.
+        Empty when the post is absent or carries no counts.
+        """
+        if post is None:
+            return ""
+        parts = []
+        for icon, value in (
+            ("👁", post.view_count),
+            ("❤", post.like_count),
+            ("💬", post.comment_count),
+            ("↗", post.share_count),
+        ):
+            if value:
+                parts.append(f"{icon} {compact_number(value)}")
+        return " · ".join(parts)
+
+    @staticmethod
     def _chapters_by_evidence(evidences):
         """Map evidence pk → the chapter(s) it is filed under, as a display
         string (the chapters' ``custom_label``, comma-joined).
@@ -859,6 +880,12 @@ class EvidenceTopicCloudView(TemplateView):
                 "social_media_post__text",
                 "social_media_post__transcription",
                 "social_media_post__posted_at",
+                # Engagement counts for the dot tooltip's stats line — load
+                # them here so reading each isn't a deferred per-row query.
+                "social_media_post__view_count",
+                "social_media_post__like_count",
+                "social_media_post__comment_count",
+                "social_media_post__share_count",
                 "social_media_post__account__platform",
                 "social_media_post__account__username",
             )
@@ -1470,8 +1497,10 @@ class EvidenceTopicCloudView(TemplateView):
         circle_parts = []
         for pt in self._project(plottable, bounds=bounds):
             ev = pt["post"]
-            # Account-derived bits come from the social-media-post source.
-            account = ev.social_media_post.account if ev.social_media_post_id else None
+            # Account- and engagement-derived bits come from the social-media-
+            # post source.
+            post = ev.social_media_post if ev.social_media_post_id else None
+            account = post.account if post else None
             platform = account.get_platform_display() if account else ""
             username = account.username if account and account.username else ""
             # The dot's originators (space-separated ids), so the side panel can
@@ -1484,9 +1513,11 @@ class EvidenceTopicCloudView(TemplateView):
             theme_id = self._dominant_theme(ev, theme_by_chapter, theme_order)
             fill = self._dot_fill(lens_color, theme_id, theme_color)
             # Tooltip metadata — the same columns the table shows (originator
-            # with Verband, chapters); no text snippet.
+            # with Verband, chapters); no text snippet. `data-stats` adds the
+            # engagement line from the evidence detail view (views/likes/…).
             originators = originators_by_ev.get(ev.pk, "")
             chapters = chapters_by_ev.get(ev.pk, "")
+            stats = self._post_interaction_stats(post)
             circle_parts.append(
                 f'<circle data-href="{esc(ev.get_absolute_url())}"'
                 f' data-platform="{esc(platform)}"'
@@ -1496,6 +1527,7 @@ class EvidenceTopicCloudView(TemplateView):
                 f' data-posted-on="{posted_on}"'
                 f' data-originators="{esc(originators)}"'
                 f' data-chapters="{esc(chapters)}"'
+                f' data-stats="{esc(stats)}"'
                 f' cx="{pt["cx"]}" cy="{pt["cy"]}"'
                 f' r="4"'
                 f' fill="{fill}"></circle>'
