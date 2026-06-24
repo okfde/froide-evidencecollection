@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import csv
 import json
 import re
 import sys
@@ -833,6 +834,42 @@ def attach_alt_text(post: dict, alt_map: dict[str, str]) -> dict:
     return post
 
 
+def load_name_map(path: Path) -> dict[str, str]:
+    """Map a current screenshot filename (``name_neu``) to the canonical one to
+    use instead (``name_alt``), read from a two-column CSV with a
+    ``"name_neu","name_alt"`` header. Used to point a re-scraped screenshot back
+    at an already-stored copy kept under its original name. Rows missing either
+    value are skipped.
+    """
+    name_map: dict[str, str] = {}
+    with path.open(newline="") as f:
+        for row in csv.DictReader(f):
+            new = (row.get("name_neu") or "").strip()
+            old = (row.get("name_alt") or "").strip()
+            if new and old:
+                name_map[new] = old
+    return name_map
+
+
+def rename_screenshot_file(post: dict, name_map: dict[str, str]) -> dict:
+    """Rewrite `screenshot_file` to its mapped replacement when its filename (the
+    last path component only) matches a `name_neu` entry in `name_map`,
+    preserving the directory prefix (e.g. ``./screenshots/``) verbatim. Posts
+    without a screenshot or without a match pass through unchanged. Runs after
+    `normalize_single_value_fields`, so `screenshot_file` is a bare path or
+    None."""
+    screenshot_file = post.get("screenshot_file")
+    if not screenshot_file:
+        return post
+    name = Path(screenshot_file).name
+    new_name = name_map.get(name)
+    if new_name:
+        post["screenshot_file"] = (
+            screenshot_file[: len(screenshot_file) - len(name)] + new_name
+        )
+    return post
+
+
 def swap_comma_name(label: str) -> str:
     """Turn a ``"Lastname, Firstname"`` account label into the
     ``"Firstname Lastname"`` form actor labels use, so the two align for
@@ -860,9 +897,12 @@ def normalize_account_labels(post: dict) -> dict:
 
 
 def clean_social_media(
-    social_media: dict, alt_map: dict[str, str] | None = None
+    social_media: dict,
+    alt_map: dict[str, str] | None = None,
+    name_map: dict[str, str] | None = None,
 ) -> dict:
     alt_map = alt_map or {}
+    name_map = name_map or {}
     cleaned = {}
     for platform, posts in social_media.items():
         config = PLATFORM_CONFIG.get(platform)
@@ -870,13 +910,16 @@ def clean_social_media(
             continue
         transform = config.get("transform", lambda p: p)
         cleaned[platform] = [
-            normalize_account_labels(
-                attach_alt_text(
-                    normalize_single_value_fields(
-                        transform(filter_fields(post, platform, config))
-                    ),
-                    alt_map,
-                )
+            rename_screenshot_file(
+                normalize_account_labels(
+                    attach_alt_text(
+                        normalize_single_value_fields(
+                            transform(filter_fields(post, platform, config))
+                        ),
+                        alt_map,
+                    )
+                ),
+                name_map,
             )
             for post in dedupe_posts(posts)
         ]
@@ -968,6 +1011,13 @@ def main() -> None:
         "its descriptions fill image_alt_text on posts matched by image filename.",
     )
     parser.add_argument(
+        "--screenshot-renames",
+        type=Path,
+        default=None,
+        help='CSV with a "name_neu","name_alt" header; screenshot_file values '
+        "whose filename matches name_neu are rewritten to name_alt.",
+    )
+    parser.add_argument(
         "--survey",
         nargs="?",
         const=True,
@@ -999,6 +1049,7 @@ def main() -> None:
         return
 
     alt_map = load_alt_texts(args.alt_texts) if args.alt_texts else {}
+    name_map = load_name_map(args.screenshot_renames) if args.screenshot_renames else {}
 
     result = {}
     for item_id, item in items.items():
@@ -1010,7 +1061,9 @@ def main() -> None:
         if "social_media" in item:
             item = {
                 **item,
-                "social_media": clean_social_media(item["social_media"], alt_map),
+                "social_media": clean_social_media(
+                    item["social_media"], alt_map, name_map
+                ),
             }
         if "functions" in item:
             item = {**item, "functions": clean_functions(item["functions"])}
