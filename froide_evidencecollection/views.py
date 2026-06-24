@@ -37,7 +37,6 @@ from .models import (
     Role,
     SocialMediaAccount,
     Theme,
-    apply_redactions,
 )
 
 
@@ -543,8 +542,6 @@ class EvidenceTopicCloudView(TemplateView):
     SVG_HEIGHT = 600
     SVG_PADDING = 16
 
-    SNIPPET_CHARS = 280
-
     # Keyword facets are the primary "by keyword" browse surface: a facet is one
     # keyword, drawn from the precomputed Evidence↔Keyword index (built by
     # `fit_post_topics` from lemmatised text), so selecting it narrows to
@@ -960,27 +957,6 @@ class EvidenceTopicCloudView(TemplateView):
             qs = qs.filter(verband_q).distinct()
 
         return qs
-
-    @classmethod
-    def _snippet(cls, evidence):
-        # Source text for the outline. Reads the post's own fields directly
-        # rather than `search_text` so it stays within the prefetched columns
-        # and doesn't recurse into redistributed posts. For a video post the
-        # full `transcription` stands in for the per-mention transcript excerpts
-        # (the cheap, query-free read). Only global redaction is applied here
-        # (cached, no per-post query) to keep the outline cheap.
-        post = evidence.social_media_post
-        if post is not None:
-            raw_parts = (post.title, post.text, post.transcription)
-        else:
-            raw_parts = (evidence.description,)
-        parts = [apply_redactions(p.strip()) for p in raw_parts if p and p.strip()]
-        text = " — ".join(parts)
-        if len(text) > cls.SNIPPET_CHARS:
-            head = text[: cls.SNIPPET_CHARS]
-            cut = head.rsplit(" ", 1)[0] if " " in head[-60:] else head
-            text = cut.rstrip() + "…"
-        return text
 
     def _build_themes(self, params):
         """Theme bar data — one chip per theme.
@@ -1484,6 +1460,12 @@ class EvidenceTopicCloudView(TemplateView):
         # looping in the template. With ~1000 points the template loop is the
         # dominant cost in render_to_response; building the markup directly here
         # (with html.escape on each value) cuts it by an order of magnitude.
+        # Originator-with-Verband and chapter display strings, computed once over
+        # the whole filtered set (two grouped queries each — see the helpers) and
+        # shared by both the dot tooltips and the outline/table below. The dot
+        # tooltip mirrors the table's metadata columns, so it needs the same maps.
+        originators_by_ev = self._originators_with_verband(evidences)
+        chapters_by_ev = self._chapters_by_evidence(evidences)
         esc = html.escape
         circle_parts = []
         for pt in self._project(plottable, bounds=bounds):
@@ -1501,6 +1483,10 @@ class EvidenceTopicCloudView(TemplateView):
             # client-side highlight); the fill applies the selection lens.
             theme_id = self._dominant_theme(ev, theme_by_chapter, theme_order)
             fill = self._dot_fill(lens_color, theme_id, theme_color)
+            # Tooltip metadata — the same columns the table shows (originator
+            # with Verband, chapters); no text snippet.
+            originators = originators_by_ev.get(ev.pk, "")
+            chapters = chapters_by_ev.get(ev.pk, "")
             circle_parts.append(
                 f'<circle data-href="{esc(ev.get_absolute_url())}"'
                 f' data-platform="{esc(platform)}"'
@@ -1508,7 +1494,8 @@ class EvidenceTopicCloudView(TemplateView):
                 f' data-actor="{actor_id}"'
                 f' data-theme="{theme_id if theme_id is not None else ""}"'
                 f' data-posted-on="{posted_on}"'
-                f' data-snippet="{esc(self._snippet(ev))}"'
+                f' data-originators="{esc(originators)}"'
+                f' data-chapters="{esc(chapters)}"'
                 f' cx="{pt["cx"]}" cy="{pt["cy"]}"'
                 f' r="4"'
                 f' fill="{fill}"></circle>'
@@ -1529,21 +1516,16 @@ class EvidenceTopicCloudView(TemplateView):
         # at OUTLINE_MAX_EVIDENCE so the hidden DOM stays bounded; the remainder
         # is summarised with a "narrow the filters" note.
         outline_shown = evidences[: self.OUTLINE_MAX_EVIDENCE]
-        # Each originator paired with its own Verband, shown in one table column.
-        # One grouped query over the shown set (see `_originators_with_verband`).
-        originators_by_ev = self._originators_with_verband(outline_shown)
-        # Chapter(s) each evidence is filed under (table column); one grouped
-        # query over the same slice (see `_chapters_by_evidence`).
-        chapters_by_ev = self._chapters_by_evidence(outline_shown)
+        # The originator-with-Verband and chapter maps are computed above (over
+        # the whole filtered set) for the dot tooltips; the outline reuses them.
         outline_items = [
             {
-                # `post` feeds the optional account/title line; it is the post
+                # `post` feeds the optional account/platform line; it is the post
                 # source. `url` always points at the evidence detail page
                 # so every source type gets a working link. `posted_on` uses the
                 # source's publication date.
                 "post": ev.social_media_post,
                 "url": ev.get_absolute_url(),
-                "snippet": self._snippet(ev),
                 "posted_on": ev.source.publication_date if ev.source else None,
                 # Originator(s) each with their own Verband, e.g.
                 # "Name (Bayern), Other (Bund)" — table view.

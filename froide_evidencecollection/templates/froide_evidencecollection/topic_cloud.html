@@ -9,7 +9,9 @@
 <div class="container-fluid my-4 topic-cloud-page topic-view-cloud"
      data-i18n-reset-zoom="{% trans 'Reset zoom' %}"
      data-i18n-zoom-in="{% trans 'Zoom in' %}"
-     data-i18n-zoom-out="{% trans 'Zoom out' %}">
+     data-i18n-zoom-out="{% trans 'Zoom out' %}"
+     data-i18n-originator="{% trans 'Originator' %}"
+     data-i18n-chapters="{% trans 'Chapters' %}">
     {# ── Sticky filter region ──────────────────────────────────── #}
     {# The whole filter stack — compact toolbar row, theme bar and   #}
     {# main-topic tree — is pinned together so it                    #}
@@ -650,8 +652,19 @@
         color: #555;
         margin-bottom: .25rem;
     }
-    .topic-cloud-tooltip__snippet { white-space: pre-wrap; }
-    .topic-cloud-tooltip__snippet:empty { display: none; }
+    /* Metadata rows mirror the table's columns (originator with Verband,
+       chapters): a muted uppercase label followed by the value. */
+    .topic-cloud-tooltip__meta:empty { display: none; }
+    .topic-cloud-tooltip__meta-row { margin-bottom: .15rem; }
+    .topic-cloud-tooltip__meta-row:last-child { margin-bottom: 0; }
+    .topic-cloud-tooltip__meta-label {
+        font-size: .7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        color: #8a7d6c;
+        margin-right: .35em;
+    }
     /* Actor combobox — looks like a Bootstrap form-select but opens a
        popup with a search field and a filtered list. */
     .topic-actor-field { position: relative; }
