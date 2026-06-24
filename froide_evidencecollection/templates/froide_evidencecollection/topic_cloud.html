@@ -216,6 +216,14 @@
                        id="topic-filter-reset"
                        class="btn btn-sm btn-outline-secondary"
                        {% if not has_filters %}hidden{% endif %}>{% trans "Reset" %}</a>
+                    {% comment %}
+                        {% if has_filters %}
+
+                            {% url 'evidencecollection:evidence-export' as export_url %}
+                            {% include "froide_evidencecollection/_export_options.html" with url=export_url size="sm" %}
+
+                        {% endif %}
+                    {% endcomment %}
                 </div>
             </form>
         </div>

@@ -7,9 +7,8 @@ import time
 from collections import defaultdict
 
 from django.conf import settings
-from django.core.exceptions import BadRequest, FieldDoesNotExist
+from django.core.exceptions import BadRequest
 from django.db.models import Max, Min, Prefetch, Q, QuerySet, Sum
-from django.db.models.fields.related import ManyToManyField
 from django.http import Http404, HttpResponse
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -42,15 +41,32 @@ from .models import (
 )
 
 
+def get_by_key(obj, key):
+    parts = key.split("__")
+    value = obj
+    for part in parts:
+        value = getattr(value, part)
+    return str(value)
+
+
 class EvidenceExporter:
-    EXPORT_FIELDS = [
-        ("id", _("Id")),
-        ("citation", _("Citation")),
-        ("description", _("Description")),
-        ("documentation_date", _("Documentation Date")),
-        ("evidence_type__name", _("Evidence Type")),
+    FORMATS = [
+        "csv",
+        "xlsx",
+        # Disabled for now
+        # "pdf"
     ]
-    FORMATS = ["csv", "xlsx", "pdf"]
+
+    TABLE_EXPORT = [
+        "id",
+        "slug",
+        "documentation_date",
+        "citation",
+        "description",
+        "social_media_post__url",
+        "text_segment_label",
+        "text_segment_text",
+    ]
 
     @property
     def export_db_fields(self):
@@ -77,89 +93,38 @@ class EvidenceExporter:
             raise ValueError(f"format {format} is not supported")
         self.format = format
 
-    def export(self, queryset):
-        rows = self.get_rows(queryset)
-        return getattr(self, f"generate_{self.format}")(rows)
+    def export(self, queryset, related_object=None):
+        queryset = (
+            queryset.select_related("social_media_post").order_by("-pk").distinct()
+        )
 
-    def get_rows(self, queryset):
-        """
-        Builds a list of row dictionaries with resolved field values for export.
-
-        Handles nested relations and many-to-many fields, returning each row
-        as a flat dictionary where keys are field paths (as in `export_db_fields`).
-
-        Args:
-            queryset: The base queryset of model instances.
-
-        Returns:
-            A list of dictionaries, one per row to be exported.
-        """
-        prefetch_fields = self._collect_prefetch_fields(queryset.model)
-        queryset = queryset.prefetch_related(*prefetch_fields)
-
-        rows = []
-        for obj in queryset:
-            row = {}
-            for field_path in self.export_db_fields:
-                value = resolve_nested_value(obj, field_path.split("__"))
-                row[field_path] = ", ".join(value) if isinstance(value, list) else value
-            rows.append(row)
-
-        return rows
-
-    def _collect_prefetch_fields(self, model):
-        """
-        Collects all nested fields from `export_db_fields` that require prefetching,
-        such as many-to-many fields and reverse relations.
-
-        Args:
-            model: The base model class.
-
-        Returns:
-            A set of field paths suitable for use with `prefetch_related()`.
-        """
-        prefetch_fields = set()
-
-        for field_path in self.export_db_fields:
-            parts = field_path.split("__")
-            cur_model = model
-            prefetch = []
-
-            for part in parts:
-                try:
-                    field = cur_model._meta.get_field(part)
-                except FieldDoesNotExist:
-                    break
-
-                if isinstance(field, ManyToManyField):
-                    prefetch_fields.add("__".join(prefetch + [part]))
-                    break
-                elif field.is_relation:
-                    prefetch.append(part)
-                    cur_model = field.related_model
-                else:
-                    break
-            else:
-                if prefetch:
-                    prefetch_fields.add("__".join(prefetch))
-
-        return prefetch_fields
+        return getattr(self, f"generate_{self.format}")(
+            queryset, related_object=related_object
+        )
 
     def _generate_table(self, rows):
         table = []
-        table.append(self.export_human_fields)
-        for row in rows:
-            table.append([row.get(key) for key in self.export_db_fields])
+        table.append(self.TABLE_EXPORT)
+        for evidence in rows:
+            for text_segment in evidence.text_segments:
+                table.append(
+                    [
+                        str(getattr(text_segment, key.replace("text_segment_", "")))
+                        if key.startswith("text_segment_")
+                        else get_by_key(evidence, key)
+                        for key in self.TABLE_EXPORT
+                    ]
+                )
         return table
 
-    def generate_csv(self, rows):
+    def generate_csv(self, rows, related_object=None):
         f = io.StringIO()
         writer = csv.writer(f)
         writer.writerows(self._generate_table(rows))
 
         return f.getvalue().encode(), "text/csv"
 
-    def generate_xlsx(self, rows):
+    def generate_xlsx(self, rows, related_object=None):
         import openpyxl
 
         wb = openpyxl.Workbook()
@@ -175,11 +140,17 @@ class EvidenceExporter:
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-    def generate_pdf(self, rows):
+    def generate_pdf(self, queryset, related_object=None):
         html = render_to_string(
             "froide_evidencecollection/pdf_export.html",
-            context={"rows": rows, "SITE_NAME": settings.SITE_NAME},
+            context={
+                "SITE_NAME": settings.SITE_NAME,
+                "rows": queryset,
+                "related_object": related_object,
+            },
         )
+        # Uncomment for testing
+        # return html, "text/html"
         wp = get_wp()
         if not wp:
             raise Exception("WeasyPrint needs to be installed")
@@ -446,15 +417,13 @@ class EvidenceListView(BaseSearchView):
                 # adds one automatically when rendering.
                 field.choices = [c for c in field.choices if c[0] in bucket_keys]
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["export_formats"] = EvidenceExporter.FORMATS
-        return context
-
 
 class ExportMixin:
     def get_export_queryset(self) -> QuerySet:
         raise NotImplementedError()
+
+    def get_export_related_object(self):
+        return
 
     def get(self, request, *args, **kwargs):
         format = request.GET.get("format", "pdf")
@@ -462,10 +431,16 @@ class ExportMixin:
             raise BadRequest("Invalid format")
 
         exporter = EvidenceExporter(format=format)
-        content, content_type = exporter.export(queryset=self.get_export_queryset())
+        related_obj = self.get_export_related_object()
+        content, content_type = exporter.export(
+            queryset=self.get_export_queryset(),
+            related_object=related_obj,
+        )
+
+        filename = f"export_{related_obj.id}" if related_obj else "export"
 
         response = HttpResponse(content, content_type=content_type)
-        response["Content-Disposition"] = f"inline; filename=export.{format}"
+        response["Content-Disposition"] = f"inline; filename={filename}.{format}"
         return response
 
 
@@ -476,6 +451,9 @@ class NeverCacheMixin:
 
 class EvidenceExportView(NoIndexMixin, NeverCacheMixin, ExportMixin, EvidenceListView):
     def get_export_queryset(self):
+        import ipdb
+
+        ipdb.set_trace()
         sqs = self.get_queryset()
         sqs.update_query()
         return sqs.to_queryset()
@@ -492,6 +470,17 @@ class EvidenceDetailExportView(
                 % {"verbose_name": queryset.model._meta.verbose_name}
             )
         return queryset
+
+
+class ActorDetailExportView(NoIndexMixin, NeverCacheMixin, ExportMixin, DetailView):
+    model = Actor
+
+    def get_export_related_object(self):
+        return self.get_object()
+
+    def get_export_queryset(self):
+        actor = self.get_object()
+        return actor.originated_evidence.all()
 
 
 class EvidenceTopicCloudView(TemplateView):

@@ -1,0 +1,28 @@
+{% load i18n %}
+<div class="btn-group">
+    <button type="button"
+            class="btn {% if size %}btn-{{ size }}{% endif %}btn-outline-secondary dropdown-toggle"
+            data-bs-toggle="dropdown"
+            aria-expanded="false">{% trans "Export" %}</button>
+    <ul class="dropdown-menu">
+        {% comment %}
+        <li>
+            <a class="dropdown-item" href="{{ export_url }}?{{ request.META.QUERY_STRING }}&format=pdf">
+                <i class="fa fa-file-pdf-o"></i> {% trans "Export as PDF" %}
+            </a>
+        </li>
+        {% endcomment %}
+        <li>
+            <a class="dropdown-item"
+               href="{{ export_url }}?{{ request.META.QUERY_STRING }}&format=csv">
+                <i class="fa fa-table"></i> {% trans "Export as CSV" %}
+            </a>
+        </li>
+        <li>
+            <a class="dropdown-item"
+               href="{{ export_url }}?{{ request.META.QUERY_STRING }}&format=xlsx">
+                <i class="fa fa-file-excel-o"></i> {% trans "Export as XLSX" %}
+            </a>
+        </li>
+    </ul>
+</div>
