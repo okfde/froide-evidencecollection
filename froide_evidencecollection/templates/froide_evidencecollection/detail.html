@@ -81,8 +81,9 @@
                         <h1 class="h3 mb-0">
                             {% if object.originator_actors %}
                                 {% for actor in object.originator_actors %}
-                                    {{ actor.name }}
-                                    {% if not forloop.last %},{% endif %}
+                                    {# djlint:off #}
+                                    {{ actor.name }}{% if not forloop.last %}, {% endif %}
+                                    {# djlint:on #}
                                 {% endfor %}
                             {% else %}
                                 {% trans "Unknown originator" %}
