@@ -1169,8 +1169,19 @@
                 function (i) { return i.value; }
             );
         }
+        // The template only renders the #tf-chapters host once a chapter is
+        // selected, so on a fresh load (no selection) chaptersBox is null.
+        // Create it lazily inside the form on first selection so the chapter
+        // rides the filter submit like the other fields.
+        function ensureChaptersBox() {
+            if (chaptersBox) return chaptersBox;
+            chaptersBox = document.createElement('span');
+            chaptersBox.id = 'tf-chapters';
+            form.appendChild(chaptersBox);
+            return chaptersBox;
+        }
         function setChapters(values) {
-            if (!chaptersBox) return;
+            ensureChaptersBox();
             chaptersBox.innerHTML = '';
             values.forEach(function (v) {
                 var inp = document.createElement('input');
@@ -1229,7 +1240,7 @@
             }
         }
 
-        if (chaptersHost && chaptersBox) {
+        if (chaptersHost) {
             chaptersHost.addEventListener('click', function (ev) {
                 // Chevron → expand/collapse (no filter change). The leaf spacer
                 // shares the class but carries the --leaf modifier, so skip it.
