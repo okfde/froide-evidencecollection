@@ -43,7 +43,7 @@
                             {% endif %}
                         </span>
                         <div>
-                            <span class="text-uppercase text-muted small fw-semibold d-block">
+                            <span class="text-uppercase text-body-secondary small fw-semibold d-block">
                                 {% if actor.person %}
                                     {% if actor.person.status %}· {{ actor.person.status }}{% endif %}
                                 {% elif actor.organization %}
@@ -54,7 +54,7 @@
                             {% if actor.organization %}
                                 {% with regions=actor.organization.regions.all %}
                                     {% if regions or actor.organization.special_regions %}
-                                        <p class="text-muted mb-0 mt-1">
+                                        <p class="text-body-secondary mb-0 mt-1">
                                             <span aria-hidden="true">📍</span>
                                             {% for region in regions %}
                                                 {{ region }}
@@ -152,7 +152,7 @@
                                 <span class="fw-semibold">{{ account.get_platform_display }}</span>
                                 <span>@{{ account.username }}</span>
                                 {% if account.follower_count %}
-                                    <span class="text-muted small">· {{ account.follower_count }} {% trans "followers" %}</span>
+                                    <span class="text-body-secondary small">· {{ account.follower_count }} {% trans "followers" %}</span>
                                 {% endif %}
                             </a>
                         {% endfor %}
@@ -163,7 +163,7 @@
             <section class="detail-section">
                 <div class="d-flex flex-wrap justify-content-between align-items-baseline mb-3 gap-2">
                     <h2 class="detail-heading mb-0">{% trans "Evidence — as originator" %}</h2>
-                    <span class="text-muted small">
+                    <span class="text-body-secondary small">
                         {% blocktrans count counter=originated_total %}{{ counter }} total{% plural %}{{ counter }} total{% endblocktrans %}
                     </span>
                 </div>
@@ -178,26 +178,26 @@
                         </div>
                     {% endif %}
                 {% else %}
-                    <p class="text-muted mb-0">{% trans "No evidence yet." %}</p>
+                    <p class="text-body-secondary mb-0">{% trans "No evidence yet." %}</p>
                 {% endif %}
             </section>
             {# ── Evidence as related actor ────────────────────────────── #}
             <section class="detail-section">
                 <div class="d-flex flex-wrap justify-content-between align-items-baseline mb-3 gap-2">
                     <h2 class="detail-heading mb-0">{% trans "Evidence — as related actor" %}</h2>
-                    <span class="text-muted small">
+                    <span class="text-body-secondary small">
                         {% blocktrans count counter=related_total %}{{ counter }} total{% plural %}{{ counter }} total{% endblocktrans %}
                     </span>
                 </div>
                 {% if related_evidence %}
                     {% include "froide_evidencecollection/_actor_evidence_list.html" with evidence_list=related_evidence %}
                     {% if related_total > evidence_limit %}
-                        <p class="text-muted small mt-3">
+                        <p class="text-body-secondary small mt-3">
                             {% blocktrans with shown=evidence_limit total=related_total %}Showing the first {{ shown }} of {{ total }}. A related-actor filter in the topics view will come next.{% endblocktrans %}
                         </p>
                     {% endif %}
                 {% else %}
-                    <p class="text-muted mb-0">{% trans "No evidence yet." %}</p>
+                    <p class="text-body-secondary mb-0">{% trans "No evidence yet." %}</p>
                 {% endif %}
             </section>
         </div>

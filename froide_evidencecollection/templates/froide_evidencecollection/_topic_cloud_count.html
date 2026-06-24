@@ -2,7 +2,7 @@
 {# Evidence count for the current filtered set. Rendered full-width above the  #}
 {# cloud/actor columns (so the canvas and the "Actors in view" panel line up   #}
 {# at the top) and swapped on every filter change via #topic-count-host.       #}
-<p class="text-muted topic-cloud-count">
+<p class="text-body-secondary topic-cloud-count">
     {% blocktrans count counter=evidence_count %}{{ counter }} piece of evidence.{% plural %}{{ counter }} pieces of evidence.{% endblocktrans %}
     {% if truncated %}
         <span class="ms-1">·

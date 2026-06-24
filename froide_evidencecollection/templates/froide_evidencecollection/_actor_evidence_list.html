@@ -18,7 +18,7 @@
                         {% if evidence.source.publication_date %}
                             {{ evidence.source.publication_date|date:"Y-m-d" }}
                         {% else %}
-                            <span class="text-muted">{% trans "undated" %}</span>
+                            <span class="text-body-secondary">{% trans "undated" %}</span>
                         {% endif %}
                     </td>
                     <td>
@@ -26,7 +26,7 @@
                             {% if account %}
                                 {{ account.get_platform_display }}
                             {% else %}
-                                <span class="text-muted">—</span>
+                                <span class="text-body-secondary">—</span>
                             {% endif %}
                         {% endwith %}
                     </td>
@@ -37,7 +37,7 @@
                                          color: #222;
                                          border-color: {{ theme|palette_color }}">{{ theme.label }}</span>
                         {% empty %}
-                            <span class="text-muted">—</span>
+                            <span class="text-body-secondary">—</span>
                         {% endfor %}
                     </td>
                     <td class="text-end text-nowrap">
