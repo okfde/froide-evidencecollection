@@ -180,7 +180,7 @@ class Person(AbstractActor):
         verbose_name_plural = _("persons")
 
     def __str__(self):
-        return f"{self.title or ''} {self.first_name} {self.last_name}".strip()
+        return f"{self.first_name} {self.last_name}".strip()
 
     @cached_property
     def aw_url(self):
