@@ -330,7 +330,7 @@ class Actor(TrackableModel):
     @property
     def political_position_label(self):
         if self.person_id is None:
-            return None
+            return ""
         position = self.person.political_positions.first()
         return f"{position.label} (Stand 24. Juni 2026)" if position else None
 
@@ -739,7 +739,7 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
         related_name="redistributed_by",
         verbose_name=_("redistributed post"),
         help_text=_(
-            "Post whose content this post redistributes " "(repost, quote, forward, …)."
+            "Post whose content this post redistributes (repost, quote, forward, …)."
         ),
     )
     unresolved_redistribution = models.JSONField(
