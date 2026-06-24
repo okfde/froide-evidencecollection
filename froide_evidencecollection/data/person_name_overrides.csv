@@ -6,6 +6,9 @@
 #     surname),
 #   - labels the matcher flags as a collision (one label matches several DB
 #     persons): set sync_uuid to the intended person's (shown in the report).
+#   - labels the dump misspells: map the typo'd label to the correct name. The
+#     matched person is renamed and the typo is kept as an also_known_as alias,
+#     so the misspelled dump label still resolves on re-import.
 # Mechanical cases (a single extra first name on either side) are handled in
 # code and must NOT be listed here.
 #
@@ -17,3 +20,4 @@
 # note       = why (for human reviewers)
 label,first_name,last_name,sync_uuid,note
 Martin Schmidt,Martin,Schmidt,a42e0126-1a25-46c2-b98d-3cb78918b90e,
+Gabriele Mailbeck,Gabrielle,Mailbeck,,dump misspells the first name; account_label has the correct "Gabrielle"
