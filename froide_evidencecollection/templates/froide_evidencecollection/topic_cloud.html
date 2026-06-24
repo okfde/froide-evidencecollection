@@ -1,5 +1,6 @@
 {% load i18n %}
 {% load static %}
+{% load sekizai_tags %}
 {# Belt-and-suspenders: with no eval-based hx-trigger filters left, htmx    #}
 {# never needs the Function constructor; allowEval:false makes that         #}
 {# explicit so it stays CSP-clean (no 'unsafe-eval') if attrs are added.    #}
