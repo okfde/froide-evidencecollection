@@ -420,6 +420,15 @@ class JSONImporter:
 
         target = actor_index.get(key)
         if target is None:
+            # Fallback: a dump `account_label` may carry middle names the actor's
+            # stored name omits ("Thorsten Paul Moriße" vs "Thorsten Moriße").
+            # Retry on first + last name only — but solely after the full name
+            # missed, so genuine multi-part names ("Armin Paul Hampel") still
+            # match as given and don't collapse onto a different person.
+            short = normalize_name(self._drop_middle_names(raw))
+            if short != key and short not in ambiguous:
+                target = actor_index.get(short)
+        if target is None:
             msg = (
                 f"No actor found for account_label {raw!r} (account {username!r}); "
                 "leaving owner unset"
@@ -429,6 +438,16 @@ class JSONImporter:
             return None
 
         return self._get_or_create_actor(target)
+
+    @staticmethod
+    def _drop_middle_names(label):
+        """First + last whitespace-token of a (comma-swapped) personal name, e.g.
+        "Thorsten Paul Moriße" -> "Thorsten Moriße". Names with two or fewer
+        tokens are returned unchanged."""
+        tokens = label.split()
+        if len(tokens) > 2:
+            return f"{tokens[0]} {tokens[-1]}"
+        return label
 
     @staticmethod
     def _merge_report_data(base, extra):

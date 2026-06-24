@@ -1272,6 +1272,36 @@ class TestJSONImporter:
         assert list(Evidence.objects.get().originators.all()) == [person.actor]
 
     @pytest.mark.django_db
+    def test_links_account_label_with_middle_name_and_eszett(self, person, tmp_path):
+        # account_label carries a middle name the actor's stored name omits, and
+        # differs by ß/ss: the full name misses, but the first+last fallback (on
+        # the ß-folded index) still resolves it.
+        morisse = PersonFactory(
+            first_name="Thorsten", last_name="Moriße", external_id=2
+        )
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {
+                        "telegram": [
+                            _make_post(
+                                report_data={"account_label": ["Thorsten Paul Morisse"]}
+                            )
+                        ]
+                    },
+                }
+            },
+        )
+
+        JSONImporter(path).run()
+
+        assert SocialMediaAccount.objects.get().actor == Actor.objects.get(
+            person=morisse
+        )
+
+    @pytest.mark.django_db
     def test_account_label_without_matching_actor_warns_and_leaves_unlinked(
         self, person, tmp_path
     ):
