@@ -152,6 +152,8 @@
         var ZOOM_MIN_FRAC = 1 / 30;   // closest zoom: ~30x in
         var ZOOM_PAD = 24;            // viewBox units of padding on auto-fit
         var ZOOM_ANIM_MS = 400;
+        var ZOOM_BTN_FACTOR = 0.7;    // each +/- click scales the view by this
+        var ZOOM_BTN_ANIM_MS = 200;
 
         function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -174,6 +176,7 @@
                 || Math.abs(v.x - zoomState.full.x) > 0.5
                 || Math.abs(v.y - zoomState.full.y) > 0.5;
             if (zoomState.resetBtn) zoomState.resetBtn.hidden = !zoomed;
+            updateZoomButtons();
         }
 
         function clampView() {
@@ -279,6 +282,46 @@
             }
         }
 
+        // Zoom in (zoomIn=true) or out by one step, animating around the
+        // centre of the current view. Used by the +/- buttons; the wheel no
+        // longer zooms so the page scrolls normally over the cloud.
+        function zoomStep(zoomIn) {
+            if (!zoomState) return;
+            cancelViewAnim();
+            var v = zoomState.view;
+            var f = zoomState.full;
+            var factor = zoomIn ? ZOOM_BTN_FACTOR : 1 / ZOOM_BTN_FACTOR;
+            var minW = f.w * ZOOM_MIN_FRAC;
+            var newW = clamp(v.w * factor, minW, f.w);
+            var ratio = newW / v.w;
+            if (ratio === 1) return;
+            var cx = v.x + v.w / 2;
+            var cy = v.y + v.h / 2;
+            var target = {
+                x: cx - (cx - v.x) * ratio,
+                y: cy - (cy - v.y) * ratio,
+                w: v.w * ratio,
+                h: v.h * ratio,
+            };
+            if (target.w >= f.w) {
+                target = { x: f.x, y: f.y, w: f.w, h: f.h };
+            } else {
+                target.x = clamp(target.x, f.x, f.x + f.w - target.w);
+                target.y = clamp(target.y, f.y, f.y + f.h - target.h);
+            }
+            animateView(target, ZOOM_BTN_ANIM_MS);
+        }
+
+        // Disable + at max zoom-in and − at full extent. Called from applyView,
+        // so the buttons track every view change (clicks, reset, auto-fit).
+        function updateZoomButtons() {
+            if (!zoomState || !zoomState.zoomInBtn) return;
+            var f = zoomState.full;
+            var w = zoomState.view.w;
+            zoomState.zoomInBtn.disabled = w <= f.w * ZOOM_MIN_FRAC + 0.5;
+            zoomState.zoomOutBtn.disabled = w >= f.w - 0.5;
+        }
+
         function setupZoom(figure, svg) {
             var full = parseViewBox(svg) || { x: 0, y: 0, w: 800, h: 480 };
             zoomState = {
@@ -288,6 +331,8 @@
                 view: { x: full.x, y: full.y, w: full.w, h: full.h },
                 animFrame: null,
                 resetBtn: null,
+                zoomInBtn: null,
+                zoomOutBtn: null,
                 dragSuppressClick: false,
             };
             svg.classList.add('is-pannable');
@@ -303,26 +348,32 @@
             figure.appendChild(resetBtn);
             zoomState.resetBtn = resetBtn;
 
-            svg.addEventListener('wheel', function (ev) {
-                ev.preventDefault();
-                cancelViewAnim();
-                var v = zoomState.view;
-                var f = zoomState.full;
-                var factor = Math.exp(ev.deltaY * 0.0015);
-                var minW = f.w * ZOOM_MIN_FRAC;
-                var newW = clamp(v.w * factor, minW, f.w);
-                var ratio = newW / v.w;
-                if (ratio === 1) return;
-                var rect = svg.getBoundingClientRect();
-                var px = v.x + (ev.clientX - rect.left) / rect.width * v.w;
-                var py = v.y + (ev.clientY - rect.top) / rect.height * v.h;
-                v.x = px - (px - v.x) * ratio;
-                v.y = py - (py - v.y) * ratio;
-                v.w *= ratio;
-                v.h *= ratio;
-                clampView();
-                applyView();
-            }, { passive: false });
+            // Dedicated +/- buttons replace wheel-zoom: scrolling over the
+            // cloud now pans the page as usual instead of zooming.
+            var controls = document.createElement('div');
+            controls.className = 'topic-cloud-zoom-controls';
+            var zoomInBtn = document.createElement('button');
+            zoomInBtn.type = 'button';
+            zoomInBtn.textContent = '+';
+            zoomInBtn.setAttribute(
+                'aria-label', I18N.i18nZoomIn || 'Zoom in'
+            );
+            zoomInBtn.title = I18N.i18nZoomIn || 'Zoom in';
+            zoomInBtn.addEventListener('click', function () { zoomStep(true); });
+            var zoomOutBtn = document.createElement('button');
+            zoomOutBtn.type = 'button';
+            zoomOutBtn.textContent = '−';
+            zoomOutBtn.setAttribute(
+                'aria-label', I18N.i18nZoomOut || 'Zoom out'
+            );
+            zoomOutBtn.title = I18N.i18nZoomOut || 'Zoom out';
+            zoomOutBtn.addEventListener('click', function () { zoomStep(false); });
+            controls.appendChild(zoomInBtn);
+            controls.appendChild(zoomOutBtn);
+            figure.appendChild(controls);
+            zoomState.zoomInBtn = zoomInBtn;
+            zoomState.zoomOutBtn = zoomOutBtn;
+            updateZoomButtons();
 
             var drag = null;
             function onMove(ev) {
