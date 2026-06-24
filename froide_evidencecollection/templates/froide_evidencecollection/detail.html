@@ -2,6 +2,7 @@
 {% load i18n %}
 {% load thumbnail %}
 {% load evidence_tags %}
+{% block title %}{{ object.title }}{% endblock %}
 {% block app_body %}
     <style>
     details.attachment-gate > summary { list-style: none; cursor: pointer; }
