@@ -65,6 +65,30 @@ def test_attach_alt_text_noop_without_image_or_match():
     assert "image_alt_text" not in no_match
 
 
+def test_swap_comma_name_swaps_person_and_passes_orgs():
+    assert prepare_import.swap_comma_name("Barth, André") == "André Barth"
+    # Multi-token first names stay intact after the surname.
+    assert prepare_import.swap_comma_name("Hampel, Armin Paul") == "Armin Paul Hampel"
+    # No comma -> organization label, unchanged.
+    assert (
+        prepare_import.swap_comma_name("Landesverband Bayern") == "Landesverband Bayern"
+    )
+
+
+def test_normalize_account_labels_rewrites_in_report_data():
+    post = {"report_data": {"account_label": ["Barth, André", "Landesverband Bayern"]}}
+    prepare_import.normalize_account_labels(post)
+    assert post["report_data"]["account_label"] == [
+        "André Barth",
+        "Landesverband Bayern",
+    ]
+
+
+def test_normalize_account_labels_noop_without_report_data():
+    post = {"text": "hi"}
+    assert prepare_import.normalize_account_labels(post) == {"text": "hi"}
+
+
 def test_clean_social_media_threads_alt_map():
     post = {
         "url_corrected": "u",

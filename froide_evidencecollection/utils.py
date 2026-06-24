@@ -95,16 +95,17 @@ def make_evidence_slug(platform: str, post_id: str) -> str:
 def normalize_name(text):
     """Normalize an actor name so the same entity matches across naming schemes.
 
-    Lowercases, drops parentheticals like ``(NRW)``/``(JA)`` and the party
-    token, and collapses any run of separators (spaces, hyphens, slashes) to a
-    single space. Used both when aligning organization names against the dump
-    and when resolving dump labels to existing actors during import, so the two
-    stay consistent.
+    Lowercases, folds ``ß`` to ``ss`` (so "Moriße" matches "Morisse"), drops
+    parentheticals like ``(NRW)``/``(JA)`` and the party token, and collapses
+    any run of separators (spaces, hyphens, slashes) to a single space. Used
+    both when aligning organization names against the dump and when resolving
+    dump labels to existing actors during import, so the two stay consistent.
     """
     if not text:
         return ""
 
     text = text.lower()
+    text = text.replace("ß", "ss")  # "Moriße" == "Morisse"
     text = re.sub(r"\(.*?\)", " ", text)  # drop "(NRW)", "(JA)", ...
     text = re.sub(r"\bafd\b", " ", text)  # drop the party token
     text = re.sub(r"[^0-9a-zäöüß]+", " ", text)  # collapse separators

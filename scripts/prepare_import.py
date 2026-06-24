@@ -833,6 +833,32 @@ def attach_alt_text(post: dict, alt_map: dict[str, str]) -> dict:
     return post
 
 
+def swap_comma_name(label: str) -> str:
+    """Turn a ``"Lastname, Firstname"`` account label into the
+    ``"Firstname Lastname"`` form actor labels use, so the two align for
+    matching (see `normalize_name` in the importer). Labels without a comma —
+    organizations like "Landesverband Bayern" — already share the actor-label
+    form and pass through unchanged."""
+    if "," not in label:
+        return label
+    last, first = label.split(",", 1)
+    return f"{first.strip()} {last.strip()}".strip()
+
+
+def normalize_account_labels(post: dict) -> dict:
+    """Rewrite `report_data.account_label` (a list of ``"Lastname, Firstname"``
+    strings used to match the post to an actor) into the actor-label
+    ``"Firstname Lastname"`` form, in place. Posts without the field pass
+    through untouched."""
+    report_data = post.get("report_data")
+    if not isinstance(report_data, dict):
+        return post
+    labels = report_data.get("account_label")
+    if isinstance(labels, list):
+        report_data["account_label"] = [swap_comma_name(label) for label in labels]
+    return post
+
+
 def clean_social_media(
     social_media: dict, alt_map: dict[str, str] | None = None
 ) -> dict:
@@ -844,11 +870,13 @@ def clean_social_media(
             continue
         transform = config.get("transform", lambda p: p)
         cleaned[platform] = [
-            attach_alt_text(
-                normalize_single_value_fields(
-                    transform(filter_fields(post, platform, config))
-                ),
-                alt_map,
+            normalize_account_labels(
+                attach_alt_text(
+                    normalize_single_value_fields(
+                        transform(filter_fields(post, platform, config))
+                    ),
+                    alt_map,
+                )
             )
             for post in dedupe_posts(posts)
         ]

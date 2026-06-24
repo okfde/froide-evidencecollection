@@ -10,6 +10,7 @@ from froide_evidencecollection.utils import (
     equals,
     get_base_class_name,
     get_default_value,
+    normalize_name,
 )
 
 
@@ -101,3 +102,15 @@ def test_equals():
 )
 def test_compute_hash(text, text_hash):
     assert compute_hash(text) == text_hash
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        ("Thorsten Moriße", "Thorsten Morisse"),  # ß folds to ss
+        ("André Barth (AfD)", "André Barth"),  # party token / parenthetical dropped
+        ("Gunnar Lindemann", "gunnar  lindemann"),  # separators / case collapsed
+    ],
+)
+def test_normalize_name_matches_variants(a, b):
+    assert normalize_name(a) == normalize_name(b)
