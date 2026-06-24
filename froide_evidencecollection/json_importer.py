@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+from collections import defaultdict
 from datetime import datetime, timedelta
 from itertools import zip_longest
 
@@ -240,16 +241,20 @@ class JSONImporter:
         # dump so each account row is written exactly once (see
         # `_record_account_snapshot` / `_upsert_accounts`).
         account_snapshots = {}
+        # account key -> set of raw `account_label`s seen for it. Unlike the
+        # scrape-target grouping, `account_label` names the actor that actually
+        # owns the posting account, so `_upsert_accounts` resolves it to set
+        # `SocialMediaAccount.actor`.
+        account_labels = defaultdict(set)
         for entry in data.values():
             target = self._resolve_target(entry, actor_index, ambiguous)
             if target is None:
                 continue
             # Ensure the Actor exists: it is referenced by functions and, below,
             # recorded as an originator of every post grouped under this target.
-            # The scraped account is still never linked to the actor (the dump
-            # groups posts by scrape target, but the account that posted a given
-            # post can't be assumed to belong to that actor — see
-            # `_upsert_account`); the grouping only attests authorship/origin.
+            # The account that posted a given post is linked separately, to the
+            # owner its `account_label` names rather than to this scrape target
+            # (see `_upsert_accounts`); the grouping only attests authorship.
             actor = self._get_or_create_actor(target)
             self._set_verband(target, entry)
             if isinstance(target, Person):
@@ -262,6 +267,11 @@ class JSONImporter:
                 for item in items:
                     key = self._post_identity(platform, item)
                     self._record_account_snapshot(account_snapshots, platform, item)
+                    account_key = self._account_key(platform, item.get("account"))
+                    for label in (item.get("report_data") or {}).get(
+                        "account_label"
+                    ) or []:
+                        account_labels[account_key].add(label)
                     # One originator id per report_data row, so a merged post's
                     # mentions can be attributed to whoever they were grouped
                     # under (see `_upsert_mentions`). The rows of one occurrence
@@ -282,7 +292,7 @@ class JSONImporter:
                         existing["originator_ids"].add(actor.id)
                         existing["mention_originators"].extend([actor.id] * row_count)
 
-        self._upsert_accounts(account_snapshots)
+        self._upsert_accounts(account_snapshots, account_labels, actor_index, ambiguous)
 
         for key in order:
             merged = merged_items[key]
@@ -344,17 +354,81 @@ class JSONImporter:
         if current is None or self._is_newer(collected_at, current["collected_at"]):
             snapshots[key] = {"data": account_data, "collected_at": collected_at}
 
-    def _upsert_accounts(self, snapshots):
+    def _upsert_accounts(self, snapshots, account_labels, actor_index, ambiguous):
         """Upsert each account once from its freshest snapshot, indexing the rows.
 
         `_import_item` then looks the account up by `_account_key` instead of
-        re-upserting it per post.
+        re-upserting it per post. Each account is also linked to the actor its
+        `account_label` names (see `_resolve_account_owner`).
         """
         self._account_index = {}
-        for (platform, _puid), snap in snapshots.items():
-            self._account_index[(platform, _puid)] = self._upsert_account(
-                platform, snap["data"], snap["collected_at"]
+        for key, snap in snapshots.items():
+            platform, _puid = key
+            owner = self._resolve_account_owner(
+                snap["data"], account_labels.get(key, set()), actor_index, ambiguous
             )
+            self._account_index[key] = self._upsert_account(
+                platform, snap["data"], snap["collected_at"], owner
+            )
+
+    def _resolve_account_owner(self, account_data, labels, actor_index, ambiguous):
+        """Resolve the actor that owns an account from its `account_label`(s).
+
+        The dump groups posts by scrape target, but `account_label` names the
+        account's actual owner — often a different actor (e.g. a party
+        Landesverband's account surfacing under a person's grouping). Resolved
+        through the same actor index as the scrape targets, so the org-label
+        expansions, spelling fixes and aliases stay in lockstep.
+
+        Returns the owner Actor, or ``None`` (leaving the account unlinked) when
+        no label is given, the labels disagree, or the named actor is ambiguous
+        or absent — warning on every case where a label was present but could
+        not be resolved.
+        """
+        # Collapse to distinct owners; an account should name exactly one. Apply
+        # the org-label expansion first so e.g. "BV Lichtenberg" resolves like it
+        # does for scrape targets.
+        distinct = {}
+        for raw in labels:
+            key = normalize_name(
+                apply_org_label_replacement(raw, self._org_label_replacements)
+            )
+            if key:
+                distinct.setdefault(key, raw)
+        if not distinct:
+            return None  # external account or reference-only stub; leave unlinked
+
+        username = account_data.get("username") or account_data.get("platform_user_id")
+        if len(distinct) > 1:
+            msg = (
+                f"Account {username!r} has conflicting account_labels "
+                f"{sorted(distinct.values())!r}; leaving owner unset"
+            )
+            logger.warning(msg)
+            self.stats.track_skipped(SocialMediaAccount, msg)
+            return None
+
+        key, raw = next(iter(distinct.items()))
+        if key in ambiguous:
+            msg = (
+                f"account_label {raw!r} (account {username!r}) matches multiple "
+                "actors; leaving owner unset"
+            )
+            logger.warning(msg)
+            self.stats.track_skipped(SocialMediaAccount, msg)
+            return None
+
+        target = actor_index.get(key)
+        if target is None:
+            msg = (
+                f"No actor found for account_label {raw!r} (account {username!r}); "
+                "leaving owner unset"
+            )
+            logger.warning(msg)
+            self.stats.track_skipped(SocialMediaAccount, msg)
+            return None
+
+        return self._get_or_create_actor(target)
 
     @staticmethod
     def _merge_report_data(base, extra):
@@ -875,7 +949,7 @@ class JSONImporter:
     # ------------------------------------------------------------------
     # Account upsert + profile freshness
     # ------------------------------------------------------------------
-    def _upsert_account(self, platform, account_data, collected_at):
+    def _upsert_account(self, platform, account_data, collected_at, owner=None):
         self.stats.reset_instance(SocialMediaAccount)
         platform_value = PLATFORM_MAP[platform]
         platform_user_id = str(account_data["platform_user_id"])
@@ -885,9 +959,6 @@ class JSONImporter:
         ).first()
         created = account is None
 
-        # Accounts are never linked to an Actor by the import: the dump groups
-        # posts by scrape target, but a scraped account can't be assumed to
-        # belong to that actor. Any actor link is left for manual curation.
         if created:
             account = SocialMediaAccount(
                 platform=platform_value,
@@ -899,6 +970,13 @@ class JSONImporter:
             old_data = to_dict(account)
 
         update = False
+
+        # Link the account to the owner its `account_label` named
+        # (`_resolve_account_owner`). Add-only, like the profile fields: an
+        # unresolved owner (None) never wipes a link already on the row.
+        if owner is not None and not equals(account.actor_id, owner.id):
+            account.actor = owner
+            update = True
 
         # Refresh the profile (and advance collected_at) only when this snapshot
         # is at least as fresh as what we stored. A dateless snapshot

@@ -89,7 +89,7 @@ class TestJSONImporter:
         account = SocialMediaAccount.objects.get()
         assert account.platform == SocialMediaAccount.Platform.TELEGRAM
         assert account.username == "example_user"
-        # Accounts are never linked to an Actor by the import.
+        # No account_label in report_data, so the account is left unlinked.
         assert account.actor is None
         # Full account profile is persisted on creation.
         assert account.platform_user_id == "123"
@@ -1242,3 +1242,89 @@ class TestJSONImporter:
         assert SocialMediaAccount.objects.count() == 0
         assert SocialMediaPost.objects.count() == 0
         assert Evidence.objects.count() == 0
+
+    @pytest.mark.django_db
+    def test_links_account_to_owner_named_by_account_label(self, person, tmp_path):
+        # The post is grouped under Max, but account_label names Erika as the
+        # account's owner, so the account links to Erika — not the scrape target.
+        erika = PersonFactory(first_name="Erika", last_name="Musterfrau", external_id=2)
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {
+                        "telegram": [
+                            _make_post(
+                                report_data={"account_label": ["Erika Musterfrau"]}
+                            )
+                        ]
+                    },
+                }
+            },
+        )
+
+        JSONImporter(path).run()
+
+        account = SocialMediaAccount.objects.get()
+        assert account.actor == Actor.objects.get(person=erika)
+        # Grouping still drives originators, independent of account ownership.
+        assert list(Evidence.objects.get().originators.all()) == [person.actor]
+
+    @pytest.mark.django_db
+    def test_account_label_without_matching_actor_warns_and_leaves_unlinked(
+        self, person, tmp_path
+    ):
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {
+                        "telegram": [
+                            _make_post(report_data={"account_label": ["KV Nowhere"]})
+                        ]
+                    },
+                }
+            },
+        )
+
+        importer = JSONImporter(path)
+        importer.run()
+
+        assert SocialMediaAccount.objects.get().actor is None
+        skipped = importer.log_stats()["SocialMediaAccount"]["skipped"]
+        assert any("KV Nowhere" in msg for msg in skipped)
+
+    @pytest.mark.django_db
+    def test_conflicting_account_labels_leave_owner_unset(self, person, tmp_path):
+        # Two posts from the same account name different owners; the account is
+        # left unlinked rather than guessing, and the conflict is reported.
+        PersonFactory(first_name="Erika", last_name="Musterfrau", external_id=2)
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {
+                        "telegram": [
+                            _make_post(
+                                report_data={"account_label": ["Max Mustermann"]}
+                            ),
+                            _make_post(
+                                platform_post_id="2",
+                                url="https://t.me/example/2",
+                                report_data={"account_label": ["Erika Musterfrau"]},
+                            ),
+                        ]
+                    },
+                }
+            },
+        )
+
+        importer = JSONImporter(path)
+        importer.run()
+
+        assert SocialMediaAccount.objects.get().actor is None
+        skipped = importer.log_stats()["SocialMediaAccount"]["skipped"]
+        assert any("conflicting account_labels" in msg for msg in skipped)
