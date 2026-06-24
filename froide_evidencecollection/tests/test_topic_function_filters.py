@@ -13,7 +13,10 @@ import pytest
 
 from froide_evidencecollection.models import (
     Actor,
+    Category,
+    Chapter,
     Evidence,
+    EvidenceMention,
     PoliticalPosition,
     SocialMediaAccount,
     SocialMediaPost,
@@ -180,8 +183,82 @@ class TestVerbandFilter:
         # org evidence posted in 2023 still matches its Bund verband.
         assert self.org_ev.pk in _filtered_ids({"verband": str(self.bund.id)})
 
-    def test_verbande_by_evidence_labels_bund_and_state(self):
-        labels = EvidenceTopicCloudView._verbande_by_evidence(
+    def test_originators_with_verband_pairs_each_name_with_its_label(self):
+        # The verband-less originator shows its bare name (no parentheses); the
+        # others append their own label.
+        rows = EvidenceTopicCloudView._originators_with_verband(
             [self.person_ev, self.org_ev, self.bare_ev]
         )
-        assert labels == {self.person_ev.pk: "Bayern", self.org_ev.pk: "Bund"}
+        assert rows == {
+            self.person_ev.pk: "Ada Lovelace (Bayern)",
+            self.org_ev.pk: "Bundespartei (Bund)",
+            self.bare_ev.pk: "No Verband",
+        }
+
+    def test_originators_with_verband_lines_up_several_originators(self):
+        # An evidence with two originators lists each name with its own Verband,
+        # comma-joined in originator order.
+        tz = timezone.get_current_timezone()
+        multi_ev = _posted_evidence(
+            self.person_actor, datetime.datetime(2022, 6, 1, 12, tzinfo=tz), 4
+        )
+        multi_ev.originators.add(self.org_actor)
+        rows = EvidenceTopicCloudView._originators_with_verband([multi_ev])
+        # Order follows `originators`, which isn't a guaranteed sort here, so
+        # compare the pieces rather than their order.
+        assert set(rows[multi_ev.pk].split(", ")) == {
+            "Ada Lovelace (Bayern)",
+            "Bundespartei (Bund)",
+        }
+
+
+@pytest.mark.django_db
+class TestChaptersByEvidence:
+    """`_chapters_by_evidence` resolves each evidence's mention chapters to their
+    labels, comma-joins distinct ones, and omits evidence with no chapter."""
+
+    def setup_method(self):
+        tz = timezone.get_current_timezone()
+        self.actor = Actor.objects.create(
+            person=PersonFactory(first_name="Ada", last_name="Lovelace")
+        )
+        self.category = Category.objects.create(name="Statement")
+        self.ch_a = Chapter.add_root(custom_label="Climate")
+        self.ch_b = Chapter.add_root(custom_label="Migration")
+
+        # One evidence filed under two distinct chapters (and a duplicate, which
+        # must collapse), one under a single chapter, one with a chapterless
+        # mention (absent from the map).
+        self.multi_ev = self._evidence(1, tz)
+        self._mention(self.multi_ev, self.ch_a)
+        self._mention(self.multi_ev, self.ch_b)
+        self._mention(self.multi_ev, self.ch_a)
+        self.single_ev = self._evidence(2, tz)
+        self._mention(self.single_ev, self.ch_a)
+        self.bare_ev = self._evidence(3, tz)
+        self._mention(self.bare_ev, None)
+
+    def _evidence(self, ext_id, tz):
+        return _posted_evidence(
+            self.actor, datetime.datetime(2021, 1, 1, 12, tzinfo=tz), ext_id
+        )
+
+    def _mention(self, evidence, chapter):
+        EvidenceMention.objects.create(
+            evidence=evidence,
+            category=self.category,
+            originator=self.actor,
+            chapter=chapter,
+        )
+
+    def test_labels_distinct_chapters_and_omits_chapterless(self):
+        labels = EvidenceTopicCloudView._chapters_by_evidence(
+            [self.multi_ev, self.single_ev, self.bare_ev]
+        )
+        # The chapterless evidence is absent; the single-chapter one is plain.
+        assert self.bare_ev.pk not in labels
+        assert labels[self.single_ev.pk] == "Climate"
+        # The multi-chapter one joins its two distinct chapters (the duplicate
+        # collapses); mention order isn't a deterministic tiebreak, so compare
+        # the set of labels rather than their order.
+        assert set(labels[self.multi_ev.pk].split(", ")) == {"Climate", "Migration"}

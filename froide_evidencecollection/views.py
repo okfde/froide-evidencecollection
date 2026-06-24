@@ -720,15 +720,16 @@ class EvidenceTopicCloudView(TemplateView):
         )
 
     @staticmethod
-    def _verbande_by_evidence(evidences):
-        """Map evidence pk → the Verband(e) of its originators, as a display
-        string (``"Bund"`` for the federal level, the Bundesland name
-        otherwise — see `AbstractActor.verband_label`).
-
-        Evidence whose originators all lack a verband is simply absent from the
-        map. Several originators with distinct verbände yield them comma-joined.
+    def _originators_with_verband(evidences):
+        """Map evidence pk → a display string pairing each originator with its
+        own Verband, in originator order: ``"Ada Lovelace (Bayern), Acme
+        (Bund)"``. The Verband (``"Bund"`` for the federal level, the Bundesland
+        name otherwise — see `AbstractActor.verband_label`) is shown in
+        parentheses after the name, and omitted entirely for an originator that
+        has none. Evidence with no originator is absent from the map.
         """
-        # Originator actor ids per evidence (originators are prefetched).
+        # Originator actor ids per evidence, in originator order (originators are
+        # prefetched, so this iterates in-memory).
         actor_ids = set()
         ev_meta = []  # (evidence_pk, [actor_id, ...])
         for ev in evidences:
@@ -739,13 +740,13 @@ class EvidenceTopicCloudView(TemplateView):
         if not actor_ids:
             return {}
 
-        # One query for the verband label of every originator in view; the FK
-        # may sit on the person or the organization side of the Actor.
-        # `verband` is a GeoRegion, whose geometry columns (`geom`,
-        # `geom_detail`, `gov_seat`) are large multipolygons GEOS-deserialized
-        # per row — defer them, since `verband_label` only reads `kind`/`name`.
-        # Without this the join dominates the topic-cloud render (seconds).
-        label_by_actor = {}
+        # One query for the name + verband label of every originator in view; the
+        # FK may sit on the person or the organization side of the Actor.
+        # `verband` is a GeoRegion, whose geometry columns (`geom`, `geom_detail`,
+        # `gov_seat`) are large multipolygons GEOS-deserialized per row — defer
+        # them, since `verband_label` only reads `kind`/`name`. Without this the
+        # join dominates the topic-cloud render (seconds).
+        info_by_actor = {}  # actor_id -> (name, verband_label)
         for actor in (
             Actor.objects.filter(id__in=actor_ids)
             .select_related("person__verband", "organization__verband")
@@ -760,19 +761,54 @@ class EvidenceTopicCloudView(TemplateView):
         ):
             target = actor.person or actor.organization
             label = target.verband_label if target else ""
-            if label:
-                label_by_actor[actor.id] = label
+            info_by_actor[actor.id] = (str(actor), label)
 
-        verbande = {}
+        result = {}
+        for ev_pk, ids in ev_meta:
+            parts = []
+            for actor_id in ids:
+                name, label = info_by_actor.get(actor_id, ("", ""))
+                if not name:
+                    continue
+                parts.append(f"{name} ({label})" if label else name)
+            if parts:
+                result[ev_pk] = ", ".join(parts)
+        return result
+
+    @staticmethod
+    def _chapters_by_evidence(evidences):
+        """Map evidence pk → the chapter(s) it is filed under, as a display
+        string (the chapters' ``custom_label``, comma-joined).
+
+        Reads the prefetched ``mentions`` (which carry only ``chapter_id``); one
+        extra query then resolves the labels for every chapter in view. Evidence
+        whose mentions all lack a chapter is simply absent from the map.
+        """
+        chapter_ids = set()
+        ev_meta = []  # (evidence_pk, [chapter_id, ...])
+        for ev in evidences:
+            ids = [m.chapter_id for m in ev.mentions.all() if m.chapter_id]
+            if ids:
+                chapter_ids.update(ids)
+                ev_meta.append((ev.pk, ids))
+        if not chapter_ids:
+            return {}
+
+        # One query for the label of every chapter in view.
+        label_by_chapter = dict(
+            Chapter.objects.filter(id__in=chapter_ids).values_list("id", "custom_label")
+        )
+
+        chapters = {}
         for ev_pk, ids in ev_meta:
             names = []
-            for actor_id in ids:
-                label = label_by_actor.get(actor_id)
+            for cid in ids:
+                label = label_by_chapter.get(cid)
                 if label and label not in names:
                     names.append(label)
             if names:
-                verbande[ev_pk] = ", ".join(names)
-        return verbande
+                chapters[ev_pk] = ", ".join(names)
+        return chapters
 
     def _filter_qs(self):
         # `.only()` is load-bearing: SocialMediaPost has wide JSONFields
@@ -1200,11 +1236,6 @@ class EvidenceTopicCloudView(TemplateView):
         return " ".join(str(a.id) for a in evidence.originators.all())
 
     @staticmethod
-    def _originator_names(evidence):
-        """Comma-joined originator display names for the table view."""
-        return ", ".join(str(a) for a in evidence.originators.all())
-
-    @staticmethod
     def _actors_in_view(evidences):
         """The "Actors in view" side panel: each originator across the visible
         evidence with the number of those evidence it originated, sorted by
@@ -1498,9 +1529,12 @@ class EvidenceTopicCloudView(TemplateView):
         # at OUTLINE_MAX_EVIDENCE so the hidden DOM stays bounded; the remainder
         # is summarised with a "narrow the filters" note.
         outline_shown = evidences[: self.OUTLINE_MAX_EVIDENCE]
-        # Verband of each originator, shown next to the actor in the table view.
-        # One grouped query over the shown set (see `_verbande_by_evidence`).
-        verband_by_ev = self._verbande_by_evidence(outline_shown)
+        # Each originator paired with its own Verband, shown in one table column.
+        # One grouped query over the shown set (see `_originators_with_verband`).
+        originators_by_ev = self._originators_with_verband(outline_shown)
+        # Chapter(s) each evidence is filed under (table column); one grouped
+        # query over the same slice (see `_chapters_by_evidence`).
+        chapters_by_ev = self._chapters_by_evidence(outline_shown)
         outline_items = [
             {
                 # `post` feeds the optional account/title line; it is the post
@@ -1511,11 +1545,11 @@ class EvidenceTopicCloudView(TemplateView):
                 "url": ev.get_absolute_url(),
                 "snippet": self._snippet(ev),
                 "posted_on": ev.source.publication_date if ev.source else None,
-                # Originator name(s), comma-joined (an evidence may have
-                # several); shown in the table view. Originators are prefetched.
-                "actors": self._originator_names(ev),
-                # Verband of the originator(s) (table view).
-                "verband": verband_by_ev.get(ev.pk, ""),
+                # Originator(s) each with their own Verband, e.g.
+                # "Name (Bayern), Other (Bund)" — table view.
+                "originators": originators_by_ev.get(ev.pk, ""),
+                # Chapter(s) the evidence is filed under (table view).
+                "chapters": chapters_by_ev.get(ev.pk, ""),
             }
             for ev in outline_shown
         ]
@@ -1605,7 +1639,7 @@ class EvidenceTopicCloudView(TemplateView):
                 .distinct()
             )
         # `verband` is a GeoRegion; defer its large geometry columns since only
-        # `kind`/`name` are read here (see `_verbande_by_evidence`).
+        # `kind`/`name` are read here (see `_originators_with_verband`).
         verbaende = sorted(
             (
                 {"id": r.id, "label": "Bund" if r.kind == "country" else r.name}

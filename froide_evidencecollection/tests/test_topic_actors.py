@@ -125,18 +125,19 @@ class TestDotDataActor:
 @pytest.mark.django_db
 class TestOutlineActors:
     def test_joins_originator_names(self):
+        # Neither factory actor has a Verband, so each shows its bare name.
         ada = _person_actor("Ada", "Lovelace")
         org = _org_actor("Acme")
         ev = _fitted_evidence(1, [ada, org])
 
-        names = EvidenceTopicCloudView._originator_names(ev).split(", ")
+        rows = EvidenceTopicCloudView._originators_with_verband([ev])
 
-        assert set(names) == {str(ada), str(org)}
+        assert set(rows[ev.pk].split(", ")) == {str(ada), str(org)}
 
     def test_empty_without_originator(self):
         ev = _fitted_evidence(1, [])
 
-        assert EvidenceTopicCloudView._originator_names(ev) == ""
+        assert EvidenceTopicCloudView._originators_with_verband([ev]) == {}
 
 
 @pytest.mark.django_db
