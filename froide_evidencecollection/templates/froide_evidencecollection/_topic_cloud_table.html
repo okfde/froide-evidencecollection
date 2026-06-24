@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n evidence_tags %}
 {# Tabular view of the matching evidence — the same set the SR outline lists  #}
 {# (capped at OUTLINE_MAX_EVIDENCE), shown as a real table when the "Table"    #}
 {# tab is active. Hidden by default via CSS; the tab bar toggles a class on    #}
@@ -10,8 +10,10 @@
             <thead>
                 <tr>
                     <th scope="col">{% trans "Date" %}</th>
+                    <th scope="col">{% trans "Originator with Verband" %}</th>
+                    <th scope="col">{% trans "Account" %}</th>
                     <th scope="col">{% trans "Platform" %}</th>
-                    <th scope="col">{% trans "Actor" %}</th>
+                    <th scope="col">{% trans "Chapters" %}</th>
                     <th scope="col" class="text-end">{% trans "Link" %}</th>
                 </tr>
             </thead>
@@ -25,11 +27,10 @@
                                 —
                             {% endif %}
                         </td>
+                        <td>{{ item.originators|default:"—"|break_after_commas }}</td>
+                        <td>{{ item.post.account.username|default:"—" }}</td>
                         <td>{{ item.post.account.get_platform_display|default:"—" }}</td>
-                        <td>
-                            {{ item.actors|default:"—" }}
-                            {% if item.verband %}<span class="topic-cloud-table__region">· {{ item.verband }}</span>{% endif %}
-                        </td>
+                        <td>{{ item.chapters|default:"—"|break_after_commas }}</td>
                         <td class="text-end text-nowrap">
                             <a href="{{ item.url }}" target="_blank" rel="noopener">
                                 {% trans "View" %}

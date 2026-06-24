@@ -72,6 +72,20 @@ def highlight_keywords(value, keywords):
 
 
 @register.filter
+def break_after_commas(value):
+    """Render a ``", "``-joined string with a line break after each comma.
+
+    Used for the topic-cloud table's multi-value cells (each originator with its
+    Verband, the chapters) so the comma-separated entries stack one per line.
+    Splits on the exact ``", "`` join separator (so a comma inside a single
+    entry is left alone), HTML-escapes each piece, and keeps the comma before
+    the ``<br>``.
+    """
+    parts = [escape(p) for p in (value or "").split(", ")]
+    return mark_safe(",<br>".join(parts))
+
+
+@register.filter
 def palette_color(obj):
     """Map any model instance (or pk) to a stable palette colour.
 

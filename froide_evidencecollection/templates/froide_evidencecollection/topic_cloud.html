@@ -329,10 +329,17 @@
        dropped since the table is now the accessible representation. */
     .topic-cloud-table { display: none; }
     .topic-cloud-page.topic-view-table .topic-cloud-table { display: block; }
+    /* Give the columns breathing room — wider horizontal padding than the
+       Bootstrap default on every header/body cell. */
+    .topic-cloud-table__table th,
+    .topic-cloud-table__table td { padding-left: 1.25rem; padding-right: 1.25rem; }
+    .topic-cloud-table__table th:first-child,
+    .topic-cloud-table__table td:first-child { padding-left: 0; }
+    .topic-cloud-table__table th:last-child,
+    .topic-cloud-table__table td:last-child { padding-right: 0; }
     .topic-cloud-page.topic-view-table .topic-cloud-svg { display: none; }
     .topic-cloud-page.topic-view-table .topic-cloud-main__actors { display: none; }
     .topic-cloud-page.topic-view-table .topic-cloud-outline { display: none; }
-    .topic-cloud-table__region { color: #8a7d6c; }
     .topic-cloud-svg {
         margin: 0;
         background: #fafafa;
