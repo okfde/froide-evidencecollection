@@ -246,7 +246,9 @@
                                         <span>{{ seg.label }}</span>
                                         {% if seg.attribution %}<span class="seg-attr">· {{ seg.attribution }}</span>{% endif %}
                                     </h3>
-                                    <div class="seg-body">{{ seg.text|plain_text }}</div>
+                                    <blockquote class="seg-body">
+                                        {{ seg.text|plain_text }}
+                                    </blockquote>
                                 </div>
                             {% endwith %}
                         {% endif %}
@@ -301,7 +303,9 @@
                                                 <h3 class="detail-heading">
                                                     <span>{% trans "Citation" %}</span>
                                                 </h3>
-                                                <div class="seg-body">{{ m.citation|plain_text }}</div>
+                                                <blockquote class="seg-body">
+                                                    {{ m.citation|plain_text }}
+                                                </blockquote>
                                             </div>
                                         {% endif %}
                                         {% if m.raw_transcript %}
@@ -309,7 +313,9 @@
                                                 <h3 class="detail-heading">
                                                     <span>{% trans "Raw transcript" %}</span>
                                                 </h3>
-                                                <div class="seg-body">{{ m.raw_transcript|plain_text }}</div>
+                                                <blockquote class="seg-body">
+                                                    {{ m.raw_transcript|plain_text }}
+                                                </blockquote>
                                             </div>
                                         {% endif %}
                                     </div>
