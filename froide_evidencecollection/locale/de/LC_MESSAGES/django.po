@@ -111,12 +111,9 @@ msgid "Chapters"
 msgstr "Kapitel"
 
 #: froide_evidencecollection/admin.py
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 msgid "Citation"
 msgstr "Zitat"
-
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-msgid "Citation from transcript"
-msgstr "Zitat aus dem Transkript"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/topic_cloud.html
 msgid "Cloud"
@@ -216,13 +213,13 @@ msgstr "Vollständiges wörtliches Video-Transkript; Anzeige/Sicherung."
 msgid "Function"
 msgstr "Funktion"
 
-#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
-msgid "Image"
-msgstr "Bild"
-
 #: froide_evidencecollection/models.py
 msgid "Image description"
 msgstr "Bildbeschreibung"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+msgid "Image in post"
+msgstr "Bild im Beitrag"
 
 #: froide_evidencecollection/models.py
 msgctxt "froide-evidencecollection"
@@ -358,7 +355,7 @@ msgstr "Beitrag, dessen Inhalt dieser Beitrag weiterverbreitet (Repost, Zitat, W
 
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
 msgid "Posted"
-msgstr "Veröffentlicht"
+msgstr "Veröffentlicht am"
 
 #: froide_evidencecollection/templates/froide_evidencecollection/_actor_evidence_list.html
 msgid "Posted by"
@@ -946,7 +943,7 @@ msgstr "politische Positionen"
 
 #: froide_evidencecollection/models.py
 msgid "posted at"
-msgstr "veröffentlicht am"
+msgstr "veröffentlicht am "
 
 #: froide_evidencecollection/models.py
 msgid "posts"
@@ -1192,6 +1189,9 @@ msgstr "🔧 Import/Export"
 msgid "🔧 Import/export runs"
 msgstr "🔧 Importe/Exporte"
 
+#~ msgid "Citation from transcript"
+#~ msgstr "Zitat aus dem Transkript"
+
 #~ msgid "Event Date"
 #~ msgstr "Datum der Originaläußerung"
 
@@ -1207,6 +1207,9 @@ msgstr "🔧 Importe/Exporte"
 
 #~ msgid "Id"
 #~ msgstr "Id"
+
+#~ msgid "Image"
+#~ msgstr "Bild"
 
 #~ msgid "No results"
 #~ msgstr "Keine Ergebnisse"

@@ -299,7 +299,7 @@
                                         {% if m.citation and object.social_media_post.is_video %}
                                             <div class="seg seg-citation mt-3 mb-0">
                                                 <h3 class="detail-heading">
-                                                    <span>{% trans "Citation from transcript" %}</span>
+                                                    <span>{% trans "Citation" %}</span>
                                                 </h3>
                                                 <div class="seg-body">{{ m.citation|plain_text }}</div>
                                             </div>
@@ -355,7 +355,7 @@
                                                 {% if kind == 'video' %}
                                                     {% trans "Video" %}
                                                 {% else %}
-                                                    {% trans "Image" %}
+                                                    {% trans "Image in post" %}
                                                 {% endif %}
                                             </span>
                                             {{ description }}
