@@ -1,10 +1,15 @@
-{% extends "cms/page.html" %}
+{% extends "cms/page_breadcrumb.html" %}
 {% load cms_tags %}
 {% load djangocms_alias_tags %}
-{% load menu_tags %}
+{% load breadcrumb_helper %}
 {% block navbar %}
-    {{ block.super }}
-    {% include "snippets/breadcrumbs.html" with breadcrumbs_background="yellow-200" %}
+    {% get_breadcrumbs view as view_breadcrumbs %}
+    {% if view_breadcrumbs %}
+        {% include "header.html" %}
+        {% include "snippets/breadcrumbs.html" %}
+    {% else %}
+        {{ block.super }}
+    {% endif %}
 {% endblock navbar %}
 {% block body %}
     {% static_alias "evidencecollection_header" %}

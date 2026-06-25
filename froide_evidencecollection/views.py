@@ -216,17 +216,22 @@ def apphook_page_url(request):
     return page.get_absolute_url() if page else ""
 
 
-class EvidenceMixin(BreadcrumbView):
+class AppHookBreadcrumbMixin(BreadcrumbView):
+    """Breadcrumbs for internal pages served under the apphook page."""
+
     def get_breadcrumbs(self, context):
-        if "request" in context:
-            request = context["request"]
+        request = context.get("request")
+        page = getattr(request, "current_page", None) if request else None
+        if page is None:
+            return []
 
-            title = request.current_page.get_title()
-            url = request.current_page.get_absolute_url()
-            return [(title, url)]
+        pages = list(page.get_ancestor_pages()) + [page]
+        return [
+            (p.get_menu_title(), p.get_absolute_url()) for p in pages if not p.is_home
+        ]
 
-        return []
 
+class EvidenceMixin(AppHookBreadcrumbMixin):
     def get_queryset(self):
         return Evidence.objects.all()
 
@@ -253,12 +258,9 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
         )
 
     def get_breadcrumbs(self, context):
-        obj = self.get_object()
-
-        breadcrumbs = super().get_breadcrumbs(context)
-
-        return breadcrumbs + [
-            (_("Evidence #%s" % obj.pk), obj.get_absolute_url()),
+        obj = self.object
+        return super().get_breadcrumbs(context) + [
+            (_("Evidence #%s") % obj.pk, obj.get_absolute_url()),
         ]
 
 
@@ -277,7 +279,7 @@ EVIDENCE_CARD_PREFETCH_RELATED = (
 ACTOR_PROFILE_EVIDENCE_LIMIT = 20
 
 
-class ActorDetailView(NoIndexMixin, DetailView):
+class ActorDetailView(NoIndexMixin, AppHookBreadcrumbMixin, DetailView):
     model = Actor
     template_name = "froide_evidencecollection/actor_detail.html"
     context_object_name = "actor"
@@ -293,6 +295,12 @@ class ActorDetailView(NoIndexMixin, DetailView):
             "organization__regions",
             "person__political_positions",
         )
+
+    def get_breadcrumbs(self, context):
+        actor = self.object
+        return super().get_breadcrumbs(context) + [
+            (str(actor), actor.get_absolute_url()),
+        ]
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
