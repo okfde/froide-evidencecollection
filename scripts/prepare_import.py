@@ -296,6 +296,7 @@ PLATFORM_CONFIG: dict[str, dict] = {
     "all": {
         "keep": {
             "report_data",
+            "fds_link",
             "image_file",
             "video_file",
             "srt_file",
@@ -896,13 +897,73 @@ def normalize_account_labels(post: dict) -> dict:
     return post
 
 
+def load_report_urls(path: Path) -> dict[str, dict]:
+    """Map a post's `fds_link` (FragDenStaat URL) to a resolver for its public
+    report URLs, read from a list of
+    ``{"FdS_links", "capitle_structur", "urls_zur_webseite", …}`` records.
+
+    Within a record ``capitle_structur`` (chapter paths) and ``urls_zur_webseite``
+    are row-parallel. When a record carries a single URL it applies to every
+    chapter, so the resolver is ``{"single": url}``; otherwise it is
+    ``{"by_chapter": {chapter_path_tuple: url}}`` so each chapter resolves to its
+    own URL. Consumed by `attach_report_urls`. Records without an `FdS_links` are
+    skipped."""
+    mapping: dict[str, dict] = {}
+    for entry in load(path):
+        link = entry.get("FdS_links")
+        if not link:
+            continue
+        urls = entry.get("urls_zur_webseite") or []
+        chapters = entry.get("capitle_structur") or []
+        if len(urls) == 1:
+            resolver: dict = {"single": urls[0]}
+        else:
+            resolver = {
+                "by_chapter": {
+                    tuple(chapter): url
+                    for chapter, url in zip(chapters, urls, strict=False)
+                }
+            }
+        mapping[link] = resolver
+    return mapping
+
+
+def attach_report_urls(post: dict, report_url_map: dict[str, dict]) -> dict:
+    """Add `report_data.report_urls` to a post: a list row-parallel to the post's
+    `report_data.capitel_structur`, giving the public report URL for each chapter
+    path. The post is matched to a source record by its `fds_link` (see
+    `load_report_urls`); a single-URL record applies that URL to every chapter,
+    otherwise each chapter is looked up by its exact path (unresolved paths become
+    None). Posts without a match or without a `capitel_structur` list pass through
+    unchanged."""
+    resolver = report_url_map.get(post.get("fds_link"))
+    if resolver is None:
+        return post
+    report_data = post.get("report_data")
+    if not isinstance(report_data, dict):
+        return post
+    chapters = report_data.get("capitel_structur")
+    if not isinstance(chapters, list):
+        return post
+    if "single" in resolver:
+        report_data["report_urls"] = [resolver["single"] for _ in chapters]
+    else:
+        by_chapter = resolver["by_chapter"]
+        report_data["report_urls"] = [
+            by_chapter.get(tuple(chapter)) for chapter in chapters
+        ]
+    return post
+
+
 def clean_social_media(
     social_media: dict,
     alt_map: dict[str, str] | None = None,
     name_map: dict[str, str] | None = None,
+    report_url_map: dict[str, dict] | None = None,
 ) -> dict:
     alt_map = alt_map or {}
     name_map = name_map or {}
+    report_url_map = report_url_map or {}
     cleaned = {}
     for platform, posts in social_media.items():
         config = PLATFORM_CONFIG.get(platform)
@@ -910,16 +971,19 @@ def clean_social_media(
             continue
         transform = config.get("transform", lambda p: p)
         cleaned[platform] = [
-            rename_screenshot_file(
-                normalize_account_labels(
-                    attach_alt_text(
-                        normalize_single_value_fields(
-                            transform(filter_fields(post, platform, config))
-                        ),
-                        alt_map,
-                    )
+            attach_report_urls(
+                rename_screenshot_file(
+                    normalize_account_labels(
+                        attach_alt_text(
+                            normalize_single_value_fields(
+                                transform(filter_fields(post, platform, config))
+                            ),
+                            alt_map,
+                        )
+                    ),
+                    name_map,
                 ),
-                name_map,
+                report_url_map,
             )
             for post in dedupe_posts(posts)
         ]
@@ -1018,6 +1082,14 @@ def main() -> None:
         "whose filename matches name_neu are rewritten to name_alt.",
     )
     parser.add_argument(
+        "--report-urls",
+        type=Path,
+        default=None,
+        help="JSON list of {sm, sm_id_fds, capitle_structur, urls_zur_webseite} "
+        "records; adds report_data.report_urls (parallel to capitel_structur) to "
+        "each post matched by (platform, platform_post_id).",
+    )
+    parser.add_argument(
         "--survey",
         nargs="?",
         const=True,
@@ -1050,6 +1122,7 @@ def main() -> None:
 
     alt_map = load_alt_texts(args.alt_texts) if args.alt_texts else {}
     name_map = load_name_map(args.screenshot_renames) if args.screenshot_renames else {}
+    report_url_map = load_report_urls(args.report_urls) if args.report_urls else {}
 
     result = {}
     for item_id, item in items.items():
@@ -1062,7 +1135,7 @@ def main() -> None:
             item = {
                 **item,
                 "social_media": clean_social_media(
-                    item["social_media"], alt_map, name_map
+                    item["social_media"], alt_map, name_map, report_url_map
                 ),
             }
         if "functions" in item:

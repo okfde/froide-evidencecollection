@@ -213,6 +213,10 @@ msgstr "Vollständiges wörtliches Video-Transkript; Anzeige/Sicherung."
 msgid "Function"
 msgstr "Funktion"
 
+#: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+msgid "Go to report"
+msgstr "Zum Gutachten"
+
 #: froide_evidencecollection/models.py
 msgid "Image description"
 msgstr "Bildbeschreibung"
@@ -988,6 +992,10 @@ msgstr "verwandte Belege (Treffer im Text)"
 #: froide_evidencecollection/models.py
 msgid "reply to"
 msgstr "Antwort auf"
+
+#: froide_evidencecollection/models.py
+msgid "report URL"
+msgstr "Gutachten-URL"
 
 #: froide_evidencecollection/models.py
 msgid "role"

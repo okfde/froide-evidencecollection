@@ -971,6 +971,35 @@ class TestJSONImporter:
         # Mention (B, 2) is untouched, no spurious churn.
         assert EvidenceMention.objects.filter(category__name="B").count() == 1
 
+    @pytest.mark.django_db
+    def test_report_url_is_populated_per_mention(self, person, tmp_path):
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {
+                        "telegram": [
+                            _make_post(
+                                report_data={
+                                    "footnote_url": ["https://t.me/example/1"],
+                                    "topic": [["A"], ["B"]],
+                                    "footnote_id": ["1", "2"],
+                                    # Row-parallel to the mention rows; the second
+                                    # entry is absent and falls back to blank.
+                                    "report_urls": ["https://report.example/a/"],
+                                }
+                            ),
+                        ]
+                    },
+                }
+            },
+        )
+        JSONImporter(path).run()
+
+        urls = {m.category.name: m.report_url for m in EvidenceMention.objects.all()}
+        assert urls == {"A": "https://report.example/a/", "B": ""}
+
     def test_chapter_tree_is_built_from_topic_paths(self, person, tmp_path):
         path = _write_dump(
             tmp_path,

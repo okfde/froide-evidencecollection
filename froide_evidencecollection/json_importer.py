@@ -1055,6 +1055,10 @@ class JSONImporter:
         # video evidence; absent entries leave start/end null and raw_transcript
         # empty. This is what folded the former VideoExcerpt rows onto the mention.
         video_timestamps = report_data.get("video_timestamp") or []
+        # `report_urls` is row-parallel too (added in prepare_import, parallel to
+        # `capitel_structur`): index i is the public report-page URL for the same
+        # mention. Absent entries leave `report_url` blank.
+        report_urls = report_data.get("report_urls") or []
         # `mention_originators` is row-parallel too: the actor id of whoever this
         # row was grouped under, so a merged post's mentions are attributed to
         # the right originator (see `_run`). Empty for callers that pass none.
@@ -1069,12 +1073,14 @@ class JSONImporter:
             footnote,
             citation,
             vts,
+            report_url,
             originator_id,
         ) in zip_longest(
             topics,
             footnotes,
             citations,
             video_timestamps,
+            report_urls,
             mention_originators,
             fillvalue=None,
         ):
@@ -1091,6 +1097,7 @@ class JSONImporter:
             scalar_fields = {
                 "chapter_structure": topic_path,
                 "citation": citation or "",
+                "report_url": report_url or "",
                 "start": self._parse_timestamp(vts.get("start")),
                 "end": self._parse_timestamp(vts.get("end")),
                 "raw_transcript": (vts.get("excerpt") or "").strip(),

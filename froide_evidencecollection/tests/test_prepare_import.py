@@ -89,6 +89,90 @@ def test_normalize_account_labels_noop_without_report_data():
     assert prepare_import.normalize_account_labels(post) == {"text": "hi"}
 
 
+def test_load_report_urls_single_vs_multi(tmp_path):
+    path = tmp_path / "report_urls.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "FdS_links": "https://fragdenstaat.de/x/beleg/one",
+                    "capitle_structur": [["A", "B"]],
+                    "urls_zur_webseite": ["https://example.org/one/"],
+                },
+                {
+                    "FdS_links": "https://fragdenstaat.de/x/beleg/many",
+                    "capitle_structur": [["A", "B"], ["C", "D"]],
+                    "urls_zur_webseite": [
+                        "https://example.org/ab/",
+                        "https://example.org/cd/",
+                    ],
+                },
+                {"capitle_structur": [["A"]]},  # no FdS_links -> skipped
+            ]
+        )
+    )
+    mapping = prepare_import.load_report_urls(path)
+    # A single URL becomes a "single" resolver keyed by the FragDenStaat link.
+    assert mapping["https://fragdenstaat.de/x/beleg/one"] == {
+        "single": "https://example.org/one/"
+    }
+    # Multiple URLs are keyed by their (tupled) chapter path.
+    assert mapping["https://fragdenstaat.de/x/beleg/many"] == {
+        "by_chapter": {
+            ("A", "B"): "https://example.org/ab/",
+            ("C", "D"): "https://example.org/cd/",
+        }
+    }
+    assert len(mapping) == 2
+
+
+def test_attach_report_urls_single_url_applies_to_all_chapters():
+    report_url_map = {"fds:one": {"single": "https://example.org/one/"}}
+    post = {
+        "fds_link": "fds:one",
+        "report_data": {"capitel_structur": [["A", "B"], ["C", "D"]]},
+    }
+    prepare_import.attach_report_urls(post, report_url_map)
+    assert post["report_data"]["report_urls"] == [
+        "https://example.org/one/",
+        "https://example.org/one/",
+    ]
+
+
+def test_attach_report_urls_matches_chapter_paths():
+    report_url_map = {
+        "fds:many": {
+            "by_chapter": {
+                ("A", "B"): "https://example.org/ab/",
+                ("C", "D"): "https://example.org/cd/",
+            }
+        }
+    }
+    post = {
+        "fds_link": "fds:many",
+        # Post order differs from the source; an unknown path resolves to None.
+        "report_data": {"capitel_structur": [["C", "D"], ["E", "F"], ["A", "B"]]},
+    }
+    prepare_import.attach_report_urls(post, report_url_map)
+    assert post["report_data"]["report_urls"] == [
+        "https://example.org/cd/",
+        None,
+        "https://example.org/ab/",
+    ]
+
+
+def test_attach_report_urls_noop_without_match_or_chapters():
+    report_url_map = {"fds:one": {"single": "https://example.org/one/"}}
+
+    no_match = {"fds_link": "fds:other", "report_data": {"capitel_structur": [["A"]]}}
+    prepare_import.attach_report_urls(no_match, report_url_map)
+    assert "report_urls" not in no_match["report_data"]
+
+    no_chapters = {"fds_link": "fds:one", "report_data": {"topic": ["x"]}}
+    prepare_import.attach_report_urls(no_chapters, report_url_map)
+    assert "report_urls" not in no_chapters["report_data"]
+
+
 def test_clean_social_media_threads_alt_map():
     post = {
         "url_corrected": "u",

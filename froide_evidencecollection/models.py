@@ -1528,6 +1528,12 @@ class EvidenceMention(models.Model):
     # Currently often not usable, so it is kept but NOT wired into
     # display/search/topics; revisit later.
     citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
+    # Public URL of the chapter this mention is filed under in the online report
+    # (= source `report_urls`, row-parallel to the mention rows). Links a mention
+    # back to its page on the published report; blank when the dump carried none.
+    report_url = models.URLField(
+        max_length=500, blank=True, default="", verbose_name=_("report URL")
+    )
     # Video-excerpt fields (= source `video_timestamp`), set only for mentions of
     # a video post. `start`/`end` locate the excerpt in the video; `raw_transcript`
     # is the verbatim auto-transcript of that window and is the searched /
