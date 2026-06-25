@@ -99,8 +99,13 @@ msgstr "Nach Hauptthema filtern"
 msgid "Browse by theme"
 msgstr "Nach Themenfeld filtern"
 
-#: froide_evidencecollection/templates/froide_evidencecollection/_actor_evidence_list.html
 #: froide_evidencecollection/templates/froide_evidencecollection/detail.html
+#, fuzzy
+#| msgid "category"
+msgid "Category"
+msgstr "Kategorie"
+
+#: froide_evidencecollection/templates/froide_evidencecollection/_actor_evidence_list.html
 msgid "Chapter"
 msgstr "Kapitel"
 
