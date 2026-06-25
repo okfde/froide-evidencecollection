@@ -2,8 +2,6 @@ import csv
 import html
 import io
 import math
-import sys
-import time
 from collections import defaultdict
 
 from django.conf import settings
@@ -1411,26 +1409,12 @@ class EvidenceTopicCloudView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        _t0 = time.perf_counter()
-        _last = [_t0]
-
-        def _mark(label):
-            now = time.perf_counter()
-            print(
-                f"topiccloud[{label}] {(now - _last[0]) * 1000:.1f} ms "
-                f"(total {(now - _t0) * 1000:.1f} ms)",
-                file=sys.stderr,
-                flush=True,
-            )
-            _last[0] = now
-
         qs = self._filter_qs()
         # Fetch one extra row to detect "more than MAX_EVIDENCE" without
         # running a second COUNT query against the filtered set.
         fetched = list(qs[: self.MAX_EVIDENCE + 1])
         truncated = len(fetched) > self.MAX_EVIDENCE
         evidences = fetched[: self.MAX_EVIDENCE]
-        _mark(f"fetch evidence ({len(evidences)})")
 
         # Dot positions are pinned to the *unfiltered* embedding extents so a
         # dot keeps the same screen position as filters narrow the visible set.
@@ -1452,7 +1436,6 @@ class EvidenceTopicCloudView(TemplateView):
                 bounds_agg["ymin"],
                 bounds_agg["ymax"],
             )
-        _mark("bounds_agg")
 
         # Theme bar: a chip per theme, in the curator's explicit `Theme.order`
         # (which also fixes the palette assignment below). The actual narrowing
@@ -1468,7 +1451,6 @@ class EvidenceTopicCloudView(TemplateView):
         # here and reused for every dot.
         theme_by_chapter = Chapter.chapter_theme_map()
         theme_order = dict(Theme.objects.values_list("id", "order"))
-        _mark("theme colours")
 
         # Main-topic bar: a hierarchical, single-select filter over the report's
         # `is_main_topic` chapters (condensed so each node hangs off its nearest
@@ -1476,7 +1458,6 @@ class EvidenceTopicCloudView(TemplateView):
         # (AND). Coverage is corpus-wide and cumulative, so the order/counts
         # don't reshuffle as the user drills in.
         selected_chapter_id, main_topics = self._build_main_topic_tree(self.request.GET)
-        _mark(f"main topics ({len(main_topics)})")
 
         # Cloud points — keep dotted only if we have coordinates. Colouring is a
         # lens: when a theme is selected, every visible dot belongs to it (the
@@ -1542,14 +1523,12 @@ class EvidenceTopicCloudView(TemplateView):
             )
         cloud_circles_svg = mark_safe("".join(circle_parts))
         cloud_point_count = len(circle_parts)
-        _mark(f"cloud_circles ({cloud_point_count})")
 
         # Actors present in the filtered set, tallied over the visible evidence
         # via each evidence's originators (prefetched, so no extra per-row
         # query). Drives the "Actors in view" side panel; clicking a name
         # highlights that actor's dots client-side rather than filtering.
         actors_in_view = self._actors_in_view(evidences)
-        _mark(f"actors_in_view ({len(actors_in_view)})")
 
         # SR-only / mobile outline: a single flat list of the matching
         # evidence, newest first (the queryset is already date-ordered). Capped
@@ -1576,7 +1555,6 @@ class EvidenceTopicCloudView(TemplateView):
             for ev in outline_shown
         ]
         outline_hidden_count = max(0, len(evidences) - len(outline_shown))
-        _mark(f"outline ({len(outline_items)})")
 
         # Look up the currently-selected actor so the combobox button can
         # display its name on the initial server-rendered page.
@@ -1611,10 +1589,8 @@ class EvidenceTopicCloudView(TemplateView):
             {"lemma": lemma, "keyword": kw_label_by_lemma.get(lemma, lemma)}
             for lemma in selected_keywords
         ]
-        _mark(f"facets ({len(facets)})")
 
         actors = self._actor_options()
-        _mark(f"actors ({len(actors)})")
 
         # Originator-function filter options: the roles and institutional levels
         # that actually occur on a political position of some person who has
@@ -1671,7 +1647,6 @@ class EvidenceTopicCloudView(TemplateView):
             ),
             key=lambda v: (v["label"] != "Bund", v["label"]),
         )
-        _mark(f"function options ({len(roles)}/{len(levels)}/{len(verbaende)})")
 
         # Year-range slider bounds: earliest/latest post year across the whole
         # topic-bearing corpus, so the slider extent stays fixed regardless of
@@ -1693,7 +1668,6 @@ class EvidenceTopicCloudView(TemplateView):
         selected_year_to = (
             self._param_year(self.request.GET.get("posted_before")) or year_max
         )
-        _mark(f"year bounds ({year_min}-{year_max})")
 
         context.update(
             {
@@ -1753,5 +1727,4 @@ class EvidenceTopicCloudView(TemplateView):
                 "topic_cloud_url": reverse("evidencecollection:evidence-topic-cloud"),
             }
         )
-        _mark("context.update")
         return context
