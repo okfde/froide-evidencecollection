@@ -146,22 +146,6 @@ class TestBuildFacets:
         assert _lemmas(facets) == ["b"]
 
 
-@pytest.mark.django_db
-class TestSelectedEnabledKeywords:
-    def test_drops_disabled_and_unknown_lemmas(self):
-        _kw("a", "A", df=1)
-        _kw("b", "B", df=1, enabled=False)
-        params = QueryDict(mutable=True)
-        params.setlist("keyword", ["a", "b", "ghost"])
-
-        result = EvidenceTopicCloudView._selected_enabled_keywords(params)
-
-        assert result == ["a"]
-
-    def test_empty_when_nothing_selected(self):
-        assert EvidenceTopicCloudView._selected_enabled_keywords(QueryDict()) == []
-
-
 def _map_chapter_to_theme(chapter, theme):
     """Set the bulk Chapter→Theme mapping ('everything in chapter X belongs to
     theme Y')."""

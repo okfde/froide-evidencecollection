@@ -616,36 +616,6 @@ class EvidenceTopicCloudView(TemplateView):
         return None
 
     @staticmethod
-    def _selected_keywords(params):
-        """Selected keyword facets = the (de-duped, order-preserving) ``keyword``
-        query params, each a Keyword lemma. Supports repeated params for the
-        multi-select AND drill-down. Raw — may include disabled/unknown lemmas;
-        use ``_selected_enabled_keywords`` for anything that acts on them."""
-        seen = []
-        for raw in params.getlist("keyword"):
-            kw = (raw or "").strip()
-            if kw and kw not in seen:
-                seen.append(kw)
-        return seen
-
-    @classmethod
-    def _selected_enabled_keywords(cls, params):
-        """Selected lemmas restricted to keywords that exist and are enabled,
-        order preserved. Disabled (curator-suppressed) or unknown lemmas in the
-        URL are silently dropped, so they never filter the set or render a chip —
-        a disabled keyword is excluded everywhere, not just hidden from the
-        cloud."""
-        selected = cls._selected_keywords(params)
-        if not selected:
-            return []
-        enabled = set(
-            Keyword.objects.filter(lemma__in=selected, enabled=True).values_list(
-                "lemma", flat=True
-            )
-        )
-        return [kw for kw in selected if kw in enabled]
-
-    @staticmethod
     def _selected_theme_id(params):
         """Selected theme = the first valid ``theme`` query param (a ``Theme``
         pk), or ``None`` when none is set. The theme bar is single-select:
@@ -849,11 +819,7 @@ class EvidenceTopicCloudView(TemplateView):
             .select_related(
                 "social_media_post__account",
             )
-            # `keywords` is the facet index, read in-memory by `_build_facets`;
-            # prefetch only the enabled ones so curator-disabled keywords never
-            # reach the view.
             .prefetch_related(
-                Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
                 # Originators drive the actor display/panel and the
                 # verband-by-evidence read; person/organization are needed for
                 # the actor's display name (`Actor.name`).
@@ -944,16 +910,6 @@ class EvidenceTopicCloudView(TemplateView):
             if chapter is not None:
                 subtree = Chapter.get_tree(chapter)
                 qs = qs.filter(mentions__chapter__in=subtree).distinct()
-
-        # Keyword facets: narrow to evidence whose text actually contains the
-        # selected keyword lemma(s), via the Evidence↔Keyword index. Several
-        # selected keywords AND together (each a separate join on the M2M), so
-        # the result is evidence carrying *all* of them — the drill-down that
-        # makes the narrowed facet list meaningful. Disabled/unknown lemmas are
-        # dropped (not applied), so a stale URL can't filter on a suppressed
-        # keyword.
-        for kw in self._selected_enabled_keywords(params):
-            qs = qs.filter(keywords__lemma=kw)
 
         platform = (params.get("platform") or "").strip()
         if platform:
@@ -1566,30 +1522,6 @@ class EvidenceTopicCloudView(TemplateView):
             except ValueError:
                 pass
 
-        # Keyword facet cloud over the *filtered* evidence set: only keywords
-        # that still co-occur with the current selection remain. Several can be
-        # active at once (AND); the active ones render as removable chips.
-        # Enabled-only so a disabled keyword neither filters, nor shows as a
-        # chip, nor lingers in the resubmitted form state.
-        selected_keywords = self._selected_enabled_keywords(self.request.GET)
-        facets = self._build_facets(
-            evidences,
-            selected_keywords,
-            # An enabled keyword selection (or a theme) narrows the set too, so
-            # it also turns on keyness — but only once disabled/unknown lemmas
-            # are dropped.
-            keyness=self._has_active_filter(self.request.GET)
-            or bool(selected_keywords),
-        )
-        kw_label_by_lemma = {
-            kw.lemma: kw.display_label
-            for kw in Keyword.objects.filter(lemma__in=selected_keywords, enabled=True)
-        }
-        selected_facets = [
-            {"lemma": lemma, "keyword": kw_label_by_lemma.get(lemma, lemma)}
-            for lemma in selected_keywords
-        ]
-
         actors = self._actor_options()
 
         # Originator-function filter options: the roles and institutional levels
@@ -1684,9 +1616,6 @@ class EvidenceTopicCloudView(TemplateView):
                 "selected_theme_id": selected_theme_id,
                 "main_topics": main_topics,
                 "selected_chapter_id": selected_chapter_id,
-                "facets": facets,
-                "selected_keywords": selected_keywords,
-                "selected_facets": selected_facets,
                 # Only actors that have actually posted — keeps the
                 # searchable dropdown bounded to options that can yield
                 # a non-empty result.
