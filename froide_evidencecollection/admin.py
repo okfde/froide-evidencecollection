@@ -510,6 +510,7 @@ class EvidenceMentionInline(admin.TabularInline):
         "start",
         "end",
         "raw_transcript",
+        "report_url",
     ]
     readonly_fields = fields
 

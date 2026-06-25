@@ -269,7 +269,7 @@
                         {% for m in object.mentions.all %}
                             <div class="col-md-6">
                                 <div class="card h-100 border">
-                                    <div class="card-body">
+                                    <div class="card-body d-flex flex-column">
                                         <div class="d-flex flex-wrap align-items-baseline gap-2 mb-3">
                                             <span class="badge rounded-pill border fw-normal bg-light text-dark">{{ m.category }}</span>
                                         </div>
@@ -280,12 +280,12 @@
                                                    class="text-decoration-none">{{ m.originator.name }}</a>
                                             </dd>
                                             {% if m.chapter_structure %}
-                                                <dt class="col-4 text-body-secondary fw-normal">{% trans "Chapter" %}</dt>
+                                                <dt class="col-4 text-body-secondary fw-normal">{% trans "Category" %}</dt>
                                                 <dd class="col-8 mb-2">
                                                     {{ m.chapter_structure|join:" › " }}
                                                 </dd>
                                             {% elif m.chapter %}
-                                                <dt class="col-4 text-body-secondary fw-normal">{% trans "Chapter" %}</dt>
+                                                <dt class="col-4 text-body-secondary fw-normal">{% trans "Category" %}</dt>
                                                 <dd class="col-8 mb-2">
                                                     {{ m.chapter }}
                                                 </dd>
@@ -316,6 +316,16 @@
                                                 <blockquote class="seg-body">
                                                     {{ m.raw_transcript|plain_text }}
                                                 </blockquote>
+                                            </div>
+                                        {% endif %}
+                                        {% if m.report_url %}
+                                            <div class="mt-auto pt-3 text-end">
+                                                <a href="{{ m.report_url }}"
+                                                   target="_blank"
+                                                   rel="noopener"
+                                                   class="btn btn-sm btn-outline-primary">
+                                                    <i class="fa fa-external-link"></i> {% trans "Go to report" %}
+                                                </a>
                                             </div>
                                         {% endif %}
                                     </div>
