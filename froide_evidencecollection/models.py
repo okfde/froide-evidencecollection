@@ -315,6 +315,9 @@ class Actor(TrackableModel):
 
         return super(Actor, self).save(*args, **kwargs)
 
+    def get_absolute_url(self):
+        return reverse("evidencecollection:actor-detail", kwargs={"pk": self.pk})
+
     @property
     def name(self):
         return str(self.target)
