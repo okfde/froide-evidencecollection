@@ -1,10 +1,7 @@
-import re
-
 from django import template
 from django.template.defaultfilters import linebreaksbr
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
-from django.utils.text import normalize_newlines
 
 register = template.Library()
 
@@ -34,41 +31,6 @@ def plain_text(value):
     """
     value = (value or "").replace("\\n", "\n")
     return linebreaksbr(value)
-
-
-@register.simple_tag
-def highlight_keywords(value, keywords):
-    """Render text like `plain_text`, with keyword surface forms marked.
-
-    `keywords` is an iterable of `Keyword`; the keys of each one's
-    `surface_forms` are the literal variants that appeared in the corpus, so we
-    match those (case-insensitive, whole-word) rather than the normalised lemma.
-    The text is HTML-escaped first, matches are wrapped in `<mark>`, then
-    newlines become `<br>` — same safe output as `plain_text`, plus highlights.
-    With no keywords (or none matching) it degrades to plain escaped text.
-    """
-    text = normalize_newlines((value or "").replace("\\n", "\n"))
-    escaped = escape(text)
-
-    # Collect every surface form across the evidence's keywords. Longest first
-    # so a multi-word form ("soziale medien") matches before its constituent
-    # words would. Escape each form the same way as the haystack so the pattern
-    # stays aligned with the escaped text (e.g. an apostrophe → `&#x27;`).
-    forms = set()
-    for kw in keywords or []:
-        forms.update(getattr(kw, "surface_forms", None) or {})
-    forms = sorted((f for f in forms if f and f.strip()), key=len, reverse=True)
-
-    if forms:
-        # (?<!\w)…(?!\w) is a Unicode-aware word boundary (umlauts/ß count as
-        # word chars), so we don't highlight a form sitting inside a longer word.
-        pattern = re.compile(
-            r"(?<!\w)(?:" + "|".join(re.escape(escape(f)) for f in forms) + r")(?!\w)",
-            re.IGNORECASE,
-        )
-        escaped = pattern.sub(lambda m: f"<mark>{m.group(0)}</mark>", escaped)
-
-    return mark_safe(escaped.replace("\n", "<br>"))
 
 
 @register.filter

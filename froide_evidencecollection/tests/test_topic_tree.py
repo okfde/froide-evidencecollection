@@ -1,6 +1,4 @@
-"""Tests for the topic cloud view's browse surfaces: the keyword facets
-(curator controls + frequency-vs-keyness ranking) and the main-topic tree.
-"""
+"""Tests for the topic cloud view's browse surfaces: the main-topic tree."""
 
 from django.http import QueryDict
 from django.utils import timezone
@@ -13,7 +11,6 @@ from froide_evidencecollection.models import (
     Chapter,
     Evidence,
     EvidenceMention,
-    Keyword,
     SocialMediaAccount,
     SocialMediaPost,
 )
@@ -60,88 +57,6 @@ def _file_under(evidence, chapter, category):
         chapter=chapter,
         originator=Actor.objects.create(organization=OrganizationFactory()),
     )
-
-
-def _kw(lemma, label, df, *, enabled=True, custom_label=""):
-    return Keyword.objects.create(
-        lemma=lemma,
-        label=label,
-        custom_label=custom_label,
-        enabled=enabled,
-        df=df,
-        fit_at=timezone.now(),
-    )
-
-
-def _lemmas(facets):
-    return [f["lemma"] for f in facets]
-
-
-@pytest.mark.django_db
-class TestBuildFacets:
-    def setup_method(self):
-        self.view = EvidenceTopicCloudView()
-
-    def test_disabled_keyword_is_excluded(self):
-        ev = _make_evidence(1)
-        shown = _kw("impfung", "Impfung", df=1)
-        hidden = _kw("vakzin", "Vakzin", df=1, enabled=False)
-        ev.keywords.add(shown, hidden)
-
-        facets = self.view._build_facets([ev], [], keyness=False)
-
-        assert _lemmas(facets) == ["impfung"]
-
-    def test_custom_label_overrides_display(self):
-        ev = _make_evidence(1)
-        kw = _kw("impfung", "Impfung", df=1, custom_label="Impfpflicht")
-        ev.keywords.add(kw)
-
-        [facet] = self.view._build_facets([ev], [], keyness=False)
-
-        assert facet["keyword"] == "Impfpflicht"
-
-    def test_frequency_mode_orders_by_count(self):
-        common = _kw("common", "Common", df=2)
-        rare = _kw("rare", "Rare", df=1)
-        evs = []
-        for i in range(2):
-            ev = _make_evidence(i)
-            ev.keywords.add(common)
-            evs.append(ev)
-        evs[0].keywords.add(rare)
-
-        facets = self.view._build_facets(evs, [], keyness=False)
-
-        # common appears in both evidence, rare in one → common first.
-        assert _lemmas(facets) == ["common", "rare"]
-
-    def test_keyness_mode_promotes_distinctive_over_frequent(self):
-        # "common" is corpus-wide (df=10); "rare" is globally uncommon (df=2)
-        # but both occur in every evidence of this slice. Keyness should rank
-        # the distinctive "rare" above the ubiquitous "common", even though
-        # their in-slice counts are equal.
-        common = _kw("common", "Common", df=10)
-        rare = _kw("rare", "Rare", df=2)
-        evs = []
-        for i in range(2):
-            ev = _make_evidence(i)
-            ev.keywords.add(common, rare)
-            evs.append(ev)
-
-        facets = self.view._build_facets(evs, [], keyness=True)
-
-        assert _lemmas(facets)[0] == "rare"
-
-    def test_selected_keyword_dropped_from_facets(self):
-        ev = _make_evidence(1)
-        a = _kw("a", "A", df=1)
-        b = _kw("b", "B", df=1)
-        ev.keywords.add(a, b)
-
-        facets = self.view._build_facets([ev], ["a"], keyness=False)
-
-        assert _lemmas(facets) == ["b"]
 
 
 class TestSelectedChapterId:
