@@ -34,7 +34,6 @@ from .models import (
     PoliticalPosition,
     Role,
     SocialMediaAccount,
-    Theme,
 )
 from .templatetags.evidence_tags import compact_number
 
@@ -503,13 +502,12 @@ class EvidenceTopicCloudView(TemplateView):
     The primary structure is a server-rendered, screen-reader-navigable
     outline listing the matching evidence. A small SVG scatter sits on top
     as a visual aid — ``aria-hidden`` because the list below carries the
-    same information in semantic form. Browsing is by ``Theme`` (the single
-    chip bar) and keyword facet; the toolbar additionally filters by
-    platform, date range, actor, and free-text search.
+    same information in semantic form. Browsing is by main-topic tree and
+    keyword facet; the toolbar additionally filters by platform, date range,
+    actor, and free-text search.
 
-    Dot *positions* still come from the fit's 2D embedding (``topic_x`` /
-    ``topic_y``); their *colour* is the evidence's dominant ``Theme`` (see
-    ``_dominant_theme``), the same hue carried by that theme's chip.
+    Dot *positions* come from the fit's 2D embedding (``topic_x`` /
+    ``topic_y``); every dot is drawn in the neutral ink (``DOT_COLOR``).
 
     Account-derived facets (platform, username, organization, actor) are
     sourced from each evidence's social-media-post source; evidence backed
@@ -529,27 +527,8 @@ class EvidenceTopicCloudView(TemplateView):
     # item can narrow via the keyword facets.
     OUTLINE_MAX_EVIDENCE = 100
 
-    # Neutral fallback ink: drawn for dots whose dominant keyword is ungrouped,
-    # and for groups past the palette's length. A warm taupe keeps the cloud
-    # on-theme and holds contrast on the near-white canvas.
+    # Neutral ink for every dot.
     DOT_COLOR = "#7a6e60"
-
-    # Categorical palette for dominant-theme dot colouring. Mid-dark hues
-    # chosen to hold contrast on the near-white (#fafafa) canvas, stay
-    # distinguishable from one another, and read apart from the neutral
-    # DOT_COLOR. Assigned in curator `Theme.order` (see `_assign_theme_colors`),
-    # which is stable across requests so a theme keeps its colour as filters
-    # change. Themes beyond this length fall back to DOT_COLOR.
-    GROUP_PALETTE = (
-        "#4e79a7",  # blue
-        "#f28e2b",  # orange
-        "#59a14f",  # green
-        "#e15759",  # red
-        "#b07aa1",  # purple
-        "#76b7b2",  # teal
-        "#9c6b30",  # brown
-        "#d4a017",  # gold
-    )
 
     # SVG viewport. The data x/y are projected into this box; the actual
     # rendered size is fluid (width:100%) so it adapts to mobile widths.
@@ -589,7 +568,6 @@ class EvidenceTopicCloudView(TemplateView):
     # disabled lemma in the URL is dropped and must not trigger keyness.
     NARROWING_PARAMS = (
         "q",
-        "theme",
         "chapter",
         "platform",
         "posted_after",
@@ -624,28 +602,13 @@ class EvidenceTopicCloudView(TemplateView):
         return None
 
     @staticmethod
-    def _selected_theme_id(params):
-        """Selected theme = the first valid ``theme`` query param (a ``Theme``
-        pk), or ``None`` when none is set. The theme bar is single-select:
-        clicking a theme narrows the cloud to that theme's evidence (and colours
-        every visible dot with the theme's hue), so two selected themes has no
-        meaning. Non-numeric values are skipped; any extra ``theme`` params are
-        ignored."""
-        for raw in params.getlist("theme"):
-            raw = (raw or "").strip()
-            if raw.isdigit():
-                return int(raw)
-        return None
-
-    @staticmethod
     def _selected_chapter_id(params):
         """Selected main topic = the first valid ``chapter`` query param (a
         Chapter pk), or ``None`` when none is set. The main-topic tree is
         single-select drill-down: clicking a node narrows the cloud to the
         evidence filed under that chapter or any of its descendants, so two
         selected nodes has no meaning. Non-numeric values are skipped; any extra
-        ``chapter`` params are ignored. This is independent of the theme bar — the
-        two stack (AND)."""
+        ``chapter`` params are ignored."""
         for raw in params.getlist("chapter"):
             raw = (raw or "").strip()
             if raw.isdigit():
@@ -833,12 +796,8 @@ class EvidenceTopicCloudView(TemplateView):
                 # the actor's display name (`Actor.name`).
                 "originators__person",
                 "originators__organization",
-                # Theme membership for the dot's dominant-theme colour: the
-                # directly assigned themes, and the mentions' chapters (the
-                # chapter-derived themes are resolved via `chapter_theme_map`).
-                # Only the chapter FK is needed off each mention, so keep it
-                # light.
-                "themes",
+                # Mentions back the per-dot chapter display and the full-text
+                # search join.
                 Prefetch(
                     "mentions",
                     queryset=EvidenceMention.objects.only(
@@ -886,32 +845,12 @@ class EvidenceTopicCloudView(TemplateView):
                 | Q(description__icontains=q)
             ).distinct()
 
-        # Theme: the single broad entry point, single-select. A theme's evidence
-        # is the union of directly assigned evidence (the `themes` M2M) and
-        # everything filed under a chapter mapped to the theme or a descendant
-        # (resolved by `chapter_theme_map`). Both halves are a DB filter, so the
-        # narrowing happens here in one query — no per-evidence Python cut.
-        # distinct() because either join (the M2M or the mention→chapter path)
-        # can match a row several times.
-        theme_id = self._selected_theme_id(params)
-        if theme_id is not None:
-            themed_chapters = [
-                cid
-                for cid, tid in Chapter.chapter_theme_map().items()
-                if tid == theme_id
-            ]
-            theme_q = Q(themes__id=theme_id)
-            if themed_chapters:
-                theme_q |= Q(mentions__chapter__in=themed_chapters)
-            qs = qs.filter(theme_q).distinct()
-
         # Main topic (report chapter): the hierarchical entry point, single-
         # select. Selecting a main-topic node narrows to evidence filed under
         # that chapter or any of its descendants (its subtree in the full chapter
         # tree) — so a parent node matches a superset of its children, the
-        # "higher level → more evidence" behaviour of the tree. Independent of
-        # the theme bar above — the two stack (AND). distinct() because the
-        # mention join can match through several mentions.
+        # "higher level → more evidence" behaviour of the tree. distinct()
+        # because the mention join can match through several mentions.
         chapter_id = self._selected_chapter_id(params)
         if chapter_id is not None:
             chapter = Chapter.objects.filter(pk=chapter_id).first()
@@ -954,54 +893,6 @@ class EvidenceTopicCloudView(TemplateView):
             qs = qs.filter(verband_q).distinct()
 
         return qs
-
-    def _build_themes(self, params):
-        """Theme bar data — one chip per theme.
-
-        Returns ``(selected_theme_id, theme_options)``, where each option is
-        ``{id, label, count, selected}``. ``count`` is the theme's full evidence
-        set (direct assignment ∪ chapter-mapped, restricted to fitted evidence,
-        which is the cloud's universe). Themes are listed in the curator's
-        explicit ``Theme.order`` (then label) — fixed entry points that don't
-        reshuffle as the user drills in — and that order also drives the palette
-        assignment (see ``_assign_theme_colors``). Empty themes are dropped.
-        """
-        selected_theme_id = self._selected_theme_id(params)
-
-        # chapter_id -> theme_id (with inheritance), inverted to theme -> chapters.
-        chapters_by_theme: dict[int, list[int]] = {}
-        for cid, tid in Chapter.chapter_theme_map().items():
-            chapters_by_theme.setdefault(tid, []).append(cid)
-
-        theme_options = []
-        for theme in Theme.objects.all():  # ordered by (order, label)
-            theme_q = Q(themes=theme)
-            chapter_ids = chapters_by_theme.get(theme.id)
-            if chapter_ids:
-                theme_q |= Q(mentions__chapter__in=chapter_ids)
-            count = (
-                Evidence.objects.filter(topic_fit_at__isnull=False)
-                .filter(theme_q)
-                .distinct()
-                .count()
-            )
-            if count == 0:
-                continue
-            theme_options.append(
-                {
-                    "id": theme.id,
-                    "label": theme.label,
-                    "count": count,
-                    "selected": theme.id == selected_theme_id,
-                }
-            )
-
-        # Drop a stale/empty selection so the chip state stays honest.
-        if selected_theme_id is not None and not any(
-            o["selected"] for o in theme_options
-        ):
-            selected_theme_id = None
-        return selected_theme_id, theme_options
 
     def _build_main_topic_tree(self, params):
         """Hierarchical main-topic filter data, drawn from the chapter tree.
@@ -1130,70 +1021,6 @@ class EvidenceTopicCloudView(TemplateView):
             _walk(root_id, 0, None, True, True)
 
         return selected_chapter_id, nodes
-
-    def _assign_theme_colors(self, theme_options):
-        """Give each theme its identity colour — used on its chip and its dots.
-
-        ``theme_options`` arrives from ``_build_themes`` in the curator's
-        explicit ``Theme.order``, so the first ``len(GROUP_PALETTE)`` themes get
-        a palette hue and the rest fall back to the neutral ``DOT_COLOR``. The
-        order is curator-fixed, so the mapping is stable across requests — a
-        theme keeps its colour as the user filters.
-
-        Mutates each option with a ``color`` key and returns ``color_by_theme``
-        (id → colour) for the dot fill.
-        """
-        color_by_theme = {}
-        for i, opt in enumerate(theme_options):
-            color = (
-                self.GROUP_PALETTE[i] if i < len(self.GROUP_PALETTE) else self.DOT_COLOR
-            )
-            opt["color"] = color
-            color_by_theme[opt["id"]] = color
-        return color_by_theme
-
-    @staticmethod
-    def _dominant_theme(evidence, theme_by_chapter, theme_order):
-        """Pick the one theme that colours this evidence's dot.
-
-        An evidence can belong to several themes (directly and/or via the
-        chapters it's filed under). Precedence: a **directly assigned** theme
-        beats a **chapter-derived** one (the curator's explicit, evidence-level
-        pick is the stronger signal); within a tier the theme with the lowest
-        ``Theme.order`` wins, then the lowest id, so the choice is deterministic
-        and curator-controlled.
-
-        Reads only the evidence's own prefetched ``themes`` and ``mentions`` (the
-        latter mapped through ``theme_by_chapter``), so it is filter-independent:
-        a dot keeps its colour as the set narrows. Returns a theme id, or
-        ``None`` when the evidence belongs to no theme.
-        """
-
-        def _rank(tid):
-            return (theme_order.get(tid, 1 << 30), tid)
-
-        direct = [t.id for t in evidence.themes.all()]
-        if direct:
-            return min(direct, key=_rank)
-        chapter_themes = [
-            theme_by_chapter[m.chapter_id]
-            for m in evidence.mentions.all()
-            if m.chapter_id in theme_by_chapter
-        ]
-        if chapter_themes:
-            return min(chapter_themes, key=_rank)
-        return None
-
-    @classmethod
-    def _dot_fill(cls, lens_color, dominant_theme_id, theme_color):
-        """The fill colour for one dot. When a theme is selected, ``lens_color``
-        is that theme's hue and every visible dot takes it (the set was already
-        narrowed to the theme, so the cloud reads as "these are your {theme}").
-        With no theme selected (``lens_color`` is None) each dot falls back to
-        its own dominant theme's hue, then the neutral ink."""
-        if lens_color is not None:
-            return lens_color
-        return theme_color.get(dominant_theme_id, cls.DOT_COLOR)
 
     # ------------------------------------------------------------------
     # Actor surfaces. The actor of an evidence is its `originators` (the
@@ -1401,38 +1228,13 @@ class EvidenceTopicCloudView(TemplateView):
                 bounds_agg["ymax"],
             )
 
-        # Theme bar: a chip per theme, in the curator's explicit `Theme.order`
-        # (which also fixes the palette assignment below). The actual narrowing
-        # to a selected theme's evidence already happened in `_filter_qs` (a DB
-        # filter), so there is no per-evidence Python cut here.
-        selected_theme_id, theme_options = self._build_themes(self.request.GET)
-        # Theme identity colours: the first themes (by order) get a palette
-        # colour, the rest the neutral ink. The same map tints the chips and the
-        # dots.
-        theme_color = self._assign_theme_colors(theme_options)
-        # Resolution maps for the dot's dominant theme: chapter_id → theme_id
-        # (with inheritance) and theme_id → order (the tie-breaker). Built once
-        # here and reused for every dot.
-        theme_by_chapter = Chapter.chapter_theme_map()
-        theme_order = dict(Theme.objects.values_list("id", "order"))
-
         # Main-topic bar: a hierarchical, single-select filter over the report's
         # `is_main_topic` chapters (condensed so each node hangs off its nearest
-        # main-topic ancestor). Independent of the theme bar — the two stack
-        # (AND). Coverage is corpus-wide and cumulative, so the order/counts
-        # don't reshuffle as the user drills in.
+        # main-topic ancestor). Coverage is corpus-wide and cumulative, so the
+        # order/counts don't reshuffle as the user drills in.
         selected_chapter_id, main_topics = self._build_main_topic_tree(self.request.GET)
 
-        # Cloud points — keep dotted only if we have coordinates. Colouring is a
-        # lens: when a theme is selected, every visible dot belongs to it (the
-        # set was already narrowed to that theme), so they all take the selected
-        # theme's colour — the cloud reads as "these are your {theme}". With no
-        # theme selected, each dot falls back to its own dominant theme's hue.
-        lens_color = (
-            theme_color.get(selected_theme_id, self.DOT_COLOR)
-            if selected_theme_id is not None
-            else None
-        )
+        # Cloud points — keep dotted only if we have coordinates.
         plottable = [
             e for e in evidences if e.topic_x is not None and e.topic_y is not None
         ]
@@ -1461,10 +1263,7 @@ class EvidenceTopicCloudView(TemplateView):
             actor_id = self._originator_ids(ev)
             pub_date = ev.source.publication_date if ev.source else None
             posted_on = pub_date.isoformat() if pub_date else ""
-            # `data-theme` carries the dot's own dominant theme (for a later
-            # client-side highlight); the fill applies the selection lens.
-            theme_id = self._dominant_theme(ev, theme_by_chapter, theme_order)
-            fill = self._dot_fill(lens_color, theme_id, theme_color)
+            fill = self.DOT_COLOR
             # Tooltip metadata — the same columns the table shows (originator
             # with Verband, chapters); no text snippet. `data-stats` adds the
             # engagement line from the evidence detail view (views/likes/…).
@@ -1476,7 +1275,6 @@ class EvidenceTopicCloudView(TemplateView):
                 f' data-platform="{esc(platform)}"'
                 f' data-username="{esc(username)}"'
                 f' data-actor="{actor_id}"'
-                f' data-theme="{theme_id if theme_id is not None else ""}"'
                 f' data-posted-on="{posted_on}"'
                 f' data-originators="{esc(originators)}"'
                 f' data-chapters="{esc(chapters)}"'
@@ -1620,8 +1418,6 @@ class EvidenceTopicCloudView(TemplateView):
                 "evidence_count": len(evidences),
                 "truncated": truncated,
                 "max_evidence": self.MAX_EVIDENCE,
-                "themes": theme_options,
-                "selected_theme_id": selected_theme_id,
                 "main_topics": main_topics,
                 "selected_chapter_id": selected_chapter_id,
                 # Only actors that have actually posted — keeps the
@@ -1648,7 +1444,6 @@ class EvidenceTopicCloudView(TemplateView):
                     (self.request.GET.get(p) or "").strip()
                     for p in (
                         "q",
-                        "theme",
                         "chapter",
                         "keyword",
                         "platform",

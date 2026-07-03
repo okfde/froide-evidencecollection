@@ -1571,18 +1571,6 @@ class Chapter(MP_Node):
 
     custom_label = models.CharField(max_length=255, verbose_name=_("label"))
     is_main_topic = models.BooleanField(default=False, verbose_name=_("is main topic"))
-    # Curator-set bulk rule "everything in this chapter belongs to theme Y".
-    # Descendants inherit the nearest themed ancestor (see `chapter_theme_map`),
-    # so setting it on a high node themes the whole sub-report. SET_NULL so
-    # deleting a theme just un-maps its chapters.
-    theme = models.ForeignKey(
-        "Theme",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="chapters",
-        verbose_name=_("theme"),
-    )
 
     node_order_by = ["custom_label"]
 
@@ -1623,85 +1611,6 @@ class Chapter(MP_Node):
         """Evidences filed under this chapter or any of its descendants."""
         subtree = Chapter.get_tree(self)
         return Evidence.objects.filter(mentions__chapter__in=subtree).distinct()
-
-    @classmethod
-    def chapter_theme_map(cls):
-        """Map ``chapter_id -> theme_id`` with inheritance.
-
-        ``Chapter.theme`` is set on individual nodes; this propagates each
-        mapping down to descendants that have no nearer themed ancestor, so a
-        theme set high in the tree covers its whole subtree. Walks the
-        materialised path of every chapter upward in fixed ``steplen`` chunks
-        (the same backbone the topic-cloud view used for the main-topic tree)
-        and takes the nearest ancestor that carries a ``theme``. Chapters with
-        no themed ancestor are omitted.
-        """
-        chapters = list(cls.objects.only("id", "path", "theme_id"))
-        by_path = {c.path: c for c in chapters}
-        steplen = cls.steplen
-        resolved = {}
-        for c in chapters:
-            path = c.path
-            while path:
-                node = by_path.get(path)
-                if node is not None and node.theme_id is not None:
-                    resolved[c.id] = node.theme_id
-                    break
-                path = path[:-steplen]  # step to the parent path
-        return resolved
-
-
-class Theme(models.Model):
-    """A curated thematic topic, defined *extensionally* by its evidence.
-
-    This is the single browse axis of the topic cloud (one chip per theme). A
-    theme's evidence set is the union of:
-
-    * ``evidences`` — pieces of evidence a curator assigned directly, and
-    * every evidence filed under a ``Chapter`` mapped to this theme *or any of
-      its descendants* (see ``Chapter.theme`` and ``Chapter.chapter_theme_map``).
-
-    Keywords are **not** stored per theme: the facet cloud derives them from the
-    theme's member evidence at query time ("assign evidence, keywords follow").
-
-    ``order`` is the curator's explicit priority. It drives both the chip sort
-    *and* the categorical palette assignment (which themes get a distinct dot
-    colour vs. fall back to the neutral ink), and it is the final tie-breaker
-    when picking an evidence's dominant theme for its dot colour.
-    """
-
-    label = models.CharField(max_length=100, verbose_name=_("label"))
-    description = models.TextField(
-        blank=True, default="", verbose_name=_("description")
-    )
-    order = models.PositiveIntegerField(default=0, verbose_name=_("order"))
-    evidences = models.ManyToManyField(
-        "Evidence",
-        blank=True,
-        related_name="themes",
-        verbose_name=_("directly assigned evidence"),
-    )
-
-    class Meta:
-        verbose_name = _("theme")
-        verbose_name_plural = _("themes")
-        ordering = ["order", "label"]
-
-    def __str__(self):
-        return self.label
-
-    def evidence_queryset(self):
-        """The theme's full evidence set: the union of directly assigned
-        evidence and everything filed under a chapter mapped to this theme (or
-        a descendant). Single source of truth for membership; the cloud view
-        builds the same union in bulk for all themes at once."""
-        chapter_ids = [
-            cid for cid, tid in Chapter.chapter_theme_map().items() if tid == self.id
-        ]
-        q = models.Q(themes=self)
-        if chapter_ids:
-            q |= models.Q(mentions__chapter__in=chapter_ids)
-        return Evidence.objects.filter(q).distinct()
 
 
 class Collection(models.Model):

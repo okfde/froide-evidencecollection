@@ -857,22 +857,8 @@
             else if (!existing && incoming) host.appendChild(incoming);
         }
 
-        // The theme bar narrows on every filter change too (counts and
-        // the active chip), so swap it wholesale from the partial response just
-        // like the actor panel.
-        function updateGroupsHost(fresh) {
-            var host = document.getElementById('topic-groups-host');
-            if (!host) return;
-            var existing = host.querySelector('.topic-groups');
-            var incoming = fresh ? fresh.querySelector('.topic-groups') : null;
-            if (existing && incoming) existing.replaceWith(incoming);
-            else if (existing && !incoming) existing.remove();
-            else if (!existing && incoming) host.appendChild(incoming);
-        }
-
         // The main-topic tree narrows on every filter change too (the counts and
-        // the active node), so swap it wholesale from the partial response just
-        // like the group bar.
+        // the active node), so swap it wholesale from the partial response.
         function updateChaptersHost(fresh) {
             var host = document.getElementById('topic-chapters-host');
             if (!host) return;
@@ -885,7 +871,7 @@
 
         // The "Actors in view" panel is recomputed over the filtered set on
         // every change, so swap it wholesale from the partial response like the
-        // theme bar.
+        // main-topic tree.
         function updateActorsHost(fresh) {
             var host = document.getElementById('topic-actors-host');
             if (!host) return;
@@ -982,17 +968,7 @@
             Object.keys(newByHref).forEach(function (href) {
                 var existing = oldByHref[href];
                 if (existing) {
-                    // A kept dot keeps its DOM node (so its position is stable),
-                    // but its colour can change between requests — most visibly
-                    // the theme lens, which re-tints every visible dot to the
-                    // selected theme. Copy the incoming fill / dominant-theme so
-                    // the recolour actually takes (fill has no CSS transition, so
-                    // it switches instantly).
-                    existing.setAttribute('fill', newByHref[href].getAttribute('fill'));
-                    var dataTheme = newByHref[href].getAttribute('data-theme');
-                    if (dataTheme !== null) {
-                        existing.setAttribute('data-theme', dataTheme);
-                    }
+                    // A kept dot keeps its DOM node (so its position is stable).
                     // A previously-fading-out circle came back before its
                     // removal timer fired — cancel the removal and fade
                     // it back up to its target opacity.
@@ -1082,12 +1058,10 @@
             var fresh = tmp.querySelector('#topic-cloud-results');
             if (!fresh) return;
             applyUpdate(fresh);
-            // The count line, theme bar, main-topic tree and actor panel live
-            // outside #topic-cloud-results, so swap them explicitly from the
-            // partial response, then re-assert the actor highlight over the
-            // new dots.
+            // The count line, main-topic tree and actor panel live outside
+            // #topic-cloud-results, so swap them explicitly from the partial
+            // response, then re-assert the actor highlight over the new dots.
             updateCountHost(tmp);
-            updateGroupsHost(tmp);
             updateChaptersHost(tmp);
             updateActorsHost(tmp);
             syncActorHighlight();
@@ -1113,52 +1087,10 @@
             container.setAttribute('aria-busy', 'true');
         });
 
-        // Theme bar → the hidden #tf-themes input (the single selected theme).
-        // Single-select: clicking a chip selects only that theme, narrowing the
-        // cloud to its evidence (so every visible dot takes the theme's colour);
-        // clicking the active chip again clears it. The theme selection is
-        // independent of the main-topic tree — they stack. Delegated on the stable
-        // host because updateGroupsHost replaces the bar wholesale.
-        var groupsBox = document.getElementById('tf-themes');
-        var groupsHost = document.getElementById('topic-groups-host');
-        function selectedGroups() {
-            if (!groupsBox) return [];
-            return Array.prototype.map.call(
-                groupsBox.querySelectorAll('input[name="theme"]'),
-                function (i) { return i.value; }
-            );
-        }
-        function setGroups(values) {
-            if (!groupsBox) return;
-            groupsBox.innerHTML = '';
-            values.forEach(function (v) {
-                var inp = document.createElement('input');
-                inp.type = 'hidden';
-                inp.name = 'theme';
-                inp.value = v;
-                groupsBox.appendChild(inp);
-            });
-            form.requestSubmit();
-        }
-        if (groupsHost && groupsBox) {
-            groupsHost.addEventListener('click', function (ev) {
-                var chip = ev.target.closest('.topic-group-chip');
-                if (!chip) return;
-                var gid = chip.getAttribute('data-theme') || '';
-                if (!gid) return;
-                // Single-select: re-clicking the active theme clears it, any
-                // other click replaces the selection with just that theme.
-                var current = selectedGroups();
-                var active = current.length === 1 && current[0] === gid;
-                setGroups(active ? [] : [gid]);
-            });
-        }
-
         // Main-topic tree → the hidden #tf-chapters input (the single selected
         // chapter). Single-select drill-down: clicking a node narrows the cloud
         // to evidence under that chapter's subtree; clicking the active node
-        // again clears it. Independent of the theme bar — the two stack.
-        // Delegated on the stable host because
+        // again clears it. Delegated on the stable host because
         // updateChaptersHost replaces the tree wholesale.
         var chaptersBox = document.getElementById('tf-chapters');
         var chaptersHost = document.getElementById('topic-chapters-host');
@@ -1291,9 +1223,8 @@
                 form.querySelectorAll('input').forEach(function (i) {
                     if (i.type === 'search' || i.type === 'date' || i.type === 'text') i.value = '';
                 });
-                // Clear the theme + chapter selections inline (no dispatch — we
-                // re-submit once below). form.reset() leaves hidden inputs as-is.
-                if (groupsBox) groupsBox.innerHTML = '';
+                // Clear the chapter selection inline (no dispatch — we re-submit
+                // once below). form.reset() leaves hidden inputs as-is.
                 if (chaptersBox) chaptersBox.innerHTML = '';
                 if (actorCombobox) actorCombobox.reset();
                 if (yearSlider) yearSlider.reset();
