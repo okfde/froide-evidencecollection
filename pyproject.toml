@@ -14,14 +14,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Extras for the `fit_keywords` management command (KeyBERT topic/keyword cloud).
-# Not needed to run the app; install with `uv pip install -e '.[keywords]'`.
-# keybert pulls in sentence-transformers, scikit-learn and numpy transitively;
-# umap-learn and simplemma are not its dependencies, so they're listed here.
-keywords = [
-    "keybert",
+# Extras for the `fit_topic_coords` management command (topic cloud coords).
+# Not needed to run the app; install with `uv pip install -e '.[topics]'`.
+# The command embeds each evidence's text and reduces it to 2D with UMAP.
+topics = [
+    "sentence-transformers",
     "umap-learn",
-    "simplemma",
+    "numpy",
 ]
 
 [dependency-groups]

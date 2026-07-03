@@ -1227,7 +1227,7 @@ class Evidence(TrackableModel):
         null=True, blank=True, verbose_name=_("documentation date")
     )
 
-    # Populated by the `fit_keywords` management command, which embeds
+    # Populated by the `fit_topic_coords` management command, which embeds
     # `topic_text` (the assembled source text). topic_x/topic_y are the
     # per-evidence 2D UMAP coordinates used by the cloud view; topic_fit_at is
     # the "is fitted" gate (null = not yet fitted, or no usable text).
