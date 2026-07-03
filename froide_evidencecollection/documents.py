@@ -67,16 +67,13 @@ class EvidenceDocument(DSLDocument):
                 "originators__person__affiliations__role",
                 # `search_text` reads each evidence's mentions (the per-mention
                 # `raw_transcript` for a video post) and the post's own fields;
-                # prefetch the mentions so indexing doesn't fan out per row. The
-                # redistribution chain is walked via the select_related posts
-                # below — those carry their own text, no media relations.
+                # prefetch the mentions so indexing doesn't fan out per row.
                 "mentions__category",
             )
             .select_related(
                 "evidence_type",
                 "social_media_post__account",
                 "social_media_post__redistributes__account",
-                "social_media_post__redistributes__redistributes__account",
             )
         )
 

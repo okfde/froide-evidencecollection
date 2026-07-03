@@ -551,12 +551,6 @@ class SocialMediaAccount(models.Model):
         return ["id"]
 
 
-# Cap how deep `text_segments()` follows a chain of redistributed posts
-# (repost-of-a-repost). The cycle guard alone would terminate, but real chains
-# are 1–2 hops; this bounds work and query depth for pathological data.
-MAX_REDISTRIBUTION_DEPTH = 3
-
-
 @dataclass(frozen=True)
 class TextSegment:
     """One labelled piece of textual content belonging to an evidence source.
@@ -831,31 +825,15 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
             )
         return segments
 
-    def text_segments(
-        self, *, include_redistributed: bool = True, _depth: int = 0, _seen=None
-    ) -> list[TextSegment]:
-        # `_seen`/`_depth` guard against cycles and runaway chains in the
-        # self-referential `redistributes` FK (untrusted, scraped data).
-        # `unresolved_redistribution` carries a reference, not text, by design,
-        # so it contributes no segment here.
-        _seen = _seen if _seen is not None else set()
-        if self.pk in _seen:
-            return []
-        _seen.add(self.pk)
-
+    def text_segments(self, *, include_redistributed: bool = True) -> list[TextSegment]:
         segments = self._own_text_segments()
-        if (
-            include_redistributed
-            and self.redistributes_id
-            and _depth < MAX_REDISTRIBUTION_DEPTH
-        ):
-            inner = self.redistributes.text_segments(
-                include_redistributed=True, _depth=_depth + 1, _seen=_seen
-            )
+
+        # Include text segments of redistributed post.
+        if include_redistributed and self.redistributes_id:
             attribution = str(self.redistributes.account)
             segments.extend(
                 replace(seg, kind=f"redistributed:{seg.kind}", attribution=attribution)
-                for seg in inner
+                for seg in self.redistributes._own_text_segments()
             )
         return segments
 
