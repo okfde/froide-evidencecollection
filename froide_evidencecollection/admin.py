@@ -32,7 +32,6 @@ from .models import (
     Role,
     SocialMediaAccount,
     SocialMediaPost,
-    Theme,
 )
 from .utils import selectable_regions
 
@@ -542,15 +541,13 @@ class CategoryAdmin(ReadOnlyAdmin):
 @admin.register(Chapter)
 class ChapterAdmin(ReadOnlyAdmin):
     # Chapters are seeded by the JSON import, but curators maintain them by hand
-    # on prod: the label, the main-topic flag, and the bulk `theme` assignment
-    # ("everything in chapter X belongs to theme Y", also editable straight from
+    # on prod: the label and the main-topic flag (also editable straight from
     # the changelist via list_editable). Only treebeard's structural fields stay
     # locked so the materialised tree can't be corrupted from the form.
-    list_display = ["indented_label", "is_main_topic", "theme", "evidence_count"]
-    list_editable = ["is_main_topic", "theme"]
-    list_filter = ["is_main_topic", "depth", "theme"]
+    list_display = ["indented_label", "is_main_topic", "evidence_count"]
+    list_editable = ["is_main_topic"]
+    list_filter = ["is_main_topic", "depth"]
     search_fields = ["custom_label"]
-    autocomplete_fields = ["theme"]
     readonly_fields = ["subsumed_evidences"]
 
     # treebeard internals: never hand-editable, regardless of DEBUG.
@@ -559,7 +556,7 @@ class ChapterAdmin(ReadOnlyAdmin):
     def get_readonly_fields(self, request, obj=None):
         # Override ReadOnlyAdmin's blanket prod lock: keep only treebeard's
         # structural fields (plus the computed `subsumed_evidences`) read-only,
-        # so `custom_label`, `is_main_topic` and `theme` stay editable on prod.
+        # so `custom_label` and `is_main_topic` stay editable on prod.
         return tuple(self.structural_fields) + tuple(self.readonly_fields)
 
     def get_queryset(self, request):
@@ -625,22 +622,6 @@ class EvidenceAdmin(ReadOnlyAdmin):
         return ", ".join([originator.name for originator in obj.originators.all()])
 
     originator_list.short_description = _("originators")
-
-
-@admin.register(Theme)
-class ThemeAdmin(admin.ModelAdmin):
-    # The curator surface for the topic cloud's single browse bar. `evidences`
-    # is the direct, chapter-free assignment; chapter-mapped evidence is added
-    # in ChapterAdmin. `order` drives the chip sort, the palette and the dot's
-    # dominant-theme tie-break, so it's editable inline.
-    list_display = ["label", "order", "evidence_count"]
-    list_editable = ["order"]
-    search_fields = ["label"]
-    filter_horizontal = ["evidences"]
-
-    @admin.display(description=_("evidences"))
-    def evidence_count(self, obj):
-        return obj.evidence_queryset().count()
 
 
 _WHITESPACE_RE = re.compile(r"\s+")

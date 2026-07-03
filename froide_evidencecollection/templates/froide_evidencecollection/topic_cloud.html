@@ -12,7 +12,7 @@
      data-i18n-originator="{% trans 'Originator' %}"
      data-i18n-chapters="{% trans 'Chapters' %}">
     {# ── Sticky filter region ──────────────────────────────────── #}
-    {# The whole filter stack — compact toolbar row, theme bar and   #}
+    {# The whole filter stack — compact toolbar row and             #}
     {# main-topic tree — is pinned together so it                    #}
     {# travels with the canvas as the cloud scrolls behind it. The   #}
     {# host divs stay inside the wrapper so their htmx swaps still    #}
@@ -36,19 +36,9 @@
                 {# change/input filters are reproduced in topic_cloud.js, #}
                 {# which calls form.requestSubmit() to fire this trigger.  #}
                 hx-trigger="submit">
-                {# Selected theme (single-select), managed by the theme bar      #}
-                {# below: at most one hidden input, narrowing the cloud to that  #}
-                {# theme's evidence. Lives in the form so it rides every filter  #}
-                {# submit.                                                        #}
-                {% if selected_theme_id %}
-                    <span id="tf-themes">
-                        <input type="hidden" name="theme" value="{{ selected_theme_id }}">
-                    </span>
-                {% endif %}
                 {# Selected main-topic chapter (single-select), managed by the   #}
                 {# main-topic tree below: at most one hidden input, narrowing the #}
-                {# cloud to evidence under that chapter's subtree. Independent of #}
-                {# the theme select — the two stack (AND).                        #}
+                {# cloud to evidence under that chapter's subtree.                #}
                 {% if selected_chapter_id %}
                     <span id="tf-chapters">
                         <input type="hidden" name="chapter" value="{{ selected_chapter_id }}">
@@ -230,14 +220,10 @@
                 </div>
             </form>
         </div>
-        {# ── Theme bar + main-topic tree ──────────────────────────── #}
-        {# Themes: the single browse axis, single-select; each chip carries  #}
-        {# its identity colour (so the bar doubles as the dot colour key)    #}
-        {# and selecting one narrows the cloud to that theme's evidence —    #}
-        {# all one colour. Both live outside #topic-cloud-results and are    #}
-        {# re-rendered on every filter change (JS swaps them from the        #}
-        {# partial response) so counts stay current.                         #}
-        <div id="topic-groups-host">{% include "froide_evidencecollection/_topic_themes.html" %}</div>
+        {# ── Main-topic tree ──────────────────────────────────────── #}
+        {# Lives outside #topic-cloud-results and is re-rendered on every    #}
+        {# filter change (JS swaps it from the partial response) so counts   #}
+        {# stay current.                                                     #}
         <div id="topic-chapters-host">{% include "froide_evidencecollection/_topic_chapters.html" %}</div>
     </div>
     {# /.topic-cloud-filters #}
@@ -245,7 +231,7 @@
     {# "Actors in view" panel on the right. The panel lists the actors    #}
     {# present in the filtered set; clicking one highlights that actor's   #}
     {# dots in the cloud. It lives outside #topic-cloud-results and is     #}
-    {# swapped wholesale on every filter change, like the theme bar.       #}
+    {# swapped wholesale on every filter change, like the main-topic tree. #}
     {# ── View tabs: scatter cloud ⇆ tabular list ──────────────────── #}
     {# Pure client-side toggle (see the tab script): clicking a tab        #}
     {# flips a class on .topic-cloud-page, which CSS uses to show the       #}

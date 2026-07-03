@@ -149,7 +149,7 @@
     max-height: 60vh;
 }
 
-/* Sticky filter region: the whole filter stack (toolbar + theme bar +
+/* Sticky filter region: the whole filter stack (toolbar +
     main-topic tree) stays pinned to the top while the
     canvas scrolls behind it. The wrapper carries its own background and
     a bottom shadow so the whole block reads as one layer above the cloud.
@@ -614,9 +614,8 @@
         max-height: 60vh;
     }
 
-    /* Drop the scatter — the theme bar above acts as the filter,
-        the outline below becomes the visible post list. The colour key
-        goes with it (nothing left to colour-code). */
+    /* Drop the scatter — the main-topic tree above acts as the filter,
+        the outline below becomes the visible post list. */
     .topic-cloud-svg {
         display: none;
     }
@@ -707,95 +706,6 @@
     }
 }
 
-/* Theme bar: the single browse axis above the main-topic tree. Each chip
-    carries its theme's identity colour (via the inline --topic-color), so
-    the bar doubles as the dot colour key. Framed like the main-topic tree
-    and actor panels so the browse surfaces read as a set. */
-.topic-groups {
-    border: 1px solid #e7e2db;
-    border-radius: .5rem;
-    padding: .5rem .75rem;
-    background: #fcfbf9;
-}
-
-.topic-groups__head {
-    margin-bottom: .35rem;
-}
-
-.topic-groups__title {
-    font-size: .8rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .03em;
-    color: #6b5d4f;
-}
-
-.topic-groups__cloud {
-    display: flex;
-    flex-wrap: wrap;
-    gap: .35rem .4rem;
-    align-items: baseline;
-}
-
-.topic-group-chip {
-    display: inline-flex;
-    align-items: baseline;
-    border: 1px solid #d9cfc2;
-    background: #fff;
-    color: #4a3f33;
-    border-radius: 999px;
-    padding: .12rem .7rem;
-    font-size: .92rem;
-    line-height: 1.5;
-    cursor: pointer;
-    transition: background .12s, border-color .12s;
-}
-
-/* The topic's identity colour, shown as a leading swatch when the chip is
-    idle and as the whole fill when it's active. */
-.topic-group-chip__swatch {
-    width: .6em;
-    height: .6em;
-    border-radius: 50%;
-    margin-right: .45em;
-    background: var(--topic-color, #7a6e60);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
-    align-self: center;
-}
-
-.topic-group-chip:hover {
-    background: #faf7f3;
-    border-color: var(--topic-color, #bcb3a6);
-}
-
-.topic-group-chip:focus-visible {
-    outline: 2px solid var(--topic-color, #8a6d3b);
-    outline-offset: 1px;
-}
-
-.topic-group-chip.is-active {
-    background: var(--topic-color, #6b4f2c);
-    border-color: var(--topic-color, #6b4f2c);
-    color: #fff;
-}
-
-/* On an active chip the swatch sits on its own colour, so fade it to a
-    subtle white ring instead of an invisible same-colour dot. */
-.topic-group-chip.is-active .topic-group-chip__swatch {
-    background: rgba(255, 255, 255, .85);
-    box-shadow: none;
-}
-
-.topic-group-chip__count {
-    font-size: .72em;
-    opacity: .65;
-    margin-left: .4em;
-}
-
-.topic-group-chip.is-active .topic-group-chip__count {
-    opacity: .85;
-}
-
 /* ── Main-topic tree (report chapters) ──────────────────────────────
     A hierarchical, single-select filter rendered as a plain indented
     category tree (no surrounding frame, no chip pills). It is collapsed by
@@ -805,7 +715,7 @@
     full row height so consecutive rows form a continuous line down the tree.
     The selected node gets a left accent bar rather than a filled background,
     so the tree stays light. The panel is framed like the other filters
-    (theme bar, actors). */
+    (actors). */
 .topic-chapters {
     border: 1px solid #e7e2db;
     border-radius: .5rem;
