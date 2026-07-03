@@ -1052,75 +1052,6 @@ def _invalidate_redactor_on_scope_change(sender, **kwargs):
     invalidate_global_redactor()
 
 
-class Keyword(models.Model):
-    """A content keyword used as a faceted browse term over Evidence.
-
-    Populated by `fit_keywords` (Design B): KeyBERT extracts the most salient
-    keyphrases per piece of evidence, each phrase is lemmatised, and the lemma
-    becomes the keyword. `lemma` is the normalised match key (German lemma,
-    lower-cased) and the value carried in the `keyword` query param. Every
-    surface form the lemma appeared in is tallied across documents in
-    `surface_forms`; `label` is the most common of those — the human-readable
-    text shown on the chip. Each Evidence is linked (via `Evidence.keywords`) to
-    the keywords KeyBERT picked for it, so a facet selection narrows to the
-    evidence KeyBERT associated with the concept (which may include evidence
-    that implies it without the literal word).
-    """
-
-    lemma = models.CharField(max_length=100, unique=True, verbose_name=_("lemma"))
-    # Auto-derived surface form, (re)set on every fit — do not hand-edit; use
-    # `custom_label` to override the display text. Set to the most common
-    # surface form across documents (see `surface_forms`).
-    label = models.CharField(max_length=100, verbose_name=_("label"))
-    # Every surface form this keyword appeared in across the corpus, mapped to
-    # how many documents used it, e.g. {"soziale medien": 12, "sozialen
-    # medien": 3}. All forms collapse onto the single `lemma` for matching; this
-    # records the raw variants behind that lemma. (Re)set on every fit; `label`
-    # is derived as the most-used key here. Sorted most-frequent-first.
-    surface_forms = models.JSONField(
-        default=dict, blank=True, verbose_name=_("surface forms")
-    )
-    # Curator-editable display override. Blank = fall back to `label`. Unlike
-    # `label`, this is preserved across refits (see `fit_keywords`), so manual
-    # naming sticks.
-    custom_label = models.CharField(
-        max_length=100, blank=True, default="", verbose_name=_("custom label")
-    )
-    # Curator switch: when False the keyword is hidden from the facet cloud and
-    # not offered as a filter. Lets a curator suppress noise/uninteresting terms
-    # without losing the row. Preserved across refits.
-    enabled = models.BooleanField(default=True, verbose_name=_("enabled"))
-    # Corpus document frequency: how many fitted pieces of evidence contain this
-    # keyword's lemma, over the whole corpus. Cached here at fit time so the
-    # facet view can rank keywords by keyness (over-representation in the
-    # filtered slice vs. this corpus baseline) instead of raw frequency.
-    df = models.PositiveIntegerField(default=0, verbose_name=_("document frequency"))
-    # Salience = KeyBERT's cosine similarity between a picked keyphrase and the
-    # document it was picked for: how *representative* the phrase is of that
-    # document (not how relevant it is globally). Aggregated over every pick of
-    # this keyword across the corpus and cached here for inspection — `max` is
-    # its strongest single appearance, `mean` its average. Instrumentation for
-    # deciding a salience-based keep/rescue rule; not yet used for filtering.
-    # (Re)set on every fit; zeroed for keywords that fall out of a fit.
-    salience_max = models.FloatField(default=0.0, verbose_name=_("max salience"))
-    salience_mean = models.FloatField(default=0.0, verbose_name=_("mean salience"))
-    fit_at = models.DateTimeField(verbose_name=_("fitted at"))
-
-    class Meta:
-        verbose_name = _("keyword")
-        verbose_name_plural = _("keywords")
-        ordering = ["label"]
-
-    def __str__(self):
-        return self.display_label
-
-    @property
-    def display_label(self) -> str:
-        """Text shown on the facet chip: the curator override if set, else the
-        auto-derived surface form."""
-        return self.custom_label or self.label
-
-
 # Topic-modelling assembly order. The embedding model truncates to a fixed
 # token window, so whatever leads the text dominates the topic signal — lead
 # with the highest-signal fields (body / document text, then transcription)
@@ -1235,16 +1166,6 @@ class Evidence(TrackableModel):
     topic_y = models.FloatField(null=True, blank=True, verbose_name=_("topic y"))
     topic_fit_at = models.DateTimeField(
         null=True, blank=True, verbose_name=_("topic fitted at")
-    )
-    # Populated by `fit_keywords` alongside the coords: the content keywords
-    # whose lemma actually occurs in this evidence's text. Drives the
-    # keyword-facet browse surface of the topic cloud — an evidence-level signal
-    # (the word is really in the text).
-    keywords = models.ManyToManyField(
-        "Keyword",
-        blank=True,
-        related_name="evidences",
-        verbose_name=_("keywords"),
     )
 
     class Meta:

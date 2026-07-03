@@ -1,12 +1,11 @@
 import csv
 import html
 import io
-import math
 from collections import defaultdict
 
 from django.conf import settings
 from django.core.exceptions import BadRequest
-from django.db.models import F, Max, Min, Prefetch, Q, QuerySet, Sum
+from django.db.models import F, Max, Min, Prefetch, Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -28,7 +27,6 @@ from .models import (
     Evidence,
     EvidenceMention,
     InstitutionalLevel,
-    Keyword,
     Organization,
     Person,
     PoliticalPosition,
@@ -247,9 +245,6 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
             "originators__organization__institutional_level",
             "related_actors__person__status",
             "related_actors__organization__institutional_level",
-            # Only enabled keywords — a curator-disabled keyword is suppressed
-            # everywhere, including this listing (mirrors the topic cloud).
-            Prefetch("keywords", queryset=Keyword.objects.filter(enabled=True)),
             "mentions__category",
             "mentions__originator",
             "mentions__chapter",
@@ -497,19 +492,19 @@ class ActorDetailExportView(NoIndexMixin, NeverCacheMixin, ExportMixin, DetailVi
 
 
 class EvidenceTopicCloudView(TemplateView):
-    """View over BERTopic-fitted pieces of evidence, browsed by keyword.
+    """View over topic-fitted pieces of evidence, browsed by main topic.
 
     The primary structure is a server-rendered, screen-reader-navigable
     outline listing the matching evidence. A small SVG scatter sits on top
     as a visual aid — ``aria-hidden`` because the list below carries the
-    same information in semantic form. Browsing is by main-topic tree and
-    keyword facet; the toolbar additionally filters by platform, date range,
-    actor, and free-text search.
+    same information in semantic form. Browsing is by main-topic tree; the
+    toolbar additionally filters by platform, date range, actor, and
+    free-text search.
 
     Dot *positions* come from the fit's 2D embedding (``topic_x`` /
     ``topic_y``); every dot is drawn in the neutral ink (``DOT_COLOR``).
 
-    Account-derived facets (platform, username, organization, actor) are
+    Account-derived filters (platform, username, organization, actor) are
     sourced from each evidence's social-media-post source; evidence backed
     by a document instead has no account and falls out of those filters.
     """
@@ -524,7 +519,7 @@ class EvidenceTopicCloudView(TemplateView):
 
     # Evidence listed in the SR-only / mobile outline. Keeps the hidden DOM
     # bounded even when the filtered set is large; users hunting a specific
-    # item can narrow via the keyword facets.
+    # item can narrow via the toolbar filters.
     OUTLINE_MAX_EVIDENCE = 100
 
     # Neutral ink for every dot.
@@ -535,16 +530,6 @@ class EvidenceTopicCloudView(TemplateView):
     SVG_WIDTH = 1000
     SVG_HEIGHT = 600
     SVG_PADDING = 16
-
-    # Keyword facets are the primary "by keyword" browse surface: a facet is one
-    # keyword, drawn from the precomputed Evidence↔Keyword index (built by
-    # `fit_post_topics` from lemmatised text), so selecting it narrows to
-    # evidence that genuinely contains the word. Several can be combined (AND).
-    # The list is recomputed over the filtered set each request, so only
-    # co-occurring keywords remain. MAX_FACETS caps the cloud;
-    # FACET_WEIGHT_BUCKETS is the font-size scale.
-    MAX_FACETS = 50
-    FACET_WEIGHT_BUCKETS = 5
 
     # Template fragment rendered on its own when htmx asks for an in-place
     # filter refresh (detected via the HX-Request header / request.htmx) —
@@ -561,34 +546,10 @@ class EvidenceTopicCloudView(TemplateView):
             render_to_string(self.PARTIAL_TEMPLATE, context, request=self.request)
         )
 
-    # Query params that narrow the evidence set in `_filter_qs`. If any is
-    # present the facet ranking switches from frequency to keyness, since the
-    # filtered set is then a real slice to contrast against the corpus.
-    # `keyword` is handled separately (against the enabled selection), since a
-    # disabled lemma in the URL is dropped and must not trigger keyness.
-    NARROWING_PARAMS = (
-        "q",
-        "chapter",
-        "platform",
-        "posted_after",
-        "posted_before",
-        "actor",
-        "role",
-        "level",
-        "verband",
-    )
-
     # Relation path from an Evidence to the political positions held by an
     # originator who is a person. Evidence whose originators are all
     # organizations (or that has none) falls out.
     POLITICAL_POSITION_PREFIX = "originators__person__political_positions"
-
-    @classmethod
-    def _has_active_filter(cls, params):
-        """True if any narrowing filter is set, so the filtered evidence is a
-        genuine slice (keyness applies) rather than the whole corpus. Excludes
-        the `keyword` param — the caller ORs in the resolved enabled selection."""
-        return any((params.get(p) or "").strip() for p in cls.NARROWING_PARAMS)
 
     @staticmethod
     def _param_year(value):
@@ -781,10 +742,8 @@ class EvidenceTopicCloudView(TemplateView):
         # deserialized for every joined row, and they're not used here. The
         # account fields are pulled via select_related so the SR outline reads
         # them without an N+1. ``topic_fit_at__isnull=False`` is the "is fitted"
-        # gate — only fitted evidence has the embedding coords the cloud plots;
-        # the cluster itself is no longer surfaced (and the keyword fit no longer
-        # sets the `topic` FK at all).
-        # Account-derived facets traverse the `social_media_post` source.
+        # gate — only fitted evidence has the embedding coords the cloud plots.
+        # Account-derived filters traverse the `social_media_post` source.
         qs = (
             Evidence.objects.filter(topic_fit_at__isnull=False)
             .select_related(
@@ -1068,103 +1027,6 @@ class EvidenceTopicCloudView(TemplateView):
             key=lambda a: a.name.casefold(),
         )
 
-    def _build_facets(
-        self,
-        evidences,
-        selected_lemmas,
-        keyness,
-    ):
-        """Keyword facets over the *currently filtered* evidence set.
-
-        Each facet is one keyword, counted by how many of the given evidence
-        actually carry it (via the prefetched Evidence↔Keyword index). The
-        already-selected keywords are dropped — what remains is exactly the set
-        of keywords that still co-occur with the current selection, so the
-        cloud narrows as the user drills in. Counting runs over the in-memory
-        evidence list (already capped at ``MAX_EVIDENCE``), reading the
-        ``keywords`` prefetch, so it costs no extra query.
-
-        Ranking depends on whether a filter is active:
-
-        * ``keyness=False`` (nothing narrowed — the slice *is* the corpus):
-          rank by raw frequency. Keyness would be degenerate here, since every
-          keyword is averagely represented against its own baseline.
-        * ``keyness=True`` (a filter narrowed the set): rank by **keyness** —
-          how over-represented each keyword is in the slice vs. the whole
-          corpus — using the log-odds-ratio with an informative Dirichlet prior
-          (Monroe et al. 2008), the variance-stabilised z-score. This surfaces
-          what's *distinctive* about the slice rather than what's merely common,
-          so each drill-down reveals new characterising terms. The corpus
-          baseline is each keyword's cached ``Keyword.df``.
-
-        Returns up to ``MAX_FACETS`` facets, most relevant first, each with a
-        1..``FACET_WEIGHT_BUCKETS`` size weight for the cloud's font scale.
-        """
-        selected = set(selected_lemmas)
-        counts: dict[str, int] = {}
-        labels: dict[str, str] = {}
-        dfs: dict[str, int] = {}
-        # Total keyword incidences in the slice — the n_i normaliser for the
-        # log-odds prior. Counts every occurrence, including selected keywords,
-        # so it reflects the slice's full keyword mass.
-        n_i = 0
-        for ev in evidences:
-            for kw in ev.keywords.all():
-                # Curator-disabled keywords are suppressed entirely: not shown,
-                # not counted toward the slice mass, not offered as a facet.
-                if not kw.enabled:
-                    continue
-                n_i += 1
-                if kw.lemma in selected:
-                    continue
-                counts[kw.lemma] = counts.get(kw.lemma, 0) + 1
-                labels[kw.lemma] = kw.display_label
-                dfs[kw.lemma] = kw.df
-
-        if keyness:
-            # a0 = total corpus keyword mass (sum of every enabled keyword's df);
-            # n_j = the reference mass outside the slice. One cheap aggregate,
-            # restricted to enabled keywords to match the displayed universe.
-            a0 = (
-                Keyword.objects.filter(enabled=True).aggregate(total=Sum("df"))["total"]
-                or 0
-            )
-            n_j = max(a0 - n_i, 1e-9)
-            score: dict[str, float] = {}
-            for lemma, y_i in counts.items():
-                alpha = dfs[lemma] or 1  # prior = corpus df for this keyword
-                y_j = alpha - y_i  # occurrences outside the slice
-                den_i = max(n_i + a0 - y_i - alpha, 1e-9)
-                den_j = max(n_j + a0 - y_j - alpha, 1e-9)
-                delta = math.log((y_i + alpha) / den_i) - math.log(
-                    (y_j + alpha) / den_j
-                )
-                var = 1.0 / (y_i + alpha) + 1.0 / (y_j + alpha)
-                score[lemma] = delta / math.sqrt(var)
-        else:
-            score = {lemma: float(n) for lemma, n in counts.items()}
-
-        facets = [
-            {
-                "lemma": lemma,
-                "keyword": labels[lemma],
-                "count": counts[lemma],
-                "score": score[lemma],
-            }
-            for lemma in counts
-        ]
-        facets.sort(key=lambda f: (-f["score"], f["keyword"]))
-        facets = facets[: self.MAX_FACETS]
-        if facets:
-            hi = facets[0]["score"]
-            lo = facets[-1]["score"]
-            span = hi - lo or 1
-            for f in facets:
-                f["weight"] = 1 + round(
-                    (f["score"] - lo) / span * (self.FACET_WEIGHT_BUCKETS - 1)
-                )
-        return facets
-
     def _project(self, posts, bounds=None):
         """Map post x/y into SVG pixel coordinates. Coords are formatted as
         plain strings (always a ``.`` decimal) so Django's locale-aware
@@ -1445,7 +1307,6 @@ class EvidenceTopicCloudView(TemplateView):
                     for p in (
                         "q",
                         "chapter",
-                        "keyword",
                         "platform",
                         "posted_after",
                         "posted_before",
