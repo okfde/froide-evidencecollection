@@ -18,14 +18,6 @@
         font-size: 1.4rem; font-weight: 600; margin-bottom: 1rem;
     }
 
-    /* ── Originator ──────────────────────────────────────────────── */
-    .originator-avatar {
-        flex: 0 0 auto;
-        width: 2.75rem; height: 2.75rem;
-        display: inline-flex; align-items: center; justify-content: center;
-        border-radius: 50%; font-size: 1.25rem; line-height: 1;
-    }
-
     /* ── Text segments ───────────────────────────────────────────── */
     .seg { margin-bottom: 1.5rem; }
     .seg:last-child { margin-bottom: 0; }
@@ -121,14 +113,7 @@
                             <div class="d-flex flex-column gap-3">
                                 {% for actor in object.originator_actors %}
                                     <div class="d-flex align-items-center gap-3">
-                                        <span class="originator-avatar bg-light text-body-secondary"
-                                              aria-hidden="true">
-                                            {% if actor.organization %}
-                                                🏛
-                                            {% else %}
-                                                👤
-                                            {% endif %}
-                                        </span>
+                                        {% include "froide_evidencecollection/_actor_avatar.html" with actor=actor %}
                                         <div>
                                             <a href="{% url 'evidencecollection:actor-detail' actor.pk %}"
                                                class="fw-semibold d-block text-decoration-none">{{ actor.name }}</a>
