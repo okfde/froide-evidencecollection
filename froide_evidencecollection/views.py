@@ -793,16 +793,14 @@ class EvidenceTopicCloudView(TemplateView):
         params = self.request.GET
         q = (params.get("q") or "").strip()
         if q:
-            # The mentions join (a to-many) can multiply rows, so de-dupe.
             qs = qs.filter(
                 Q(social_media_post__title__icontains=q)
                 | Q(social_media_post__text__icontains=q)
                 | Q(social_media_post__description__icontains=q)
                 | Q(social_media_post__transcription__icontains=q)
-                | Q(mentions__raw_transcript__icontains=q)
                 | Q(citation__icontains=q)
                 | Q(description__icontains=q)
-            ).distinct()
+            )
 
         # Main topic (report chapter): the hierarchical entry point, single-
         # select. Selecting a main-topic node narrows to evidence filed under

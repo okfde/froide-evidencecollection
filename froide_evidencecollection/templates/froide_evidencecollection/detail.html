@@ -259,7 +259,7 @@
             {# Each mention is one curated footnote: a category attributed to  #}
             {# a single originator, placed in the report (its chapter path),   #}
             {# with the curator's citation and — for video posts — the         #}
-            {# time-coded excerpt and its raw transcript.                      #}
+            {# time-coded excerpt.                                             #}
             {% if object.mentions.all %}
                 <section class="detail-section">
                     <h2 class="detail-heading">
@@ -305,16 +305,6 @@
                                                 </h3>
                                                 <blockquote class="seg-body">
                                                     {{ m.citation|plain_text }}
-                                                </blockquote>
-                                            </div>
-                                        {% endif %}
-                                        {% if m.raw_transcript %}
-                                            <div class="seg seg-transcription mt-3 mb-0">
-                                                <h3 class="detail-heading">
-                                                    <span>{% trans "Raw transcript" %}</span>
-                                                </h3>
-                                                <blockquote class="seg-body">
-                                                    {{ m.raw_transcript|plain_text }}
                                                 </blockquote>
                                             </div>
                                         {% endif %}

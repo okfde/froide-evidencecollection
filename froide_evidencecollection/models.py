@@ -647,9 +647,9 @@ class PostMediaMixin(models.Model):
     content image and video are merely *tracked* by their import source path
     (the binaries are not stored, matching that they were never rendered
     publicly). `image_description` is the image's alt text; the video's full
-    `transcription` is kept verbatim as a display/backup copy and is searched /
-    topic-modelled only as the fallback when no `EvidenceMention.raw_transcript`
-    excerpt exists (see `Evidence._video_transcript_segments`).
+    `transcription` is kept verbatim as a display/backup copy and is the
+    searched / topic-modelled text for a video post (see
+    `Evidence._video_transcript_segments`).
     """
 
     screenshot = models.ImageField(
@@ -1189,31 +1189,12 @@ class Evidence(TrackableModel):
 
     def _video_transcript_segments(self) -> list["TextSegment"]:
         # Transcript text for a video post; non-video posts contribute none.
-        # Prefer the curated, time-coded per-mention `raw_transcript` excerpts
-        # (each labelled with its category/footnote); if the post has a video
-        # but no mention carries a transcript, fall back to the post's full
-        # `transcription`. Either way the transcript is searched and
-        # topic-modelled — the post's own caption/title still ride along via
-        # `_own_text_segments`, but its (often promotional) `description` does
-        # not for a video. Reads prefetched `mentions`.
+        # The post's full `transcription` is searched and topic-modelled — the
+        # post's own caption/title still ride along via `_own_text_segments`,
+        # but its (often promotional) `description` does not for a video.
         source = self.source
         if source is None or not source.is_video:
             return []
-        segments = []
-        for mention in self.mentions.all():
-            text = (mention.raw_transcript or "").strip()
-            if not text:
-                continue
-            attribution = str(mention.category)
-            if mention.footnote:
-                attribution = f"{attribution} · {mention.footnote}"
-            segments.append(
-                TextSegment(
-                    "transcription", _("Transcription"), text, attribution=attribution
-                )
-            )
-        if segments:
-            return segments
         full = (source.transcription or "").strip()
         if full:
             return [TextSegment("transcription", _("Transcription"), full)]
@@ -1221,11 +1202,10 @@ class Evidence(TrackableModel):
 
     @property
     def text_segments(self) -> list["TextSegment"]:
-        # The source's own labelled text plus, for a video post, its transcript
-        # (curated per-mention excerpts or the full-transcription fallback).
-        # Single definition behind the detail view, search index and topic
-        # modelling. Redaction rules are applied here — the one chokepoint — so
-        # masked terms never reach display, search or topics.
+        # The source's own labelled text plus, for a video post, its full
+        # transcription. Single definition behind the detail view, search index
+        # and topic modelling. Redaction rules are applied here — the one
+        # chokepoint — so masked terms never reach display, search or topics.
         source = self.source
         if source is None:
             return []
@@ -1434,14 +1414,9 @@ class EvidenceMention(models.Model):
         max_length=500, blank=True, default="", verbose_name=_("report URL")
     )
     # Video-excerpt fields (= source `video_timestamp`), set only for mentions of
-    # a video post. `start`/`end` locate the excerpt in the video; `raw_transcript`
-    # is the verbatim auto-transcript of that window and is the searched /
-    # topic-modelled text for a video (see `Evidence._video_transcript_segments`).
+    # a video post. `start`/`end` locate the excerpt in the video.
     start = models.DurationField(null=True, blank=True, verbose_name=_("start"))
     end = models.DurationField(null=True, blank=True, verbose_name=_("end"))
-    raw_transcript = models.TextField(
-        blank=True, default="", verbose_name=_("raw transcript")
-    )
 
     class Meta:
         verbose_name = _("evidence mention")

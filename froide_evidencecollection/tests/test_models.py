@@ -83,41 +83,12 @@ class TestPostTextSegments:
         assert set(by_kind["description"]) == {"a description", "a protest sign"}
         assert all(s.for_search and s.for_topics for s in evidence.text_segments)
 
-    def test_video_post_uses_mention_raw_transcript(self):
-        # For a video post the per-mention raw_transcript is the searched /
-        # topic text; the full transcription is the fallback and is not used
-        # when a mention carries a transcript.
+    def test_video_post_uses_full_transcription(self):
+        # For a video post the post's full transcription is the searched /
+        # topic text; the caption rides along but the (promotional) description
+        # does not.
         post = _make_post(
             text="caption",
-            video_source_path="./video/b.mp4",
-            transcription="full transcript not used",
-        )
-        evidence = Evidence.objects.create(social_media_post=post)
-        category = Category.objects.create(name="Disinformation")
-        EvidenceMention.objects.create(
-            evidence=evidence,
-            category=category,
-            footnote="fn3",
-            raw_transcript="the spoken excerpt",
-            originator=_actor(),
-        )
-
-        seg = next(s for s in evidence.text_segments if s.kind == "transcription")
-        assert seg.text == "the spoken excerpt"
-        assert seg.for_search is True
-        assert seg.for_topics is True
-        assert seg.attribution == "Disinformation · fn3"
-        assert "the spoken excerpt" in evidence.search_text
-        assert "the spoken excerpt" in evidence.topic_text
-        # The caption rides along, but the full transcription does not.
-        assert "caption" in evidence.search_text
-        assert "full transcript not used" not in evidence.search_text
-
-    def test_video_post_falls_back_to_full_transcription(self):
-        # With no per-mention transcript, the post's full transcription is used
-        # for display/search/topics.
-        post = _make_post(
-            text="",
             video_source_path="./video/b.mp4",
             transcription="the whole transcript",
         )
@@ -126,7 +97,10 @@ class TestPostTextSegments:
         seg = next(s for s in evidence.text_segments if s.kind == "transcription")
         assert seg.text == "the whole transcript"
         assert seg.for_search is True
+        assert seg.for_topics is True
+        assert "the whole transcript" in evidence.search_text
         assert "the whole transcript" in evidence.topic_text
+        assert "caption" in evidence.search_text
 
     def test_video_post_description_is_display_only(self):
         # A video post's (often promotional) description rides along as a

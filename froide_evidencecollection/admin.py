@@ -506,7 +506,6 @@ class EvidenceMentionInline(admin.TabularInline):
         "citation",
         "start",
         "end",
-        "raw_transcript",
         "report_url",
     ]
     readonly_fields = fields
@@ -524,7 +523,6 @@ class CategoryMentionInline(admin.TabularInline):
         "citation",
         "start",
         "end",
-        "raw_transcript",
     ]
     readonly_fields = fields
 

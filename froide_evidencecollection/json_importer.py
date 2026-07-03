@@ -1050,10 +1050,9 @@ class JSONImporter:
         footnotes = report_data.get("footnote_id") or []
         citations = report_data.get("fliesstext") or []
         # `video_timestamp` is row-parallel to the lists above (validated against
-        # the dump): index i carries `{start, end, excerpt}` for the same mention
-        # whose curated quote is `fliesstext[i]`. Present (non-empty) only for
-        # video evidence; absent entries leave start/end null and raw_transcript
-        # empty. This is what folded the former VideoExcerpt rows onto the mention.
+        # the dump): index i carries `{start, end}` for the same mention whose
+        # curated quote is `fliesstext[i]`. Present (non-empty) only for video
+        # evidence; absent entries leave start/end null.
         video_timestamps = report_data.get("video_timestamp") or []
         # `report_urls` is row-parallel too (added in prepare_import, parallel to
         # `capitel_structur`): index i is the public report-page URL for the same
@@ -1100,7 +1099,6 @@ class JSONImporter:
                 "report_url": report_url or "",
                 "start": self._parse_timestamp(vts.get("start")),
                 "end": self._parse_timestamp(vts.get("end")),
-                "raw_transcript": (vts.get("excerpt") or "").strip(),
                 "originator_id": originator_id,
             }
             if key in existing:

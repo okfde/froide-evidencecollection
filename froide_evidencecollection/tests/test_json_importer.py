@@ -196,14 +196,14 @@ class TestJSONImporter:
             # `screenshot_file` is the one file-backed post media (single path).
             screenshot_file="./shot/s.png",
             # `video_timestamp` is row-parallel to topic/footnote/fliesstext and
-            # folds onto the matching mention as start/end/raw_transcript.
+            # folds onto the matching mention as start/end.
             report_data={
                 "footnote_url": ["https://t.me/example/1"],
                 "topic": ["Disinformation"],
                 "footnote_id": ["fn1"],
                 "fliesstext": ["the curated quote"],
                 "video_timestamp": [
-                    {"start": "00:00:01", "end": "00:00:05", "excerpt": "spoken words"},
+                    {"start": "00:00:01", "end": "00:00:05"},
                 ],
             },
         )
@@ -233,7 +233,6 @@ class TestJSONImporter:
         # start/end durations; the curated quote lands in `citation`.
         mention = EvidenceMention.objects.get()
         assert mention.citation == "the curated quote"
-        assert mention.raw_transcript == "spoken words"
         assert mention.start == timedelta(seconds=1)
         assert mention.end == timedelta(seconds=5)
 
@@ -288,8 +287,8 @@ class TestJSONImporter:
                 "footnote_id": ["1", "2"],
                 "fliesstext": ["quote a", "quote b"],
                 "video_timestamp": [
-                    {"start": "00:00:10", "end": "00:00:20", "excerpt": "first"},
-                    {"start": "01:02:03", "end": "01:02:30", "excerpt": "second"},
+                    {"start": "00:00:10", "end": "00:00:20"},
+                    {"start": "01:02:03", "end": "01:02:30"},
                 ],
             },
         )
@@ -307,10 +306,8 @@ class TestJSONImporter:
 
         # Each video_timestamp lands on its row-parallel mention.
         mentions = {m.category.name: m for m in EvidenceMention.objects.all()}
-        assert mentions["A"].raw_transcript == "first"
         assert mentions["A"].start == timedelta(seconds=10)
         assert mentions["A"].end == timedelta(seconds=20)
-        assert mentions["B"].raw_transcript == "second"
         assert mentions["B"].start == timedelta(hours=1, minutes=2, seconds=3)
 
         # Idempotent: re-running reports no mention changes.
