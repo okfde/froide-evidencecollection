@@ -127,7 +127,6 @@ class Command(BaseCommand):
             .select_related(
                 "social_media_post__account",
                 "social_media_post__redistributes__account",
-                "social_media_post__redistributes__redistributes__account",
             )
             .prefetch_related(
                 "mentions__category",
