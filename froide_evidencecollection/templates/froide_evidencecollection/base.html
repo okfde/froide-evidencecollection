@@ -12,6 +12,16 @@
     {% endif %}
 {% endblock navbar %}
 {% block body %}
+    <style>
+    /* Shared person / organisation glyph avatar (see _actor_avatar.html). */
+    .actor-avatar {
+        flex: 0 0 auto;
+        width: 2.75rem; height: 2.75rem;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%; font-size: 1.25rem; line-height: 1;
+    }
+    .actor-avatar--lg { width: 3.25rem; height: 3.25rem; font-size: 1.5rem; }
+    </style>
     {% static_alias "evidencecollection_header" %}
     {% block app_body %}
         {% placeholder "content" %}
