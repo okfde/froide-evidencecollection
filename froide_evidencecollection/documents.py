@@ -65,10 +65,6 @@ class EvidenceDocument(DSLDocument):
             .prefetch_related(
                 "originators__person__affiliations__organization__institutional_level",
                 "originators__person__affiliations__role",
-                # `search_text` reads each evidence's mentions (the per-mention
-                # `raw_transcript` for a video post) and the post's own fields;
-                # prefetch the mentions so indexing doesn't fan out per row.
-                "mentions__category",
             )
             .select_related(
                 "evidence_type",
