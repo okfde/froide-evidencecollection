@@ -305,7 +305,7 @@ class TestJSONImporter:
         JSONImporter(path).run()
 
         # Each video_timestamp lands on its row-parallel mention.
-        mentions = {m.category.name: m for m in EvidenceMention.objects.all()}
+        mentions = {m.chapter.custom_label: m for m in EvidenceMention.objects.all()}
         assert mentions["A"].start == timedelta(seconds=10)
         assert mentions["A"].end == timedelta(seconds=20)
         assert mentions["B"].start == timedelta(hours=1, minutes=2, seconds=3)
@@ -959,14 +959,16 @@ class TestJSONImporter:
         importer.run()
 
         evidence.refresh_from_db()
-        existing = {(m.category.name, m.footnote) for m in evidence.mentions.all()}
+        existing = {
+            (m.chapter.custom_label, m.footnote) for m in evidence.mentions.all()
+        }
         assert existing == {("B", "2"), ("C", "3")}
 
         stats = importer.log_stats()
         assert len(stats["EvidenceMention"]["created"]) == 1
         assert len(stats["EvidenceMention"]["deleted"]) == 1
         # Mention (B, 2) is untouched, no spurious churn.
-        assert EvidenceMention.objects.filter(category__name="B").count() == 1
+        assert EvidenceMention.objects.filter(chapter__custom_label="B").count() == 1
 
     @pytest.mark.django_db
     def test_report_url_is_populated_per_mention(self, person, tmp_path):
@@ -994,7 +996,9 @@ class TestJSONImporter:
         )
         JSONImporter(path).run()
 
-        urls = {m.category.name: m.report_url for m in EvidenceMention.objects.all()}
+        urls = {
+            m.chapter.custom_label: m.report_url for m in EvidenceMention.objects.all()
+        }
         assert urls == {"A": "https://report.example/a/", "B": ""}
 
     def test_chapter_tree_is_built_from_topic_paths(self, person, tmp_path):
@@ -1047,11 +1051,7 @@ class TestJSONImporter:
         assert not root.is_main_topic
         assert not topic.is_main_topic
 
-        # The leaf names the mention's category and is linked as its chapter.
-        assert {m.category.name for m in EvidenceMention.objects.all()} == {
-            "Leaf A",
-            "Leaf B",
-        }
+        # The leaf of each topic path is linked as the mention's chapter.
         assert {m.chapter for m in EvidenceMention.objects.all()} == {leaf_a, leaf_b}
 
         # Subsumed counts include descendants.
@@ -1086,13 +1086,12 @@ class TestJSONImporter:
         JSONImporter(path).run()
 
         # The repeated leaf is collapsed: Menschenwürde -> Ausbürgerung (no
-        # same-label child), and the leaf is the mention's category.
+        # same-label child), and the leaf is the mention's chapter.
         assert Chapter.objects.count() == 2
         leaf = Chapter.objects.get(custom_label="Ausbürgerung")
         assert leaf.get_parent().custom_label == "Menschenwürde"
         assert leaf.is_main_topic
         mention = EvidenceMention.objects.get()
-        assert mention.category.name == "Ausbürgerung"
         assert mention.chapter == leaf
         assert mention.chapter_structure == ["Menschenwürde", "Ausbürgerung"]
 

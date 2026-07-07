@@ -242,7 +242,6 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
             "originators__organization__institutional_level",
             "related_actors__person__status",
             "related_actors__organization__institutional_level",
-            "mentions__category",
             "mentions__originator",
             "mentions__chapter",
             "attachments",
@@ -263,7 +262,6 @@ EVIDENCE_CARD_SELECT_RELATED = (
 EVIDENCE_CARD_PREFETCH_RELATED = (
     "originators__person__status",
     "originators__organization__institutional_level",
-    "mentions__category",
     "attachments",
 )
 
