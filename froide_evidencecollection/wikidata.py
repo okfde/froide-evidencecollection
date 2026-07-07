@@ -3,7 +3,7 @@ from django.db import transaction
 import requests
 
 from froide_evidencecollection.models import Person
-from froide_evidencecollection.utils import ImportStatsCollection
+from froide_evidencecollection.utils import ImportStatsCollection, to_dict
 
 WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
 HEADERS = {"User-Agent": "froide-evidencecollection/1.0"}
@@ -36,10 +36,11 @@ class WikidataImporter:
 
         for aw_id, wikidata_id in aw_to_wikidata.items():
             person = Person.objects.filter(aw_id=aw_id).first()
+            old_data = to_dict(person)
             person.wikidata_id = wikidata_id
             person.save()
 
-            self.stats.track_updated(Person, person.last_synced_state, person)
+            self.stats.track_updated(Person, old_data, person)
 
     def fetch_from_api(self, query):
         response = requests.get(

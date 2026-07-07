@@ -66,7 +66,7 @@ def _write_dump(tmp_path, dump, name="import.json"):
 
 @pytest.fixture
 def person(db):
-    return PersonFactory(first_name="Max", last_name="Mustermann", external_id=1)
+    return PersonFactory(first_name="Max", last_name="Mustermann")
 
 
 class TestJSONImporter:
@@ -322,7 +322,7 @@ class TestJSONImporter:
         # scrape targets, each carrying its own report_data. Both occurrences map
         # to one SocialMediaPost/Evidence, so the importer must keep the union of
         # mentions rather than letting the second target wipe the first's.
-        other = PersonFactory(first_name="Erika", last_name="Musterfrau", external_id=2)
+        other = PersonFactory(first_name="Erika", last_name="Musterfrau")
         post_for_max = _make_post(
             report_data={"topic": ["A"], "footnote_id": ["fn-max"]}
         )
@@ -644,8 +644,8 @@ class TestJSONImporter:
     def test_sets_verband_from_state_and_bund(self, tmp_path):
         sachsen = GeoRegionFactory(name="Sachsen", kind="state")
         bund = GeoRegionFactory(name="Deutschland", kind="country")
-        p1 = PersonFactory(first_name="A", last_name="State", external_id=11)
-        p2 = PersonFactory(first_name="B", last_name="Fed", external_id=12)
+        p1 = PersonFactory(first_name="A", last_name="State")
+        p2 = PersonFactory(first_name="B", last_name="Fed")
         path = _write_dump(
             tmp_path,
             {
@@ -679,7 +679,7 @@ class TestJSONImporter:
     def test_unresolved_verband_does_not_wipe_existing(self, tmp_path):
         sachsen = GeoRegionFactory(name="Sachsen", kind="state")
         person = PersonFactory(
-            first_name="Max", last_name="Mustermann", external_id=1, verband=sachsen
+            first_name="Max", last_name="Mustermann", verband=sachsen
         )
         path = _write_dump(
             tmp_path,
@@ -745,7 +745,7 @@ class TestJSONImporter:
     @pytest.mark.django_db
     def test_ambiguous_label_is_skipped(self, db, tmp_path):
         # A Person and an Organization normalize to the same name -> skip.
-        PersonFactory(first_name="Junge", last_name="Alternative", external_id=2)
+        PersonFactory(first_name="Junge", last_name="Alternative")
         OrganizationFactory(organization_name="Junge Alternative")
         path = _write_dump(
             tmp_path,
@@ -1141,7 +1141,7 @@ class TestJSONImporter:
 
         # Linking the posting account to another actor must NOT make that actor
         # an originator: the account holder is never assumed to be the originator.
-        other = PersonFactory(first_name="Erika", last_name="Musterfrau", external_id=2)
+        other = PersonFactory(first_name="Erika", last_name="Musterfrau")
         other_actor = Actor.objects.create(person=other)
         account.actor = other_actor
         account.save()
@@ -1296,7 +1296,7 @@ class TestJSONImporter:
     def test_links_account_to_owner_named_by_account_label(self, person, tmp_path):
         # The post is grouped under Max, but account_label names Erika as the
         # account's owner, so the account links to Erika — not the scrape target.
-        erika = PersonFactory(first_name="Erika", last_name="Musterfrau", external_id=2)
+        erika = PersonFactory(first_name="Erika", last_name="Musterfrau")
         path = _write_dump(
             tmp_path,
             {
@@ -1325,9 +1325,7 @@ class TestJSONImporter:
         # account_label carries a middle name the actor's stored name omits, and
         # differs by ß/ss: the full name misses, but the first+last fallback (on
         # the ß-folded index) still resolves it.
-        morisse = PersonFactory(
-            first_name="Thorsten", last_name="Moriße", external_id=2
-        )
+        morisse = PersonFactory(first_name="Thorsten", last_name="Moriße")
         path = _write_dump(
             tmp_path,
             {
@@ -1379,7 +1377,7 @@ class TestJSONImporter:
     def test_conflicting_account_labels_leave_owner_unset(self, person, tmp_path):
         # Two posts from the same account name different owners; the account is
         # left unlinked rather than guessing, and the conflict is reported.
-        PersonFactory(first_name="Erika", last_name="Musterfrau", external_id=2)
+        PersonFactory(first_name="Erika", last_name="Musterfrau")
         path = _write_dump(
             tmp_path,
             {
