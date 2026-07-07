@@ -11,12 +11,6 @@ from .views import (
 
 urlpatterns = [
     path("cloud/", EvidenceTopicCloudView.as_view(), name="evidence-topic-cloud"),
-    # TODO: fix search export, currently only exports some items
-    # path(
-    #     pgettext_lazy("url part", "export/"),
-    #     EvidenceExportView.as_view(),
-    #     name="evidence-export",
-    # ),
     path(
         pgettext_lazy("url part", "actor/<int:pk>/"),
         ActorDetailView.as_view(),
