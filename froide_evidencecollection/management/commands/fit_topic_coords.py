@@ -128,9 +128,6 @@ class Command(BaseCommand):
                 "social_media_post__account",
                 "social_media_post__redistributes__account",
             )
-            .prefetch_related(
-                "mentions__category",
-            )
             .order_by("pk")
         )
         if options["limit"]:

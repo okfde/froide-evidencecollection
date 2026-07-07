@@ -1298,26 +1298,11 @@ class Evidence(TrackableModel):
         return urlparse(self.url).netloc
 
     @cached_property
-    def categories(self):
-        return Category.objects.filter(mentions__evidence=self).distinct()
-
-    @cached_property
     def originator_actors(self):
         # Reads from the `originators` prefetch (one query for the whole page)
         # rather than firing a fresh SELECT per card. Falls back to a query if
         # the caller did not prefetch.
         return list(self.originators.all())
-
-    @cached_property
-    def categories_distinct(self):
-        # Same intent as `categories` but reads from prefetched `mentions`
-        # rather than issuing a fresh query, so a page of N evidence cards
-        # costs one prefetch instead of N SELECTs.
-        seen = {}
-        for mention in self.mentions.all():
-            if mention.category_id not in seen:
-                seen[mention.category_id] = mention.category
-        return list(seen.values())
 
     ATTACHMENT_KIND_ORDER = ("image", "video", "audio", "pdf", "other")
 
@@ -1331,37 +1316,8 @@ class Evidence(TrackableModel):
             counts[att.kind] = counts.get(att.kind, 0) + 1
         return [(k, counts[k]) for k in self.ATTACHMENT_KIND_ORDER if k in counts]
 
-    @cached_property
-    def categories_with_footnotes(self):
-        # Like `categories_distinct` but pairs each category with the footnote
-        # references it appears under (deduped, sorted). Reads from prefetched
-        # `mentions`, so it costs nothing per row beyond the prefetch.
-        by_pk = {}
-        for mention in self.mentions.all():
-            entry = by_pk.setdefault(mention.category_id, (mention.category, []))
-            if mention.footnote:
-                entry[1].append(mention.footnote)
-        return [
-            (cat, sorted(set(footnotes)))
-            for cat, footnotes in sorted(
-                by_pk.values(), key=lambda e: e[0].name.lower()
-            )
-        ]
-
     def get_absolute_url(self):
         return reverse("evidencecollection:evidence-detail", kwargs={"slug": self.slug})
-
-
-class Category(models.Model):
-    name = models.CharField(max_length=255, unique=True, verbose_name=_("name"))
-
-    class Meta:
-        verbose_name = _("category")
-        verbose_name_plural = _("categories")
-        ordering = ["name"]
-
-    def __str__(self):
-        return self.name
 
 
 class EvidenceMention(models.Model):
@@ -1370,12 +1326,6 @@ class EvidenceMention(models.Model):
         on_delete=models.CASCADE,
         related_name="mentions",
         verbose_name=_("evidence"),
-    )
-    category = models.ForeignKey(
-        "Category",
-        on_delete=models.CASCADE,
-        related_name="mentions",
-        verbose_name=_("category"),
     )
     # Which originator this specific mention is attributed to. An evidence can
     # have several originators (e.g. two speakers in one video); each is grouped
@@ -1430,7 +1380,7 @@ class EvidenceMention(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.evidence} — {self.category} ({self.footnote})"
+        return f"{self.evidence} ({self.footnote})"
 
     def exclude_from_serialization(self):
         return ["id"]

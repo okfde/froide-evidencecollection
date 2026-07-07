@@ -13,7 +13,6 @@ import pytest
 
 from froide_evidencecollection.models import (
     Actor,
-    Category,
     Chapter,
     Evidence,
     EvidenceMention,
@@ -222,7 +221,6 @@ class TestChaptersByEvidence:
         self.actor = Actor.objects.create(
             person=PersonFactory(first_name="Ada", last_name="Lovelace")
         )
-        self.category = Category.objects.create(name="Statement")
         self.ch_a = Chapter.add_root(custom_label="Climate")
         self.ch_b = Chapter.add_root(custom_label="Migration")
 
@@ -249,7 +247,6 @@ class TestChaptersByEvidence:
         self._footnote_seq = getattr(self, "_footnote_seq", 0) + 1
         EvidenceMention.objects.create(
             evidence=evidence,
-            category=self.category,
             originator=self.actor,
             chapter=chapter,
             footnote=str(self._footnote_seq),
