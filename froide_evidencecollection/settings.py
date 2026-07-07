@@ -23,13 +23,6 @@ class Test(FroideTest):
         }
     }
 
-    FROIDE_EVIDENCECOLLECTION_CONFIG = {
-        # Do not restrict selectable regions for tests.
-        # "selectable_regions": {
-        #    "ids": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
-        # },
-    }
-
     FROIDE_EVIDENCECOLLECTION_ABGEORDNETENWATCH_CONFIG = {
         "mandate_role_uuid": uuid.uuid4(),  # "Abgeordnete*r"
         "candidate_role_uuid": uuid.uuid4(),  # "Kandidatur"

@@ -1,6 +1,5 @@
 import json
 
-from django import forms
 from django.conf import settings
 from django.contrib import admin
 from django.db.models import F, Prefetch, Q
@@ -30,7 +29,6 @@ from .models import (
     SocialMediaAccount,
     SocialMediaPost,
 )
-from .utils import selectable_regions
 
 
 class SyncedListFilter(admin.SimpleListFilter):
@@ -298,16 +296,8 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
         return ""
 
 
-class OrganizationAdminForm(forms.ModelForm):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if "regions" in self.fields:
-            self.fields["regions"].queryset = selectable_regions()
-
-
 @admin.register(Organization)
 class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
-    form = OrganizationAdminForm
     list_display = [
         "organization_name",
         "also_known_as",
