@@ -131,9 +131,6 @@ class Person(AbstractActor):
     aw_id = models.PositiveIntegerField(
         unique=True, blank=True, null=True, verbose_name=_("abgeordnetenwatch.de ID")
     )
-    status = models.ForeignKey(
-        "PersonStatus", blank=True, null=True, on_delete=models.SET_NULL
-    )
 
     class Meta:
         verbose_name = _("person")
@@ -147,17 +144,6 @@ class Person(AbstractActor):
         if self.aw_id:
             return f"https://www.abgeordnetenwatch.de/politician/{self.aw_id}"
         return None
-
-
-class PersonStatus(models.Model):
-    name = models.CharField(unique=True, max_length=50, verbose_name=_("name"))
-
-    class Meta:
-        verbose_name = _("person status")
-        verbose_name_plural = _("person statuses")
-
-    def __str__(self):
-        return self.name
 
 
 class Organization(AbstractActor):
@@ -177,9 +163,6 @@ class Organization(AbstractActor):
         blank=True,
         verbose_name=_("special regions"),
     )
-    status = models.ForeignKey(
-        "OrganizationStatus", blank=True, null=True, on_delete=models.SET_NULL
-    )
 
     def __str__(self):
         return self.organization_name.strip()
@@ -187,17 +170,6 @@ class Organization(AbstractActor):
     class Meta:
         verbose_name = _("organization")
         verbose_name_plural = _("organizations")
-
-
-class OrganizationStatus(models.Model):
-    name = models.CharField(unique=True, max_length=50, verbose_name=_("name"))
-
-    class Meta:
-        verbose_name = _("organization status")
-        verbose_name_plural = _("organization statuses")
-
-    def __str__(self):
-        return self.name
 
 
 class Actor(TrackableModel):

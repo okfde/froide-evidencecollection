@@ -226,7 +226,6 @@ class PersonAdmin(ReadOnlyAdmin):
         "also_known_as",
         "wikidata_link",
         "aw_link",
-        "status",
         "verband_display",
         "created_at",
         "updated_at",
@@ -281,7 +280,6 @@ class OrganizationAdmin(ReadOnlyAdmin):
         "regions",
         "special_regions",
         "verband_display",
-        "status",
         "created_at",
         "updated_at",
     ]
