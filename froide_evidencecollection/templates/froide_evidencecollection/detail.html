@@ -171,18 +171,6 @@
                     {% endif %}
                 </div>
             {% endwith %}
-            {# ── Related actors ───────────────────────────────────────── #}
-            {% if object.related_actors.all %}
-                <section class="detail-section">
-                    <h2 class="detail-heading">{% trans "Related actors" %}</h2>
-                    <div class="d-flex flex-wrap gap-2">
-                        {% for actor in object.related_actors.all %}
-                            <a href="{% url 'evidencecollection:actor-detail' actor.pk %}"
-                               class="badge rounded-pill border bg-light text-dark fw-normal text-decoration-none">{{ actor.name }}</a>
-                        {% endfor %}
-                    </div>
-                </section>
-            {% endif %}
             {# ── Collected text ───────────────────────────────────────── #}
             {# `grouped_text_segments` arranges the segments into display       #}
             {# blocks: the post's own components (title/body and, for a video,   #}

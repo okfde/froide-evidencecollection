@@ -215,7 +215,6 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
             "social_media_post__account",
         ).prefetch_related(
             "originators__organization__institutional_level",
-            "related_actors__organization__institutional_level",
             "mentions__originator",
             "mentions__chapter",
         )
@@ -259,10 +258,9 @@ class ActorDetailView(NoIndexMixin, AppHookBreadcrumbMixin, DetailView):
         context = super().get_context_data(**kwargs)
         actor = self.object
 
-        # "Originated by this actor" vs. "Related" — the two plain M2M fields
-        # on Evidence (`originators` / `related_actors`). The actor profile
-        # lists each piece by date / platform / chapter, so the rows carry the
-        # mentions' chapters on top of the shared card prefetch.
+        # Evidence originated by this actor (the `originators` M2M on Evidence).
+        # The actor profile lists each piece by date / platform / chapter, so the
+        # rows carry the mentions' chapters on top of the shared card prefetch.
         list_prefetch = (*EVIDENCE_CARD_PREFETCH_RELATED, "mentions__chapter")
         # Most recent first, by the same date the rows show (the post's
         # `posted_at`); undated pieces sort last, with `-pk` as a stable
@@ -278,21 +276,10 @@ class ActorDetailView(NoIndexMixin, AppHookBreadcrumbMixin, DetailView):
             .order_by(*date_ordering)
             .distinct()
         )
-        related = (
-            Evidence.objects.filter(related_actors=actor)
-            .select_related(*EVIDENCE_CARD_SELECT_RELATED)
-            .prefetch_related(*list_prefetch)
-            .order_by(*date_ordering)
-            .distinct()
-        )
         context["originated_evidence"] = self._with_chapters(
             originated[:ACTOR_PROFILE_EVIDENCE_LIMIT]
         )
         context["originated_total"] = originated.count()
-        context["related_evidence"] = self._with_chapters(
-            related[:ACTOR_PROFILE_EVIDENCE_LIMIT]
-        )
-        context["related_total"] = related.count()
         context["evidence_limit"] = ACTOR_PROFILE_EVIDENCE_LIMIT
         context["topic_cloud_page_url"] = apphook_page_url(self.request)
 
