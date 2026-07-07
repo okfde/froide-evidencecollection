@@ -217,9 +217,7 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
             "evidence_type",
             "social_media_post__account",
         ).prefetch_related(
-            "originators__person__status",
             "originators__organization__institutional_level",
-            "related_actors__person__status",
             "related_actors__organization__institutional_level",
             "mentions__originator",
             "mentions__chapter",
@@ -239,7 +237,6 @@ EVIDENCE_CARD_SELECT_RELATED = (
     "social_media_post__account",
 )
 EVIDENCE_CARD_PREFETCH_RELATED = (
-    "originators__person__status",
     "originators__organization__institutional_level",
     "attachments",
 )
@@ -255,7 +252,6 @@ class ActorDetailView(NoIndexMixin, AppHookBreadcrumbMixin, DetailView):
     def get_queryset(self):
         return Actor.objects.select_related(
             "person",
-            "person__status",
             "organization",
             "organization__institutional_level",
         ).prefetch_related(
