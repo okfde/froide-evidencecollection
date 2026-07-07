@@ -1020,11 +1020,6 @@ class Evidence(TrackableModel):
         related_name="originated_evidence",
         verbose_name=_("originators"),
     )
-    related_actors = models.ManyToManyField(
-        Actor,
-        related_name="related_evidence",
-        verbose_name=_("related actors"),
-    )
     documentation_date = models.DateField(
         null=True, blank=True, verbose_name=_("documentation date")
     )
