@@ -27,21 +27,6 @@
                         {% include "froide_evidencecollection/_actor_avatar.html" with actor=actor size="lg" %}
                         <div>
                             <h1 class="h3 mb-0">{{ actor.name }}</h1>
-                            {% if actor.organization %}
-                                {% with regions=actor.organization.regions.all %}
-                                    {% if regions or actor.organization.special_regions %}
-                                        <p class="text-body-secondary mb-0 mt-1">
-                                            <span aria-hidden="true">📍</span>
-                                            {% for region in regions %}
-                                                {{ region }}
-                                                {% if not forloop.last %},{% endif %}
-                                            {% endfor %}
-                                            {% if regions and actor.organization.special_regions %},{% endif %}
-                                            {{ actor.organization.special_regions|join:", " }}
-                                        </p>
-                                    {% endif %}
-                                {% endwith %}
-                            {% endif %}
                         </div>
                     </div>
                     <div class="d-flex gap-2">

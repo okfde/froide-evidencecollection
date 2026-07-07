@@ -277,7 +277,6 @@ class ActorDetailView(NoIndexMixin, AppHookBreadcrumbMixin, DetailView):
             "organization__institutional_level",
         ).prefetch_related(
             "social_media_accounts",
-            "organization__regions",
             "person__political_positions",
         )
 
