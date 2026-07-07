@@ -75,7 +75,6 @@
                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                     <div>
                         <span class="text-body-secondary small fw-semibold d-block">
-                            {% if object.evidence_type %}{{ object.evidence_type }} ·{% endif %}
                             {% blocktrans with ref=object.slug %}Evidence {{ ref }}{% endblocktrans %}
                         </span>
                         <h1 class="h3 mb-0">
