@@ -15,7 +15,7 @@ from froide.georegion.models import GeoRegion
 
 logger = logging.getLogger(__name__)
 
-CONFIG = settings.FROIDE_EVIDENCECOLLECTION_NOCODB_IMPORT_CONFIG
+CONFIG = settings.FROIDE_EVIDENCECOLLECTION_CONFIG
 
 ORG_LABEL_REPLACEMENTS_PATH = (
     Path(__file__).resolve().parent / "data" / "org_label_replacements.csv"
