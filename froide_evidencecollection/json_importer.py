@@ -12,7 +12,6 @@ from django.db import transaction
 from froide.georegion.models import GeoRegion
 from froide_evidencecollection.models import (
     Actor,
-    Category,
     Chapter,
     Evidence,
     EvidenceMention,
@@ -457,7 +456,7 @@ class JSONImporter:
         ``footnote_id[i]`` etc.), so concatenating them per key keeps each
         occurrence's rows aligned while unioning the mentions across occurrences.
         Duplicate rows are harmless: `_upsert_mentions` collapses them on their
-        (category, footnote) key.
+        footnote.
         """
         base_rd = base.get("report_data") or {}
         extra_rd = extra.get("report_data") or {}
@@ -1031,16 +1030,16 @@ class JSONImporter:
         return account
 
     # ------------------------------------------------------------------
-    # Evidence mentions (category/page tuples)
+    # Evidence mentions (chapter/footnote tuples)
     # ------------------------------------------------------------------
     def _upsert_mentions(self, evidence, item, mention_originators=()):
         report_data = item.get("report_data") or {}
         # `topic` is row-parallel to the lists below: index i describes the same
         # mention. Each entry is a root-to-leaf path of theme labels, e.g.
         # ["Menschenwürde", "…", "Ethnisch-kulturelles Volksverständnis der AfD"].
-        # The leaf names the category the evidence is filed under, and the whole
-        # path materialises the chapter tree (see `_get_or_create_chapter`). The
-        # dump also carries the report's physical chapter path in
+        # The leaf names the specific topic the evidence is filed under, and the
+        # whole path materialises the chapter tree (see `_get_or_create_chapter`).
+        # The dump also carries the report's physical chapter path in
         # `capitel_structur`, but we deliberately ignore it: it bottoms out at a
         # per-evidence actor+date leaf (1146 distinct paths vs. 30 for `topic`)
         # and is littered with editorial prefixes and organisational nodes, so it
@@ -1086,8 +1085,6 @@ class JSONImporter:
             topic_path = self._clean_topic_path(topic_path)
             if not topic_path:
                 continue
-            category_name = topic_path[-1]
-            category, _ = Category.objects.get_or_create(name=category_name)
             footnote = (footnote or "").strip()
             key = footnote
             wanted.add(key)
@@ -1120,7 +1117,6 @@ class JSONImporter:
             self.stats.reset_instance(EvidenceMention)
             mention = EvidenceMention.objects.create(
                 evidence=evidence,
-                category=category,
                 footnote=footnote,
                 chapter=chapter,
                 **scalar_fields,

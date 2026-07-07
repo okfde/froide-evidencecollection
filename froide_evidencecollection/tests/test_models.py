@@ -2,7 +2,6 @@ import pytest
 
 from froide_evidencecollection.models import (
     Actor,
-    Category,
     Evidence,
     EvidenceMention,
     Parliament,
@@ -127,10 +126,8 @@ class TestPostTextSegments:
         # display/search/topics.
         post = _make_post(text="body")
         evidence = Evidence.objects.create(social_media_post=post)
-        category = Category.objects.create(name="Disinformation")
         EvidenceMention.objects.create(
             evidence=evidence,
-            category=category,
             footnote="fn3",
             citation="the curated quote",
             originator=_actor(),

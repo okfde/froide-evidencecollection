@@ -7,7 +7,6 @@ import pytest
 
 from froide_evidencecollection.models import (
     Actor,
-    Category,
     Chapter,
     Evidence,
     EvidenceMention,
@@ -49,11 +48,10 @@ def _make_chapter(label, *, is_main_topic=False, parent=None):
     return parent.add_child(custom_label=label, is_main_topic=is_main_topic)
 
 
-def _file_under(evidence, chapter, category):
+def _file_under(evidence, chapter):
     """File ``evidence`` under ``chapter`` via an EvidenceMention."""
     return EvidenceMention.objects.create(
         evidence=evidence,
-        category=category,
         chapter=chapter,
         originator=Actor.objects.create(organization=OrganizationFactory()),
     )
@@ -78,7 +76,6 @@ class TestBuildMainTopicTree:
 
     def setup_method(self):
         self.view = EvidenceTopicCloudView()
-        self.cat = Category.objects.create(name="C")
 
     def _params(self, chapter=None):
         q = QueryDict(mutable=True)
@@ -98,8 +95,8 @@ class TestBuildMainTopicTree:
         child = _make_chapter("Child", is_main_topic=True, parent=middle)
 
         # One evidence filed under the deep child, one directly under the parent.
-        _file_under(_make_evidence(1, fitted=True), child, self.cat)
-        _file_under(_make_evidence(2, fitted=True), parent, self.cat)
+        _file_under(_make_evidence(1, fitted=True), child)
+        _file_under(_make_evidence(2, fitted=True), parent)
 
         selected, nodes = self.view._build_main_topic_tree(self._params())
         by_id = self._by_id(nodes)
@@ -116,8 +113,8 @@ class TestBuildMainTopicTree:
 
     def test_only_fitted_evidence_counts(self):
         ch = _make_chapter("Topic", is_main_topic=True)
-        _file_under(_make_evidence(1, fitted=True), ch, self.cat)
-        _file_under(_make_evidence(2, fitted=False), ch, self.cat)
+        _file_under(_make_evidence(1, fitted=True), ch)
+        _file_under(_make_evidence(2, fitted=False), ch)
 
         _, nodes = self.view._build_main_topic_tree(self._params())
 
@@ -130,14 +127,14 @@ class TestBuildMainTopicTree:
 
     def test_non_main_chapters_are_never_nodes(self):
         ch = _make_chapter("Plain")  # not a main topic
-        _file_under(_make_evidence(1, fitted=True), ch, self.cat)
+        _file_under(_make_evidence(1, fitted=True), ch)
         _, nodes = self.view._build_main_topic_tree(self._params())
         assert nodes == []
 
     def test_collapsed_by_default_only_roots_visible(self):
         parent = _make_chapter("Parent", is_main_topic=True)
         child = _make_chapter("Child", is_main_topic=True, parent=parent)
-        _file_under(_make_evidence(1, fitted=True), child, self.cat)
+        _file_under(_make_evidence(1, fitted=True), child)
 
         _, nodes = self.view._build_main_topic_tree(self._params())
         by_id = self._by_id(nodes)
@@ -151,7 +148,7 @@ class TestBuildMainTopicTree:
     def test_selection_marks_node_and_expands_its_path(self):
         parent = _make_chapter("Parent", is_main_topic=True)
         child = _make_chapter("Child", is_main_topic=True, parent=parent)
-        _file_under(_make_evidence(1, fitted=True), child, self.cat)
+        _file_under(_make_evidence(1, fitted=True), child)
 
         selected, nodes = self.view._build_main_topic_tree(
             self._params(chapter=child.id)
@@ -173,9 +170,9 @@ class TestBuildMainTopicTree:
     def test_siblings_ordered_by_coverage_then_label(self):
         big = _make_chapter("Big", is_main_topic=True)
         small = _make_chapter("Small", is_main_topic=True)
-        _file_under(_make_evidence(1, fitted=True), big, self.cat)
-        _file_under(_make_evidence(2, fitted=True), big, self.cat)
-        _file_under(_make_evidence(3, fitted=True), small, self.cat)
+        _file_under(_make_evidence(1, fitted=True), big)
+        _file_under(_make_evidence(2, fitted=True), big)
+        _file_under(_make_evidence(3, fitted=True), small)
 
         _, nodes = self.view._build_main_topic_tree(self._params())
 

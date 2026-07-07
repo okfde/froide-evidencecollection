@@ -15,7 +15,6 @@ from .models import (
     Actor,
     Affiliation,
     Attachment,
-    Category,
     Chapter,
     Election,
     Evidence,
@@ -499,7 +498,6 @@ class EvidenceMentionInline(admin.TabularInline):
     model = EvidenceMention
     extra = 0
     fields = [
-        "category",
         "footnote",
         "chapter",
         "chapter_structure",
@@ -509,29 +507,6 @@ class EvidenceMentionInline(admin.TabularInline):
         "report_url",
     ]
     readonly_fields = fields
-
-
-class CategoryMentionInline(admin.TabularInline):
-    model = EvidenceMention
-    fk_name = "category"
-    extra = 0
-    fields = [
-        "evidence",
-        "footnote",
-        "chapter",
-        "chapter_structure",
-        "citation",
-        "start",
-        "end",
-    ]
-    readonly_fields = fields
-
-
-@admin.register(Category)
-class CategoryAdmin(ReadOnlyAdmin):
-    inlines = [CategoryMentionInline]
-    list_display = ["name"]
-    search_fields = ["name"]
 
 
 @admin.register(Chapter)
