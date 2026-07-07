@@ -10,7 +10,6 @@ from django.utils.translation import gettext_lazy as _
 from .models import (
     Actor,
     Affiliation,
-    Attachment,
     Chapter,
     Election,
     Evidence,
@@ -395,11 +394,6 @@ class PoliticalPositionAdmin(admin.ModelAdmin):
     ]
 
 
-class AttachmentInline(admin.TabularInline):
-    model = Attachment
-    extra = 0
-
-
 class EvidenceMentionInline(admin.TabularInline):
     model = EvidenceMention
     extra = 0
@@ -482,7 +476,6 @@ class ChapterAdmin(ReadOnlyAdmin):
 @admin.register(Evidence)
 class EvidenceAdmin(ReadOnlyAdmin):
     inlines = [
-        AttachmentInline,
         EvidenceMentionInline,
     ]
     list_display = [
