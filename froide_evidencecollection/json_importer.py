@@ -1086,6 +1086,11 @@ class JSONImporter:
             if not topic_path:
                 continue
             footnote = (footnote or "").strip()
+            if not footnote:
+                raise ValueError(
+                    f"Missing footnote for a mention of {evidence} under topic "
+                    f"{topic_path!r}; report_data rows are misaligned."
+                )
             key = footnote
             wanted.add(key)
             chapter = self._get_or_create_chapter(topic_path)

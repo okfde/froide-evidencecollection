@@ -364,6 +364,30 @@ class TestJSONImporter:
         assert "EvidenceMention" not in importer.log_stats()
 
     @pytest.mark.django_db
+    def test_topic_row_without_footnote_aborts_the_import(self, person, tmp_path):
+        # Footnote is the mention's identity; a topic row missing one means the
+        # report_data lists drifted out of alignment.
+        post = _make_post(
+            report_data={"topic": ["A", "B"], "footnote_id": ["only-one"]}
+        )
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {"telegram": [post]},
+                }
+            },
+        )
+
+        with pytest.raises(ValueError, match="Missing footnote"):
+            JSONImporter(path).run()
+
+        # The atomic run rolled back: no half-imported evidence or mentions.
+        assert Evidence.objects.count() == 0
+        assert EvidenceMention.objects.count() == 0
+
+    @pytest.mark.django_db
     def test_reimport_same_data_produces_no_changes(self, person, tmp_path):
         path = _write_dump(
             tmp_path,
