@@ -17,10 +17,7 @@ from django.views.generic import DetailView, TemplateView
 from froide.foirequest.pdf_generator import get_wp
 from froide.georegion.models import GeoRegion
 from froide.helper.breadcrumbs import BreadcrumbView
-from froide.helper.search.views import BaseSearchView
-from froide_evidencecollection.documents import EvidenceDocument
 
-from .filterset import EvidenceFilterSet
 from .models import (
     Actor,
     Chapter,
@@ -365,67 +362,6 @@ class ActorDetailView(NoIndexMixin, AppHookBreadcrumbMixin, DetailView):
         return evidence_list
 
 
-class EvidenceListView(BaseSearchView):
-    search_name = "evidence"
-    filterset = EvidenceFilterSet
-    document = EvidenceDocument
-    model = Evidence
-    search_url_name = "evidencecollection:evidence-export"
-    # Fields the result card touches per row. Keeps the originator block,
-    # category chips, attachments badge and source line off the per-row
-    # SELECT loop.
-    select_related = EVIDENCE_CARD_SELECT_RELATED
-    prefetch_related = EVIDENCE_CARD_PREFETCH_RELATED
-
-    # ES field name → form filter name.  Filters listed here use post_filter so
-    # that each field's aggregation ignores its own selection (standard faceted
-    # search behaviour: selecting category=A still shows all categories in the
-    # dropdown, but narrows the options of every *other* dropdown).
-    FILTER_AGGREGATIONS = {
-        "categories": "category",
-        "platform": "platform",
-        "originator_organizations": "organization",
-        "originator_roles": "role",
-        "originator_institutional_levels": "institutional_level",
-        "evidence_type": "evidence_type",
-    }
-
-    facet_config = {field: {} for field in FILTER_AGGREGATIONS}
-
-    def show_facets(self):
-        return True
-
-    def paginate_queryset(self, sqs, page_size):
-        result = super().paginate_queryset(sqs, page_size)
-        self._restrict_form_choices(sqs)
-        return result
-
-    def _restrict_form_choices(self, sqs):
-        """Limit each filter dropdown to values that actually appear in the
-        current (filtered) result set, based on ES aggregation buckets."""
-        agg_data = sqs.get_facet_data()
-        for es_field, form_field_name in self.FILTER_AGGREGATIONS.items():
-            if es_field not in agg_data:
-                continue
-            # Aggregation is nested: outer filter-agg → inner terms-agg.
-            # ES-DSL returns AttrDict objects (attribute access, not .get()).
-            inner = agg_data[es_field]
-            if es_field in inner:
-                inner = inner[es_field]
-            buckets = inner.buckets if hasattr(inner, "buckets") else []
-            bucket_keys = {b["key"] for b in buckets}
-
-            field = self.form.fields.get(form_field_name)
-            if field is None:
-                continue
-            if hasattr(field, "queryset"):
-                field.queryset = field.queryset.filter(pk__in=bucket_keys)
-            elif hasattr(field, "choices"):
-                # Don't keep the empty ("", "---") entry — the ChoiceIterator
-                # adds one automatically when rendering.
-                field.choices = [c for c in field.choices if c[0] in bucket_keys]
-
-
 class ExportMixin:
     def get_export_queryset(self) -> QuerySet:
         raise NotImplementedError()
@@ -455,16 +391,6 @@ class ExportMixin:
 class NeverCacheMixin:
     def dispatch(self, *args, **kwargs):
         return never_cache(super().dispatch)(*args, **kwargs)
-
-
-class EvidenceExportView(NoIndexMixin, NeverCacheMixin, ExportMixin, EvidenceListView):
-    def get_export_queryset(self):
-        import ipdb
-
-        ipdb.set_trace()
-        sqs = self.get_queryset()
-        sqs.update_query()
-        return sqs.to_queryset()
 
 
 class EvidenceDetailExportView(
