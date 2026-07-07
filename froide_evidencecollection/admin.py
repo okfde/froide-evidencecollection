@@ -481,12 +481,8 @@ class EvidenceAdmin(ReadOnlyAdmin):
     list_display = [
         "slug",
         "title",
-        "evidence_type",
         "originator_list",
     ]
-    filter_horizontal = ["collections"]
-    list_filter = ["collections", "evidence_type"]
-    search_fields = ["citation", "description"]
 
     def originator_list(self, obj):
         return ", ".join([originator.name for originator in obj.originators.all()])
