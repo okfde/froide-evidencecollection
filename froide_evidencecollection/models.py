@@ -24,7 +24,6 @@ from froide_evidencecollection.utils import (
     EVIDENCE_SLUG_LENGTH,
     compute_hash,
     make_evidence_slug,
-    to_dict,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,63 +42,24 @@ class TrackableModel(models.Model):
 
 class SyncableModel(TrackableModel):
     """
-    Base class for models that are synced with an external source (NocoDB) in both
-    directions.
+    Base class for models that are populated from an external source (e.g.
+    abgeordnetenwatch.de or Wikidata).
 
-    These models need a nullable `external_id` field to keep track of the mapping
-    between the local model instance and the external source. The field is nullable
-    to allow creating new instances locally that are not yet synced to the external
-    source.
-
-    In addition, a `sync_uuid` field is used to uniquely identify the instance
-    across systems, even if the `external_id` is not yet set.
-
-    The field `synced_at` is used to keep track of the last time the instance
-    was synced with the external source, i.e. when local changes have been pushed to
-    the external source.
+    A `sync_uuid` field is used to uniquely identify the instance across systems.
     """
 
-    external_id = models.PositiveIntegerField(
-        unique=True, null=True, blank=True, verbose_name=_("external ID")
-    )
-    synced_at = models.DateTimeField(blank=True, null=True, verbose_name=_("synced at"))
     sync_uuid = models.UUIDField(
         unique=True, editable=False, verbose_name=_("sync UUID")
     )
-    last_synced_state = models.JSONField(default=dict, editable=False)
 
     class Meta:
         abstract = True
 
-    @property
-    def is_synced(self):
-        return self.synced_at is not None and self.synced_at >= self.updated_at
-
-    def save(self, *args, sync=False, **kwargs):
+    def save(self, *args, **kwargs):
         if not self.sync_uuid:
             self.sync_uuid = uuid.uuid4()
 
         super().save(*args, **kwargs)
-
-        if sync:
-            self.mark_synced(self.updated_at)
-
-    def mark_synced(self, synced_at=None):
-        self.synced_at = synced_at or timezone.now()
-        self.last_synced_state = self.get_current_state()
-        self.save(update_fields=["synced_at", "last_synced_state"])
-
-    def exclude_from_serialization(self):
-        return super().exclude_from_serialization() + [
-            "synced_at",
-            "last_synced_state",
-        ]
-
-    def get_current_state(self):
-        return to_dict(self)
-
-    def get_additional_payload_data(self, field_map):
-        return {}
 
 
 class AbstractActor(SyncableModel):
@@ -188,9 +148,6 @@ class Person(AbstractActor):
             return f"https://www.abgeordnetenwatch.de/politician/{self.aw_id}"
         return None
 
-    def get_additional_payload_data(self, field_map):
-        return {"Typ": "Person"}
-
 
 class PersonStatus(models.Model):
     name = models.CharField(unique=True, max_length=50, verbose_name=_("name"))
@@ -230,17 +187,6 @@ class Organization(AbstractActor):
     class Meta:
         verbose_name = _("organization")
         verbose_name_plural = _("organizations")
-
-    def get_additional_payload_data(self, field_map):
-        regions = (
-            list(self.regions.values_list("name", flat=True)) + self.special_regions
-        )
-        region_col_name = field_map.get("regions")
-
-        return {
-            "Typ": "Organisation",
-            region_col_name: ",".join(regions) or None,
-        }
 
 
 class OrganizationStatus(models.Model):
@@ -444,7 +390,7 @@ class PoliticalPosition(TrackableModel):
     """A political mandate, parliamentary role, or party office held by a person.
 
     Imported from the partner JSON dump's per-person ``functions`` list. Unlike
-    `Affiliation` (person↔organization, synced with NocoDB / abgeordnetenwatch),
+    `Affiliation` (person↔organization, synced with abgeordnetenwatch),
     this is curated data: the dump's free-text label, classified into a
     canonical `role` and an `institutional_level`.
     """
@@ -1534,6 +1480,8 @@ class ImportExportRun(models.Model):
     }
 
     FROIDE_EVIDENCECOLLECTION = "FE"
+    # NocoDB import/export was removed, but the choice is kept so historical
+    # ImportExportRun records that reference it still display correctly.
     NOCODB = "NC"
     ABGEORDNETENWATCH = "AW"
     WIKIDATA = "WD"

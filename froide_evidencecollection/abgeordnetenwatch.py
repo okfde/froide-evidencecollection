@@ -18,6 +18,7 @@ from froide_evidencecollection.utils import (
     ImportStatsCollection,
     equals,
     filter_future_date,
+    to_dict,
 )
 
 logger = logging.getLogger(__name__)
@@ -318,6 +319,7 @@ class MainModelImporter(AbgeordnetenwatchDataImporter):
         self.stats.log_summary(self.model)
 
     def update_instance(self, instance, data):
+        old_data = to_dict(instance)
         changed = False
 
         for field, value in data.items():
@@ -330,7 +332,7 @@ class MainModelImporter(AbgeordnetenwatchDataImporter):
 
         if changed:
             instance.save()
-            self.stats.track_updated(self.model, instance.last_synced_state, instance)
+            self.stats.track_updated(self.model, old_data, instance)
 
     def create_instance(self, data):
         instance = self.model.objects.create(**data)

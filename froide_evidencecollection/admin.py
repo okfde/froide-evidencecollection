@@ -2,7 +2,7 @@ import json
 
 from django.conf import settings
 from django.contrib import admin
-from django.db.models import F, Prefetch, Q
+from django.db.models import Prefetch
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
@@ -29,30 +29,6 @@ from .models import (
     SocialMediaAccount,
     SocialMediaPost,
 )
-
-
-class SyncedListFilter(admin.SimpleListFilter):
-    title = _("is synced")
-    parameter_name = "is_synced"
-
-    def lookups(self, request, model_admin):
-        return [("1", _("Yes")), ("0", _("No"))]
-
-    def queryset(self, request, queryset):
-        synced = Q(synced_at__isnull=False) & Q(synced_at__gte=F("updated_at"))
-        if self.value() == "1":
-            return queryset.filter(synced)
-        if self.value() == "0":
-            return queryset.exclude(synced)
-        return queryset
-
-
-class SyncableMixin:
-    def is_synced_display(self, obj):
-        return obj.is_synced
-
-    is_synced_display.boolean = True
-    is_synced_display.short_description = _("is synced")
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -233,7 +209,7 @@ class PoliticalPositionInline(admin.TabularInline):
 
 
 @admin.register(Person)
-class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
+class PersonAdmin(ReadOnlyAdmin):
     inlines = [AffiliationInline, PoliticalPositionInline]
     list_display = [
         "last_name",
@@ -241,11 +217,8 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
         "also_known_as",
         "wikidata_link",
         "aw_link",
-        "synced_at",
-        "is_synced_display",
     ]
     fields = [
-        "external_id",
         "sync_uuid",
         "title",
         "first_name",
@@ -257,8 +230,6 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
         "verband_display",
         "created_at",
         "updated_at",
-        "synced_at",
-        "is_synced_display",
     ]
     readonly_fields = [
         "sync_uuid",
@@ -267,12 +238,8 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
         "verband_display",
         "created_at",
         "updated_at",
-        "synced_at",
-        "is_synced_display",
     ]
     list_filter = [
-        SyncedListFilter,
-        "synced_at",
         "affiliations__organization__institutional_level",
         "affiliations__role",
         "affiliations__organization",
@@ -297,18 +264,15 @@ class PersonAdmin(SyncableMixin, ReadOnlyAdmin):
 
 
 @admin.register(Organization)
-class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
+class OrganizationAdmin(ReadOnlyAdmin):
     list_display = [
         "organization_name",
         "also_known_as",
         "wikidata_link",
         "institutional_level",
         "region_list",
-        "synced_at",
-        "is_synced_display",
     ]
     fields = [
-        "external_id",
         "sync_uuid",
         "organization_name",
         "also_known_as",
@@ -320,8 +284,6 @@ class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
         "status",
         "created_at",
         "updated_at",
-        "synced_at",
-        "is_synced_display",
     ]
     readonly_fields = [
         "sync_uuid",
@@ -329,13 +291,9 @@ class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
         "verband_display",
         "created_at",
         "updated_at",
-        "synced_at",
-        "is_synced_display",
     ]
     filter_horizontal = ("regions",)
     list_filter = [
-        SyncedListFilter,
-        "synced_at",
         "institutional_level",
         "affiliations__person",
     ]
@@ -373,47 +331,35 @@ class OrganizationAdmin(SyncableMixin, ReadOnlyAdmin):
 
 
 @admin.register(Role)
-class RoleAdmin(SyncableMixin, ReadOnlyAdmin):
+class RoleAdmin(ReadOnlyAdmin):
     list_display = [
         "name",
-        "external_id",
         "sync_uuid",
-        "synced_at",
-        "is_synced_display",
     ]
     fields = [
-        "external_id",
         "name",
         "sync_uuid",
         "created_at",
         "updated_at",
-        "synced_at",
-        "is_synced_display",
     ]
     readonly_fields = [
         "sync_uuid",
         "created_at",
         "updated_at",
-        "synced_at",
-        "is_synced_display",
     ]
-    list_filter = [SyncedListFilter, "synced_at"]
     search_fields = ["name"]
 
 
 @admin.register(Affiliation)
-class AffiliationAdmin(SyncableMixin, ReadOnlyAdmin):
+class AffiliationAdmin(ReadOnlyAdmin):
     list_display = [
         "person",
         "organization",
         "role",
         "start_date_string",
         "end_date_string",
-        "synced_at",
-        "is_synced_display",
     ]
     fields = [
-        "external_id",
         "sync_uuid",
         "person",
         "organization",
@@ -425,20 +371,14 @@ class AffiliationAdmin(SyncableMixin, ReadOnlyAdmin):
         "comment",
         "created_at",
         "updated_at",
-        "synced_at",
-        "is_synced_display",
     ]
     readonly_fields = [
         "sync_uuid",
         "aw_link",
         "created_at",
         "updated_at",
-        "synced_at",
-        "is_synced_display",
     ]
     list_filter = [
-        SyncedListFilter,
-        "synced_at",
         "organization__institutional_level",
         "role",
         "person",
