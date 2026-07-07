@@ -75,9 +75,7 @@ class AbstractActor(SyncableModel):
         max_length=20, unique=True, blank=True, null=True, verbose_name=_("Wikidata ID")
     )
     # The regional chapter ("Verband") the actor belongs to: a Bundesland for a
-    # Landesverband, or the country-level region ("Deutschland") for "Bund". Kept
-    # separate from `Organization.regions` (which describes an org's area of
-    # activity); this names the actor's organizational level instead.
+    # Landesverband, or the country-level region ("Deutschland") for "Bund".
     verband = models.ForeignKey(
         GeoRegion,
         on_delete=models.PROTECT,
@@ -155,13 +153,6 @@ class Organization(AbstractActor):
         "InstitutionalLevel",
         on_delete=models.PROTECT,
         verbose_name=_("institutional level"),
-    )
-    regions = models.ManyToManyField(GeoRegion, blank=True, verbose_name=_("regions"))
-    special_regions = ArrayField(
-        models.CharField(max_length=50),
-        default=list,
-        blank=True,
-        verbose_name=_("special regions"),
     )
 
     def __str__(self):
