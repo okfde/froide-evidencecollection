@@ -1422,6 +1422,12 @@ class EvidenceMention(models.Model):
         verbose_name = _("evidence mention")
         verbose_name_plural = _("evidence mentions")
         ordering = ["footnote"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["evidence", "footnote"],
+                name="unique_footnote_per_evidence",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.evidence} — {self.category} ({self.footnote})"

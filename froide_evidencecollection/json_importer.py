@@ -1064,7 +1064,7 @@ class JSONImporter:
         if not (topics or footnotes):
             return
 
-        existing = {(m.category_id, m.footnote): m for m in evidence.mentions.all()}
+        existing = {m.footnote: m for m in evidence.mentions.all()}
         wanted = set()
 
         for (
@@ -1089,7 +1089,7 @@ class JSONImporter:
             category_name = topic_path[-1]
             category, _ = Category.objects.get_or_create(name=category_name)
             footnote = (footnote or "").strip()
-            key = (category.id, footnote)
+            key = footnote
             wanted.add(key)
             chapter = self._get_or_create_chapter(topic_path)
             vts = vts or {}
