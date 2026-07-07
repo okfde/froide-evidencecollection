@@ -221,7 +221,6 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
             "related_actors__organization__institutional_level",
             "mentions__originator",
             "mentions__chapter",
-            "attachments",
         )
 
     def get_breadcrumbs(self, context):
@@ -236,10 +235,7 @@ EVIDENCE_CARD_SELECT_RELATED = (
     "evidence_type",
     "social_media_post__account",
 )
-EVIDENCE_CARD_PREFETCH_RELATED = (
-    "originators__organization__institutional_level",
-    "attachments",
-)
+EVIDENCE_CARD_PREFETCH_RELATED = ("originators__organization__institutional_level",)
 
 ACTOR_PROFILE_EVIDENCE_LIMIT = 20
 

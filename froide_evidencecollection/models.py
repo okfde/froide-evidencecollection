@@ -1213,18 +1213,6 @@ class Evidence(TrackableModel):
         # the caller did not prefetch.
         return list(self.originators.all())
 
-    ATTACHMENT_KIND_ORDER = ("image", "video", "audio", "pdf", "other")
-
-    @cached_property
-    def attachments_by_kind(self):
-        # Group attachments by media kind for the card chip row. Reads from
-        # the prefetched manager so a result page does not fan out to N
-        # extra queries.
-        counts = {}
-        for att in self.attachments.all():
-            counts[att.kind] = counts.get(att.kind, 0) + 1
-        return [(k, counts[k]) for k in self.ATTACHMENT_KIND_ORDER if k in counts]
-
     def get_absolute_url(self):
         return reverse("evidencecollection:evidence-detail", kwargs={"slug": self.slug})
 
@@ -1361,63 +1349,6 @@ class Collection(models.Model):
     class Meta:
         verbose_name = _("collection")
         verbose_name_plural = _("collections")
-
-    def __str__(self):
-        return self.name
-
-
-class Attachment(TrackableModel):
-    evidence = models.ForeignKey(
-        Evidence,
-        on_delete=models.CASCADE,
-        verbose_name=_("evidence"),
-        related_name="attachments",
-    )
-    title = models.CharField(max_length=255, verbose_name=_("title"))
-    file = models.FileField(
-        upload_to="attachments", max_length=255, verbose_name=_("file")
-    )
-    mimetype = models.CharField(
-        max_length=100, blank=True, default="", verbose_name=_("mimetype")
-    )
-    size = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("size"))
-    width = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("width"))
-    height = models.PositiveIntegerField(
-        null=True, blank=True, verbose_name=_("height")
-    )
-
-    class Meta:
-        verbose_name = _("attachment")
-        verbose_name_plural = _("attachments")
-
-    def __str__(self):
-        return f"{self.evidence} - {self.file.name}"
-
-    @cached_property
-    def kind(self):
-        # Bucket the mimetype into the same media kinds the UI uses for
-        # icons and gating decisions.
-        mt = (self.mimetype or "").lower()
-        if mt.startswith("image/"):
-            return "image"
-        if mt.startswith("video/"):
-            return "video"
-        if mt.startswith("audio/"):
-            return "audio"
-        if mt == "application/pdf":
-            return "pdf"
-        return "other"
-
-    def exclude_from_serialization(self):
-        return super().exclude_from_serialization() + ["file"]
-
-
-class AttributionProblem(models.Model):
-    name = models.CharField(max_length=255, unique=True, verbose_name=_("name"))
-
-    class Meta:
-        verbose_name = _("attribution problem")
-        verbose_name_plural = _("attribution problems")
 
     def __str__(self):
         return self.name
