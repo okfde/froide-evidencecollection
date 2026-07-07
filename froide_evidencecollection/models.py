@@ -1009,22 +1009,6 @@ class Evidence(TrackableModel):
     slug = models.SlugField(
         max_length=EVIDENCE_SLUG_LENGTH, unique=True, verbose_name=_("slug")
     )
-    citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
-    description = models.TextField(
-        blank=True, default="", verbose_name=_("description")
-    )
-    evidence_type = models.ForeignKey(
-        "EvidenceType",
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        verbose_name=_("evidence type"),
-    )
-    collections = models.ManyToManyField(
-        "Collection",
-        blank=True,
-        verbose_name=_("collections"),
-    )
     social_media_post = models.OneToOneField(
         "SocialMediaPost",
         on_delete=models.PROTECT,
@@ -1338,31 +1322,6 @@ class Chapter(MP_Node):
         """Evidences filed under this chapter or any of its descendants."""
         subtree = Chapter.get_tree(self)
         return Evidence.objects.filter(mentions__chapter__in=subtree).distinct()
-
-
-class Collection(models.Model):
-    name = models.CharField(max_length=255, unique=True, verbose_name=_("name"))
-    description = models.TextField(
-        blank=True, default="", verbose_name=_("description")
-    )
-
-    class Meta:
-        verbose_name = _("collection")
-        verbose_name_plural = _("collections")
-
-    def __str__(self):
-        return self.name
-
-
-class EvidenceType(models.Model):
-    name = models.CharField(unique=True, max_length=255, verbose_name=_("name"))
-
-    class Meta:
-        verbose_name = _("evidence type")
-        verbose_name_plural = _("evidence types")
-
-    def __str__(self):
-        return self.name
 
 
 class ImportExportRun(models.Model):

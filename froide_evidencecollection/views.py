@@ -49,8 +49,6 @@ class EvidenceExporter:
         "id",
         "slug",
         "documentation_date",
-        "citation",
-        "description",
         "social_media_post__url",
         "text_segment_label",
         "text_segment_text",
@@ -214,7 +212,6 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
 
     def get_queryset(self):
         return Evidence.objects.select_related(
-            "evidence_type",
             "social_media_post__account",
         ).prefetch_related(
             "originators__organization__institutional_level",
@@ -231,10 +228,7 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
 
 
 # Prefetches shared by every place that renders a list of evidence cards.
-EVIDENCE_CARD_SELECT_RELATED = (
-    "evidence_type",
-    "social_media_post__account",
-)
+EVIDENCE_CARD_SELECT_RELATED = ("social_media_post__account",)
 EVIDENCE_CARD_PREFETCH_RELATED = ("originators__organization__institutional_level",)
 
 ACTOR_PROFILE_EVIDENCE_LIMIT = 20
@@ -663,8 +657,6 @@ class EvidenceTopicCloudView(TemplateView):
                 # `slug` backs `get_absolute_url()`, read once per circle in the
                 # cloud loop — load it here so it isn't a deferred per-row query.
                 "slug",
-                "citation",
-                "description",
                 "topic_x",
                 "topic_y",
                 "social_media_post__url",
@@ -692,8 +684,6 @@ class EvidenceTopicCloudView(TemplateView):
                 | Q(social_media_post__text__icontains=q)
                 | Q(social_media_post__description__icontains=q)
                 | Q(social_media_post__transcription__icontains=q)
-                | Q(citation__icontains=q)
-                | Q(description__icontains=q)
             )
 
         # Main topic (report chapter): the hierarchical entry point, single-
