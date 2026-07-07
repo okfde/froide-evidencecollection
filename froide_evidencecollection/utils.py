@@ -8,14 +8,9 @@ import uuid
 from itertools import chain
 from pathlib import Path
 
-from django.conf import settings
 from django.db import models
 
-from froide.georegion.models import GeoRegion
-
 logger = logging.getLogger(__name__)
-
-CONFIG = settings.FROIDE_EVIDENCECOLLECTION_CONFIG
 
 ORG_LABEL_REPLACEMENTS_PATH = (
     Path(__file__).resolve().parent / "data" / "org_label_replacements.csv"
@@ -156,20 +151,6 @@ def equals(old_value, new_value):
             return False
 
     return old_value == new_value
-
-
-def selectable_regions():
-    config = CONFIG.get("selectable_regions")
-    # Callers (the importer's name→pk map, the admin M2M widget) read only
-    # scalar fields; defer GeoRegion's large geometry columns (`geom`,
-    # `geom_detail`, `gov_seat`) so they aren't fetched and GEOS-deserialized
-    # per region.
-    queryset = GeoRegion.objects.defer("geom", "geom_detail", "gov_seat")
-
-    if config and "ids" in config:
-        queryset = queryset.filter(id__in=config["ids"])
-
-    return queryset
 
 
 def to_dict(instance):

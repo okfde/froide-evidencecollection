@@ -1,9 +1,5 @@
 # froide evidencecollection
 
-## Configuration
-
-- `FROIDE_EVIDENCECOLLECTION_CONFIG`: a dictionary containing configuration options, see the `settings/base.py` file in the `fragdenstaat_de` project.
-
 ## Rebuild Search Index
 
 To rebuild the search index for the `froide_evidencecollection` app, you can use the following command:
