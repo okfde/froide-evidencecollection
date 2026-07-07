@@ -3,7 +3,6 @@ import html
 import io
 from collections import defaultdict
 
-from django.conf import settings
 from django.core.exceptions import BadRequest
 from django.db.models import F, Max, Min, Prefetch, Q, QuerySet
 from django.http import Http404, HttpResponse
@@ -14,7 +13,6 @@ from django.utils.translation import gettext as _
 from django.views.decorators.cache import never_cache
 from django.views.generic import DetailView, TemplateView
 
-from froide.foirequest.pdf_generator import get_wp
 from froide.georegion.models import GeoRegion
 from froide.helper.breadcrumbs import BreadcrumbView
 
@@ -45,8 +43,6 @@ class EvidenceExporter:
     FORMATS = [
         "csv",
         "xlsx",
-        # Disabled for now
-        # "pdf"
     ]
 
     TABLE_EXPORT = [
@@ -131,23 +127,6 @@ class EvidenceExporter:
             f.getvalue(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-
-    def generate_pdf(self, queryset, related_object=None):
-        html = render_to_string(
-            "froide_evidencecollection/pdf_export.html",
-            context={
-                "SITE_NAME": settings.SITE_NAME,
-                "rows": queryset,
-                "related_object": related_object,
-            },
-        )
-        # Uncomment for testing
-        # return html, "text/html"
-        wp = get_wp()
-        if not wp:
-            raise Exception("WeasyPrint needs to be installed")
-        doc = wp.HTML(string=html)
-        return doc.write_pdf(), "application/pdf"
 
 
 def resolve_nested_value(obj, parts):
@@ -363,7 +342,7 @@ class ExportMixin:
         return
 
     def get(self, request, *args, **kwargs):
-        format = request.GET.get("format", "pdf")
+        format = request.GET.get("format", "csv")
         if format not in EvidenceExporter.FORMATS:
             raise BadRequest("Invalid format")
 
