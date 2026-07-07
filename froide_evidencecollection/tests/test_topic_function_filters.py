@@ -244,11 +244,15 @@ class TestChaptersByEvidence:
         )
 
     def _mention(self, evidence, chapter):
+        # Footnotes only need to be unique per evidence; a running counter keeps
+        # the several mentions on ``multi_ev`` distinct.
+        self._footnote_seq = getattr(self, "_footnote_seq", 0) + 1
         EvidenceMention.objects.create(
             evidence=evidence,
             category=self.category,
             originator=self.actor,
             chapter=chapter,
+            footnote=str(self._footnote_seq),
         )
 
     def test_labels_distinct_chapters_and_omits_chapterless(self):
