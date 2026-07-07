@@ -537,7 +537,6 @@ class TestPoliticianImporter:
                     "fields": {
                         "also_known_as": [],
                         "aw_id": 12346,
-                        "external_id": None,
                         "first_name": "Maxi",
                         "last_name": "Musterfrau",
                         "status": None,
@@ -580,7 +579,7 @@ class TestPoliticianImporter:
     def test_update_if_value_is_not_set(self, mock_get, aw_mock_response, person):
         # Ensure existing person has no wikidata_id to test update.
         person.wikidata_id = None
-        person.save(sync=True)
+        person.save()
 
         mock_get.side_effect = aw_mock_response()
 
@@ -598,7 +597,6 @@ class TestPoliticianImporter:
         assert updated_person.last_name == "Musterfrau"
         assert updated_person.title == "Dr."
         assert updated_person.wikidata_id == "Q123456"
-        assert updated_person.is_synced is False
 
         stats = importer.stats.to_dict()
         assert stats["Person"] == {
@@ -717,7 +715,6 @@ class TestCandidacyImporter:
                         "end_date_string": "2024-05-30"
                         if with_values
                         else "2024-06-09",
-                        "external_id": None,
                         "organization": affiliation.organization.id,
                         "person": affiliation.person.id,
                         "reference_url": "",
@@ -768,7 +765,7 @@ class TestCandidacyImporter:
         candidate_affiliation.start_date = None
         candidate_affiliation.end_date = None
         candidate_affiliation.comment = ""
-        candidate_affiliation.save(sync=True)
+        candidate_affiliation.save()
 
         mock_get.side_effect = aw_mock_response()
 
@@ -820,7 +817,7 @@ class TestCandidacyImporter:
     ):
         candidate_affiliation.reference_url = "https://example.com"
         candidate_affiliation.comment = "Kommentar"
-        candidate_affiliation.save(sync=True)
+        candidate_affiliation.save()
         assert candidate_affiliation.start_date == date(2024, 5, 1)
         assert candidate_affiliation.end_date == date(2024, 5, 30)
 
@@ -1010,7 +1007,6 @@ class TestMandateImporter:
                         "comment": "Info zum Mandat" if with_values else "",
                         "end_date": "2025-09-30" if with_values else None,
                         "end_date_string": "2025-09-30" if with_values else "",
-                        "external_id": None,
                         "organization": mandate.organization.id,
                         "person": mandate.person.id,
                         "reference_url": "",
@@ -1061,7 +1057,7 @@ class TestMandateImporter:
         mandate_affiliation.start_date = None
         mandate_affiliation.end_date = None
         mandate_affiliation.comment = ""
-        mandate_affiliation.save(sync=True)
+        mandate_affiliation.save()
 
         mock_get.side_effect = aw_mock_response()
 
@@ -1116,7 +1112,7 @@ class TestMandateImporter:
     ):
         mandate_affiliation.comment = "Kommentar"
         mandate_affiliation.reference_url = "https://example.com"
-        mandate_affiliation.save(sync=True)
+        mandate_affiliation.save()
         assert mandate_affiliation.start_date == date(2025, 1, 1)
         assert mandate_affiliation.end_date == date(2025, 9, 30)
 
@@ -1338,7 +1334,6 @@ class TestAbgeordnetenwatchImporter:
                     "fields": {
                         "also_known_as": [],
                         "aw_id": 12346,
-                        "external_id": None,
                         "first_name": "Maxi",
                         "last_name": "Musterfrau",
                         "status": None,
@@ -1362,7 +1357,6 @@ class TestAbgeordnetenwatchImporter:
                         "comment": "Info zur Kandidatur",
                         "end_date": "2024-05-30",
                         "end_date_string": "2024-05-30",
-                        "external_id": None,
                         "organization": candidacy.organization.id,
                         "person": candidacy.person.id,
                         "reference_url": "",
@@ -1379,7 +1373,6 @@ class TestAbgeordnetenwatchImporter:
                         "comment": "Info zum Mandat",
                         "end_date": "2025-09-30",
                         "end_date_string": "2025-09-30",
-                        "external_id": None,
                         "organization": mandate.organization.id,
                         "person": mandate.person.id,
                         "reference_url": "",
