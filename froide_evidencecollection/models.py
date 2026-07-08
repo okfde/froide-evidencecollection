@@ -1,6 +1,5 @@
 import logging
 import re
-import textwrap
 import uuid
 from dataclasses import dataclass, field, replace
 
@@ -517,16 +516,11 @@ class EvidenceSource:
     """
     Uniform accessor surface for models attachable to an Evidence as a source.
 
-    Subclasses expose `url` (model field) and implement `display_text`,
-    `publication_date` and `text_segments` so callers don't branch on source
-    type.
+    Subclasses expose `url` (model field) and implement `publication_date` and
+    `text_segments` so callers don't branch on source type.
     """
 
     url: str
-
-    @property
-    def display_text(self) -> str:
-        raise NotImplementedError
 
     @property
     def publication_date(self):
@@ -732,34 +726,17 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
             )
         return segments
 
-    def text_segments(self, *, include_redistributed: bool = True) -> list[TextSegment]:
+    def text_segments(self) -> list[TextSegment]:
         segments = self._own_text_segments()
 
         # Include text segments of redistributed post.
-        if include_redistributed and self.redistributes_id:
+        if self.redistributes_id:
             attribution = str(self.redistributes.account)
             segments.extend(
                 replace(seg, kind=f"redistributed:{seg.kind}", attribution=attribution)
                 for seg in self.redistributes._own_text_segments()
             )
         return segments
-
-    @property
-    def full_text(self) -> str:
-        # Own searchable text only; used for the short `display_text` summary,
-        # so it stays cheap (no redistribution recursion / extra queries).
-        # Redacted (global + this post's scoped rules) so the summary never
-        # leaks a masked term.
-        text = "\n\n".join(
-            s.text
-            for s in self.text_segments(include_redistributed=False)
-            if s.for_search
-        )
-        return apply_redactions(text, post=self)
-
-    @property
-    def display_text(self) -> str:
-        return textwrap.shorten(self.full_text, width=50, placeholder="...")
 
     @property
     def publication_date(self):
