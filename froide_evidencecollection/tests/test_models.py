@@ -64,13 +64,10 @@ def _make_post(**overrides):
 
 @pytest.mark.django_db
 class TestPostTextSegments:
-    def test_non_video_post_uses_its_whole_text(self):
-        # A non-video post contributes its title, body, description and the
-        # image's alt-text description — all searched and topic-modelled.
+    def test_non_video_post(self):
         post = _make_post(
             title="the title",
             description="a description",
-            image_description="a protest sign",
         )
         evidence = Evidence.objects.create(social_media_post=post)
 
@@ -79,15 +76,13 @@ class TestPostTextSegments:
             by_kind.setdefault(seg.kind, []).append(seg.text)
         assert by_kind["title"] == ["the title"]
         assert by_kind["body"] == ["post body"]
-        assert set(by_kind["description"]) == {"a description", "a protest sign"}
+        assert by_kind["description"] == ["a description"]
         assert all(s.for_search and s.for_topics for s in evidence.text_segments)
 
-    def test_video_post_uses_full_transcription(self):
-        # For a video post the post's full transcription is the searched /
-        # topic text; the caption rides along but the (promotional) description
-        # does not.
+    def test_video_post(self):
         post = _make_post(
             text="caption",
+            description="promo blurb",
             video_source_path="./video/b.mp4",
             transcription="the whole transcript",
         )
@@ -97,29 +92,18 @@ class TestPostTextSegments:
         assert seg.text == "the whole transcript"
         assert seg.for_search is True
         assert seg.for_topics is True
+
+        seg = next(s for s in evidence.text_segments if s.kind == "description")
+        assert seg.text == "promo blurb"
+        assert seg.for_search is True
+        assert seg.for_topics is True
+
         assert "the whole transcript" in evidence.search_text
         assert "the whole transcript" in evidence.topic_text
         assert "caption" in evidence.search_text
-
-    def test_video_post_description_is_display_only(self):
-        # A video post's (often promotional) description rides along as a
-        # display-only segment — shown in the detail view but kept out of
-        # search/topics, where the transcript carries the content.
-        post = _make_post(
-            text="caption",
-            description="promo blurb",
-            video_source_path="./video/b.mp4",
-            transcription="speech",
-        )
-        evidence = Evidence.objects.create(social_media_post=post)
-
-        seg = next(s for s in evidence.text_segments if s.kind == "video_description")
-        assert seg.text == "promo blurb"
-        assert seg.for_search is False
-        assert seg.for_topics is False
-        assert "promo blurb" not in evidence.search_text
-        assert "promo blurb" not in evidence.topic_text
-        assert "caption" in evidence.search_text
+        assert "caption" in evidence.topic_text
+        assert "promo blurb" in evidence.search_text
+        assert "promo blurb" in evidence.topic_text
 
     def test_citation_is_not_wired_into_segments(self):
         # `EvidenceMention.citation` is kept on the model but unwired from
@@ -153,8 +137,7 @@ class TestPostTextSegments:
 @pytest.mark.django_db
 class TestGroupedTextSegments:
     def test_own_components_merged_into_one_post_block(self):
-        # Title and body collapse into a single "Post text" block; the
-        # description is left for the Visual material section.
+        # Title, body and description collapse into a single "Post text" block.
         post = _make_post(title="the title", description="a description")
         evidence = Evidence.objects.create(social_media_post=post)
 
@@ -162,7 +145,11 @@ class TestGroupedTextSegments:
         assert [g.kind for g in groups] == ["post"]
         post_group = groups[0]
         assert post_group.heading == "Post text"
-        assert [s.base_kind for s in post_group.segments] == ["title", "body"]
+        assert [s.base_kind for s in post_group.segments] == [
+            "title",
+            "body",
+            "description",
+        ]
 
     def test_video_post_block_is_headed_video_description(self):
         post = _make_post(
@@ -172,8 +159,7 @@ class TestGroupedTextSegments:
 
         post_group = next(g for g in evidence.grouped_text_segments if g.kind == "post")
         assert post_group.heading == "Video description"
-        # The display-only description rides along inside the same block.
-        assert "video_description" in [s.base_kind for s in post_group.segments]
+        assert "description" in [s.base_kind for s in post_group.segments]
 
     def test_transcript_is_a_standalone_block(self):
         post = _make_post(
