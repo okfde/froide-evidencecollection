@@ -742,17 +742,6 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
     def publication_date(self):
         return self.posted_at.date() if self.posted_at else None
 
-    @cached_property
-    def media_descriptions(self):
-        # (kind, text) shown in the detail view's Visual material section. The
-        # media files themselves are admin-only / not stored, only what they
-        # depict: the image's alt-text description and (for a video) that a
-        # transcript exists.
-        out = []
-        if self.image_description and self.image_description.strip():
-            out.append(("image", self.image_description.strip()))
-        return out
-
     def compute_slug(self) -> str:
         return make_evidence_slug(self.account.platform, self.platform_post_id)
 

@@ -312,9 +312,9 @@
                     </div>
                 </section>
             {% endif %}
-            {# ── Visual material (screenshot + media descriptions) ─────── #}
+            {# ── Visual material (screenshot + image description) ─────── #}
             {% with post=object.social_media_post %}
-                {% if post.screenshot or post.media_descriptions %}
+                {% if post.screenshot or post.image_description %}
                     <section class="detail-section">
                         <h2 class="detail-heading">{% trans "Screenshot of the original post" %}</h2>
                         {% if post.screenshot %}
@@ -330,32 +330,14 @@
                                 </div>
                             </div>
                         {% endif %}
-                        {# Descriptions of the attached media (the files themselves #}
-                        {# are admin-only and not shown publicly), tagged by type.  #}
-                        {% if post.media_descriptions %}
-                            <ul class="list-unstyled mb-0">
-                                {% for kind, description in post.media_descriptions %}
-                                    <li class="d-flex gap-2 mb-2">
-                                        <span aria-hidden="true">
-                                            {% if kind == 'video' %}
-                                                🎬
-                                            {% else %}
-                                                🖼
-                                            {% endif %}
-                                        </span>
-                                        <span>
-                                            <span class="text-uppercase small fw-semibold text-body-secondary d-block">
-                                                {% if kind == 'video' %}
-                                                    {% trans "Video" %}
-                                                {% else %}
-                                                    {% trans "Image in post" %}
-                                                {% endif %}
-                                            </span>
-                                            {{ description }}
-                                        </span>
-                                    </li>
-                                {% endfor %}
-                            </ul>
+                        {% if post.image_description %}
+                            <div class="d-flex gap-2">
+                                <span aria-hidden="true">🖼</span>
+                                <span>
+                                    <span class="text-uppercase small fw-semibold text-body-secondary d-block">{% trans "Image in post" %}</span>
+                                    {{ post.image_description }}
+                                </span>
+                            </div>
                         {% endif %}
                     </section>
                 {% endif %}
