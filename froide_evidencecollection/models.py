@@ -1047,7 +1047,7 @@ class Evidence(TrackableModel):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.slug} - {self.title}"
+        return self.title
 
     @property
     def source(self) -> "EvidenceSource | None":
@@ -1063,10 +1063,25 @@ class Evidence(TrackableModel):
         source = self.source
         return source.url if source is not None else ""
 
-    @cached_property
+    @property
     def title(self) -> str:
-        source = self.source
-        return source.display_text if source is not None else ""
+        """
+        Return a human-readable label built from the public slug plus the originators
+        and publication date. Empty parts are dropped so it stays clean.
+        """
+        parts = [f"{_('Evidence')} {self.slug}"]
+
+        # `originator_actors` hits the M2M table, which requires a saved pk.
+        if self.pk:
+            originators = ", ".join(actor.name for actor in self.originator_actors)
+            if originators:
+                parts.append(originators)
+
+        date = self.source.publication_date if self.source is not None else None
+        if date:
+            parts.append(str(date))
+
+        return " · ".join(part for part in parts if part)
 
     def _video_transcript_segments(self) -> list["TextSegment"]:
         # Transcript text for a video post; non-video posts contribute none.
