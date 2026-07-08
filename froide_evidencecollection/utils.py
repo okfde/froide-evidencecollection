@@ -52,13 +52,6 @@ def apply_org_label_replacement(label, replacements):
     return label
 
 
-def compute_hash(text):
-    if not text:
-        return ""
-
-    return hashlib.sha256(text.encode()).hexdigest()
-
-
 # Length of the public evidence slug, in base32 characters. 10 chars = 50 bits.
 # This is a frozen, partner-derivable contract that can never be re-rolled on
 # collision, so the width is chosen for ample headroom: at 50 bits, birthday
@@ -105,36 +98,6 @@ def normalize_name(text):
     text = re.sub(r"\bafd\b", " ", text)  # drop the party token
     text = re.sub(r"[^0-9a-zäöüß]+", " ", text)  # collapse separators
     return text.strip()
-
-
-def get_base_class_name(model, exclude=None):
-    """
-    Returns the base class name of a Django model.
-
-    Returns the name of the first parent class that is not `models.Model`.
-
-    `exclude` can be provided to exclude additional base classes.
-    """
-    exclude = exclude or []
-    exclude.append(models.Model)
-
-    for base in model.__bases__:
-        if base not in exclude:
-            return base.__name__
-
-    return model.__name__
-
-
-def get_default_value(model, field_name):
-    field = model._meta.get_field(field_name)
-
-    if not field.has_default():
-        return None
-
-    if callable(field.default):
-        return field.default()
-
-    return field.default
 
 
 def equals(old_value, new_value):
