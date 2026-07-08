@@ -88,18 +88,15 @@ class TestPostTextSegments:
         )
         evidence = Evidence.objects.create(social_media_post=post)
 
-        seg = next(s for s in evidence.text_segments if s.kind == "transcription")
-        assert seg.text == "the whole transcript"
-        assert seg.for_search is True
-        assert seg.for_topics is True
+        assert not any(s.kind == "transcription" for s in evidence.text_segments)
+        assert "the whole transcript" not in evidence.search_text
+        assert "the whole transcript" not in evidence.topic_text
 
         seg = next(s for s in evidence.text_segments if s.kind == "description")
         assert seg.text == "promo blurb"
         assert seg.for_search is True
         assert seg.for_topics is True
 
-        assert "the whole transcript" in evidence.search_text
-        assert "the whole transcript" in evidence.topic_text
         assert "caption" in evidence.search_text
         assert "caption" in evidence.topic_text
         assert "promo blurb" in evidence.search_text
@@ -161,7 +158,9 @@ class TestGroupedTextSegments:
         assert post_group.heading == "Video description"
         assert "description" in [s.base_kind for s in post_group.segments]
 
-    def test_transcript_is_a_standalone_block(self):
+    def test_transcript_is_not_a_block(self):
+        # The transcription is not surfaced, so a video post with only a caption
+        # and a transcript yields just the post block — no standalone block.
         post = _make_post(
             text="caption",
             video_source_path="./video/b.mp4",
@@ -170,11 +169,12 @@ class TestGroupedTextSegments:
         evidence = Evidence.objects.create(social_media_post=post)
 
         kinds = [g.kind for g in evidence.grouped_text_segments]
-        assert "standalone" in kinds
-        standalone = next(
-            g for g in evidence.grouped_text_segments if g.kind == "standalone"
+        assert "standalone" not in kinds
+        assert not any(
+            seg.base_kind == "transcription"
+            for group in evidence.grouped_text_segments
+            for seg in group.segments
         )
-        assert standalone.segments[0].base_kind == "transcription"
 
     def test_repost_is_its_own_attributed_block(self):
         inner = _make_post(

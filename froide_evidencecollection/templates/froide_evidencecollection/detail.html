@@ -49,11 +49,6 @@
         background: #fff8e8; border: 1px dashed #e0c97f; border-radius: .4rem;
         padding: .6rem .8rem; font-size: .9rem; white-space: pre-wrap;
     }
-    /* a spoken-word transcript — captions style */
-    .seg-transcription .seg-body {
-        border-left: 3px dotted #009E73; padding-left: 1rem;
-        color: #333; font-size: .95rem;
-    }
     /* reposted-from content — nested under the piece's own text */
     .seg-redistributed {
         margin-left: .5rem; padding-left: 1rem;
@@ -176,8 +171,8 @@
             {# blocks: the post's own components (title/body and, for a video,   #}
             {# its description) merged into one "Post text" / "Video             #}
             {# description" block; each reposted source as its own indented,     #}
-            {# attributed block; and anything else (transcript, on-image text,   #}
-            {# a caption) as a standalone, individually-styled block.            #}
+            {# attributed block; and anything else (on-image text, a caption)    #}
+            {# as a standalone, individually-styled block.                       #}
             {% if object.text_segments %}
                 <section class="detail-section">
                     {% for group in object.grouped_text_segments %}

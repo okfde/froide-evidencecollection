@@ -28,9 +28,9 @@ def _make_text_field():
 
 @evidence_index.document
 class EvidenceDocument(DSLDocument):
-    # Concatenated source text (post body/title/description, video transcript,
-    # redistributed content, …), assembled by Evidence.search_text with
-    # redaction rules already applied.
+    # Concatenated source text (post body/title/description, redistributed
+    # content, …), assembled by Evidence.search_text with redaction rules
+    # already applied.
     content = _make_text_field()
 
     class Django:
