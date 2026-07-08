@@ -5,8 +5,48 @@ import pytest
 
 from froide_evidencecollection.utils import (
     equals,
+    make_evidence_slug,
     normalize_name,
 )
+
+
+@pytest.mark.parametrize(
+    "platform,post_id,slug",
+    [
+        (
+            "facebook",
+            "1076563753291891",
+            "mth6nd3uc2",
+        ),
+        (
+            "instagram",
+            "DQoaetgAFsG",
+            "zhfqiblev2",
+        ),
+        (
+            "telegram",
+            "jungealternativenrw/727",
+            "7nlsmub2zm",
+        ),
+        (
+            "tiktok",
+            "7554751221773487382",
+            "pnneq6tiu6",
+        ),
+        (
+            "twitter",
+            "1968621682618212654",
+            "epxhe62cal",
+        ),
+        (
+            "youtube",
+            "sBmPJi-9NoI",
+            "tg55e4xqbb",
+        ),
+    ],
+)
+def test_make_evidence_slug(platform, post_id, slug):
+    assert make_evidence_slug(platform, post_id) == slug
 
 
 def test_equals():
