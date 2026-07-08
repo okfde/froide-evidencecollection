@@ -3,7 +3,6 @@ import re
 import textwrap
 import uuid
 from dataclasses import dataclass, field, replace
-from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -22,7 +21,6 @@ from froide.georegion.models import GeoRegion
 from froide_evidencecollection.storage import OverwriteStorage, post_screenshot_path
 from froide_evidencecollection.utils import (
     EVIDENCE_SLUG_LENGTH,
-    compute_hash,
     make_evidence_slug,
 )
 
@@ -1065,11 +1063,6 @@ class Evidence(TrackableModel):
         source = self.source
         return source.url if source is not None else ""
 
-    @property
-    def url_hash(self) -> str:
-        url = self.url
-        return compute_hash(url) if url else ""
-
     @cached_property
     def title(self) -> str:
         source = self.source
@@ -1180,10 +1173,6 @@ class Evidence(TrackableModel):
         )
         text = "\n\n".join(s.text for s in segments)
         return _clean_topic_text(text)
-
-    @cached_property
-    def domain(self) -> str:
-        return urlparse(self.url).netloc
 
     @cached_property
     def originator_actors(self):

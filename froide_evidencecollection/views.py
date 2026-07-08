@@ -54,26 +54,6 @@ class EvidenceExporter:
         "text_segment_text",
     ]
 
-    @property
-    def export_db_fields(self):
-        fields = []
-        for field in self.EXPORT_FIELDS:
-            if isinstance(field, tuple):
-                fields.append(field[0])
-            else:
-                fields.append(field)
-        return fields
-
-    @property
-    def export_human_fields(self):
-        fields = []
-        for field in self.EXPORT_FIELDS:
-            if isinstance(field, tuple):
-                fields.append(field[1])
-            else:
-                fields.append(field)
-        return fields
-
     def __init__(self, format):
         if format not in self.FORMATS:
             raise ValueError(f"format {format} is not supported")
@@ -125,43 +105,6 @@ class EvidenceExporter:
             f.getvalue(),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-
-
-def resolve_nested_value(obj, parts):
-    """
-    Recursively resolves a nested field path from an object.
-    Handles many-to-many relationships by collecting all values and returning a list.
-
-    Args:
-        obj: The base model instance.
-        parts: A list of attribute names, representing the path (e.g., ["source", "public_body", "name"]).
-
-    Returns:
-        A string, list of strings, or empty string depending on the result.
-    """
-    current = obj
-
-    for i, part in enumerate(parts):
-        if current is None:
-            return ""
-
-        # Check if we are at a ManyToMany or reverse relation manager.
-        if hasattr(current, "all"):
-            results = []
-            for item in current.all():
-                val = resolve_nested_value(item, parts[i:])
-                if isinstance(val, list):
-                    results.extend(val)
-                else:
-                    results.append(val)
-            return sorted(set(map(str, results)))
-        else:
-            current = getattr(current, part, None)
-
-    if isinstance(current, list):
-        return sorted(set(map(str, current)))
-
-    return str(current) if current is not None else ""
 
 
 class NoIndexMixin:
