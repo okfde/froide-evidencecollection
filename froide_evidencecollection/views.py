@@ -592,7 +592,6 @@ class EvidenceTopicCloudView(TemplateView):
                 "social_media_post__url",
                 "social_media_post__title",
                 "social_media_post__text",
-                "social_media_post__transcription",
                 "social_media_post__posted_at",
                 # Engagement counts for the dot tooltip's stats line — load
                 # them here so reading each isn't a deferred per-row query.
@@ -613,7 +612,6 @@ class EvidenceTopicCloudView(TemplateView):
                 Q(social_media_post__title__icontains=q)
                 | Q(social_media_post__text__icontains=q)
                 | Q(social_media_post__description__icontains=q)
-                | Q(social_media_post__transcription__icontains=q)
             )
 
         # Main topic (report chapter): the hierarchical entry point, single-

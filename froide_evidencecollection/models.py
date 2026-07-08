@@ -501,8 +501,8 @@ class TextSegmentGroup:
     - ``"redistributed"`` — one reposted source, kept indented and labelled with
       the ``attribution`` (the account it was lifted from). Only appears as a
       member of a post group's ``reposts``.
-    - ``"standalone"`` — any other segment (a video transcript, on-image text, a
-      caption) rendered on its own with its segment label.
+    - ``"standalone"`` — any other segment (on-image text, a caption) rendered
+      on its own with its segment label.
     """
 
     kind: str
@@ -548,9 +548,8 @@ class PostMediaMixin(models.Model):
     content image and video are merely *tracked* by their import source path
     (the binaries are not stored, matching that they were never rendered
     publicly). `image_description` is the image's alt text; the video's full
-    `transcription` is kept verbatim as a display/backup copy and is the
-    searched / topic-modelled text for a video post (see
-    `Evidence._video_transcript_segments`).
+    `transcription` is kept verbatim as a backup copy but is deliberately not
+    surfaced in display, search or topic modelling.
     """
 
     screenshot = models.ImageField(
@@ -580,7 +579,7 @@ class PostMediaMixin(models.Model):
         blank=True,
         default="",
         verbose_name=_("transcription"),
-        help_text=_("Full verbatim video transcript; display/backup."),
+        help_text=_("Full verbatim video transcript; kept as backup only."),
     )
 
     class Meta:
@@ -678,15 +677,13 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
     @property
     def is_video(self) -> bool:
         # A post counts as a video post if the import tracked a video file for
-        # it. Drives the transcript-vs-own-text branch in
-        # `Evidence._video_transcript_segments`.
+        # it. Drives the "Video description" vs "Post text" heading in
+        # `Evidence.grouped_text_segments`.
         return bool(self.video_source_path)
 
     def _own_text_segments(self) -> list[TextSegment]:
         # This post's own authored text, excluding anything redistributed. Title,
         # body and description all ride along, searched and topic-modelled.
-        # The video transcript is not here: it is emitted at the Evidence level
-        # (`Evidence._video_transcript_segments`).
         segments = []
         for kind, label, value in (
             ("title", _("Post title"), self.title),
@@ -876,14 +873,12 @@ def _invalidate_redactor_on_scope_change(sender, **kwargs):
 
 # Topic-modelling assembly order. The embedding model truncates to a fixed
 # token window, so whatever leads the text dominates the topic signal — lead
-# with the highest-signal fields (body / document text, then transcription)
-# and let lower-signal ones (title, caption) trail where they get truncated
-# away first. Redistributed segments always trail a piece's own content.
+# with the highest-signal fields and let lower-signal ones trail where they get
+# truncated away first. Redistributed segments always trail a piece's own content.
 _TOPIC_KIND_PRIORITY = {
     "citation": 0,
     "body": 0,
     "extracted_text": 0,
-    "transcription": 1,
     "title": 2,
     "caption": 3,
     "description": 3,
@@ -1020,30 +1015,16 @@ class Evidence(TrackableModel):
 
         return " · ".join(part for part in parts if part)
 
-    def _video_transcript_segments(self) -> list["TextSegment"]:
-        # Transcript text for a video post; non-video posts contribute none.
-        # The post's full `transcription` is searched and topic-modelled — the
-        # post's own caption/title still ride along via `_own_text_segments`,
-        # but its (often promotional) `description` does not for a video.
-        source = self.source
-        if source is None or not source.is_video:
-            return []
-        full = (source.transcription or "").strip()
-        if full:
-            return [TextSegment("transcription", _("Transcription"), full)]
-        return []
-
     @property
     def text_segments(self) -> list["TextSegment"]:
-        # The source's own labelled text plus, for a video post, its full
-        # transcription. Single definition behind the detail view, search index
-        # and topic modelling. Redaction rules are applied here — the one
-        # chokepoint — so masked terms never reach display, search or topics.
+        # The source's own labelled text. Single definition behind the detail
+        # view, search index and topic modelling. Redaction rules are applied
+        # here — the one chokepoint — so masked terms never reach display,
+        # search or topics.
         source = self.source
         if source is None:
             return []
         segments = list(source.text_segments())
-        segments.extend(self._video_transcript_segments())
         return [
             replace(seg, text=apply_redactions(seg.text, post=source))
             for seg in segments
@@ -1057,8 +1038,7 @@ class Evidence(TrackableModel):
         merged into one block, headed "Video description" for a video and "Post text"
         otherwise. A reposted source is shown nested *inside* that block (the post is
         quoting it), kept indented and attributed via the post group's ``reposts``.
-        Anything else (a video transcript, on-image text, a caption) stays a
-        standalone block.
+        Anything else (on-image text, a caption) stays a standalone block.
         """
         source = self.source
         is_video = bool(source and source.is_video)
