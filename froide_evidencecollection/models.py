@@ -494,10 +494,10 @@ class TextSegmentGroup:
 
     `kind` selects how the block is rendered:
 
-    - ``"post"`` — the source's own authored components (title, body and, for a
-      video, its display-only description) merged into a single "Post text" /
-      "Video description" block. Any reposted sources the post shares hang off
-      ``reposts`` and are shown nested inside this block.
+    - ``"post"`` — the source's own authored components (title, body and
+      description) merged into a single "Post text" / "Video description" block.
+      Any reposted sources the post shares hang off ``reposts`` and are shown
+      nested inside this block.
     - ``"redistributed"`` — one reposted source, kept indented and labelled with
       the ``attribution`` (the account it was lifted from). Only appears as a
       member of a post group's ``reposts``.
@@ -683,47 +683,18 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
         return bool(self.video_source_path)
 
     def _own_text_segments(self) -> list[TextSegment]:
-        # This post's own authored text, excluding anything redistributed. Title
-        # and body always ride along; the image's alt-text `image_description` is
-        # included where present. The video transcript is not here: it is emitted
-        # at the Evidence level (`Evidence._video_transcript_segments`).
+        # This post's own authored text, excluding anything redistributed. Title,
+        # body and description all ride along, searched and topic-modelled.
+        # The video transcript is not here: it is emitted at the Evidence level
+        # (`Evidence._video_transcript_segments`).
         segments = []
         for kind, label, value in (
             ("title", _("Post title"), self.title),
             ("body", _("Post text"), self.text),
+            ("description", _("Description"), self.description),
         ):
             if value and value.strip():
                 segments.append(TextSegment(kind, label, value.strip()))
-        # The post `description`: for a non-video post it is ordinary authored
-        # text (searched and topic-modelled). For a video the (often promotional)
-        # description is display-only — the transcript carries the content into
-        # search/topics — so it rides along for the detail view (where it's shown
-        # like the post text) but is kept out of both via a distinct kind.
-        if self.description and self.description.strip():
-            if self.is_video:
-                segments.append(
-                    TextSegment(
-                        "video_description",
-                        _("Description"),
-                        self.description.strip(),
-                        for_search=False,
-                        for_topics=False,
-                    )
-                )
-            else:
-                segments.append(
-                    TextSegment(
-                        "description", _("Description"), self.description.strip()
-                    )
-                )
-        if self.image_description and self.image_description.strip():
-            segments.append(
-                TextSegment(
-                    "description",
-                    _("Image description"),
-                    self.image_description.strip(),
-                )
-            )
         return segments
 
     def text_segments(self) -> list[TextSegment]:
@@ -913,9 +884,9 @@ _TOPIC_KIND_PRIORITY = {
     "body": 0,
     "extracted_text": 0,
     "transcription": 1,
-    "description": 2,
     "title": 2,
     "caption": 3,
+    "description": 3,
 }
 
 
@@ -1082,18 +1053,17 @@ class Evidence(TrackableModel):
     def grouped_text_segments(self) -> list[TextSegmentGroup]:
         """`text_segments` arranged into display blocks for the detail view.
 
-        The source's own authored components (title, body and — for a video —
-        its display-only description) are merged into one block. A reposted
-        source is shown nested *inside* that block (the post is quoting it),
-        kept indented and attributed via the post group's ``reposts``. Anything
-        else (a video transcript, on-image text, a caption) stays a standalone
-        block. Non-redistributed `description` segments are dropped — they
-        appear in the Visual material section next to the media they describe.
+        The source's own authored components (title, body and description) are
+        merged into one block, headed "Video description" for a video and "Post text"
+        otherwise. A reposted source is shown nested *inside* that block (the post is
+        quoting it), kept indented and attributed via the post group's ``reposts``.
+        Anything else (a video transcript, on-image text, a caption) stays a
+        standalone block.
         """
         source = self.source
         is_video = bool(source and source.is_video)
         post_heading = _("Video description") if is_video else _("Post text")
-        post_kinds = {"title", "body", "video_description"}
+        post_kinds = {"title", "body", "description"}
 
         groups: list[TextSegmentGroup] = []
         post_group: TextSegmentGroup | None = None
@@ -1108,8 +1078,6 @@ class Evidence(TrackableModel):
 
         for seg in self.text_segments:
             if not seg.is_redistributed:
-                if seg.base_kind == "description":
-                    continue  # shown in the Visual material section
                 if seg.base_kind in post_kinds:
                     ensure_post_group().segments.append(seg)
                     continue
