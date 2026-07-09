@@ -490,22 +490,20 @@ class TextSegment:
 
 @dataclass
 class TextSegmentGroup:
-    """A run of `TextSegment`s shown together as one block in the detail view.
+    """A run of `TextSegment`s shown together as one "post" block in the detail
+    view: the source's own authored components (title, body and description)
+    merged into a single "Post text" / "Video description" block.
 
-    `kind` selects how the block is rendered:
-
-    - ``"post"`` — the source's own authored components (title, body and
-      description) merged into a single "Post text" / "Video description" block.
-    - ``"redistributed"`` — one reposted source, kept indented and labelled with
-      the ``attribution`` (the account it was lifted from). Only appears as a
-      post group's ``repost``.
+    `repost` carries the reposted source's body segment, rendered indented inside
+    the block and labelled with the segment's ``attribution`` (the account it was
+    lifted from).
     """
 
     kind: str
     heading: str
     segments: list[TextSegment]
     attribution: str = ""
-    repost: "TextSegmentGroup | None" = None
+    repost: "TextSegment | None" = None
 
 
 class EvidenceSource:
@@ -1061,13 +1059,7 @@ class Evidence(TrackableModel):
             # shares it.
             post = ensure_post_group()
             if post.repost is None:
-                post.repost = TextSegmentGroup(
-                    "redistributed",
-                    seg.attribution,
-                    [],
-                    attribution=seg.attribution,
-                )
-            post.repost.segments.append(seg)
+                post.repost = seg
         return groups
 
     @property
