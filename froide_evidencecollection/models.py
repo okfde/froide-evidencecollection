@@ -501,8 +501,6 @@ class TextSegmentGroup:
     - ``"redistributed"`` — one reposted source, kept indented and labelled with
       the ``attribution`` (the account it was lifted from). Only appears as a
       member of a post group's ``reposts``.
-    - ``"standalone"`` — any other segment (on-image text, a caption) rendered
-      on its own with its segment label.
     """
 
     kind: str
@@ -1038,12 +1036,10 @@ class Evidence(TrackableModel):
         merged into one block, headed "Video description" for a video and "Post text"
         otherwise. A reposted source is shown nested *inside* that block (the post is
         quoting it), kept indented and attributed via the post group's ``reposts``.
-        Anything else (on-image text, a caption) stays a standalone block.
         """
         source = self.source
         is_video = bool(source and source.is_video)
         post_heading = _("Video description") if is_video else _("Post text")
-        post_kinds = {"title", "body", "description"}
 
         groups: list[TextSegmentGroup] = []
         post_group: TextSegmentGroup | None = None
@@ -1058,14 +1054,7 @@ class Evidence(TrackableModel):
 
         for seg in self.text_segments:
             if not seg.is_redistributed:
-                if seg.base_kind in post_kinds:
-                    ensure_post_group().segments.append(seg)
-                    continue
-                groups.append(
-                    TextSegmentGroup(
-                        "standalone", seg.label, [seg], attribution=seg.attribution
-                    )
-                )
+                ensure_post_group().segments.append(seg)
                 continue
             # Redistributed: nest the reposted source inside the post that
             # shares it, grouping consecutive segments from the same account so
