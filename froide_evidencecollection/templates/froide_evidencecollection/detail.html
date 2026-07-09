@@ -47,16 +47,6 @@
         border-left: 4px solid #8B4513; padding: .5rem 1rem;
         background: #faf6f1; font-size: 1.25rem; color: #1a1a1a;
     }
-    /* a post/media title — set like a small heading */
-    .seg-title .seg-body { font-size: 1.2rem; font-weight: 600; }
-    /* a caption — secondary, lighter */
-    .seg-caption .seg-body { color: #555; font-style: italic; }
-    /* text read off the image surface — monospaced "screen text" */
-    .seg-extracted_text .seg-body {
-        font-family: var(--bs-font-monospace, monospace);
-        background: #fff8e8; border: 1px dashed #e0c97f; border-radius: .4rem;
-        padding: .6rem .8rem; font-size: .9rem; white-space: pre-wrap;
-    }
     /* reposted-from content — nested under the piece's own text */
     .seg-redistributed {
         margin-left: .5rem; padding-left: 1rem;
@@ -185,55 +175,40 @@
             {# `grouped_text_segments` arranges the segments into display       #}
             {# blocks: the post's own components (title/body and, for a video,   #}
             {# its description) merged into one "Post text" / "Video             #}
-            {# description" block; each reposted source as its own indented,     #}
-            {# attributed block; and anything else (on-image text, a caption)    #}
-            {# as a standalone, individually-styled block.                       #}
+            {# description" block, with each reposted source nested inside as    #}
+            {# its own indented, attributed block.                               #}
             {% if object.text_segments %}
                 <section class="detail-section">
                     {% for group in object.grouped_text_segments %}
-                        {% if group.kind == 'post' %}
-                            <div class="seg seg-post-text">
-                                <h2 class="detail-heading">{{ group.heading }}</h2>
-                                <div class="seg-body seg-body-post">
-                                    {% for seg in group.segments %}
-                                        {% if seg.base_kind == 'title' %}
-                                            <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
-                                        {% else %}
-                                            <div class="mb-2">{{ seg.text|plain_text }}</div>
-                                        {% endif %}
-                                    {% endfor %}
-                                    {# A reposted source is quoted within the post box, indented. #}
-                                    {% for repost in group.reposts %}
-                                        <div class="seg-redistributed mt-3">
-                                            <h3 class="seg-label">
-                                                <span aria-hidden="true">↻</span>
-                                                <span>{% trans "Reposted from" %}</span>
-                                                {% if repost.attribution %}<span class="seg-attr">{{ repost.attribution }}</span>{% endif %}
-                                            </h3>
-                                            {% for seg in repost.segments %}
-                                                {% if seg.base_kind == 'title' %}
-                                                    <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
-                                                {% else %}
-                                                    <div class="mb-2">{{ seg.text|plain_text }}</div>
-                                                {% endif %}
-                                            {% endfor %}
-                                        </div>
-                                    {% endfor %}
-                                </div>
+                        <div class="seg seg-post-text">
+                            <h2 class="detail-heading">{{ group.heading }}</h2>
+                            <div class="seg-body seg-body-post">
+                                {% for seg in group.segments %}
+                                    {% if seg.base_kind == 'title' %}
+                                        <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
+                                    {% else %}
+                                        <div class="mb-2">{{ seg.text|plain_text }}</div>
+                                    {% endif %}
+                                {% endfor %}
+                                {# A reposted source is quoted within the post box, indented. #}
+                                {% for repost in group.reposts %}
+                                    <div class="seg-redistributed mt-3">
+                                        <h3 class="seg-label">
+                                            <span aria-hidden="true">↻</span>
+                                            <span>{% trans "Reposted from" %}</span>
+                                            {% if repost.attribution %}<span class="seg-attr">{{ repost.attribution }}</span>{% endif %}
+                                        </h3>
+                                        {% for seg in repost.segments %}
+                                            {% if seg.base_kind == 'title' %}
+                                                <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
+                                            {% else %}
+                                                <div class="mb-2">{{ seg.text|plain_text }}</div>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+                                {% endfor %}
                             </div>
-                        {% else %}
-                            {% with seg=group.segments.0 %}
-                                <div class="seg seg-{{ seg.base_kind }}">
-                                    <h3 class="seg-label">
-                                        <span>{{ seg.label }}</span>
-                                        {% if seg.attribution %}<span class="seg-attr">· {{ seg.attribution }}</span>{% endif %}
-                                    </h3>
-                                    <blockquote class="seg-body">
-                                        {{ seg.text|plain_text }}
-                                    </blockquote>
-                                </div>
-                            {% endwith %}
-                        {% endif %}
+                        </div>
                     {% endfor %}
                 </section>
             {% endif %}
