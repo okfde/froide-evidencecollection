@@ -164,7 +164,7 @@
                             <h2 class="detail-heading">{{ block.heading }}</h2>
                             <div class="seg-body seg-body-post">
                                 {% for seg in block.segments %}
-                                    {% if seg.base_kind == 'title' %}
+                                    {% if seg.kind == 'title' %}
                                         <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
                                     {% else %}
                                         <div class="mb-2">{{ seg.text|plain_text }}</div>

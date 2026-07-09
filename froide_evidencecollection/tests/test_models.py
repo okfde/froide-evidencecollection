@@ -114,7 +114,7 @@ class TestPostTextSegments:
         assert "the curated quote" not in evidence.search_text
         assert "the curated quote" not in evidence.topic_text
 
-    def test_redistributed_text_is_prefixed_and_attributed(self):
+    def test_redistributed_text_trails_and_is_attributed(self):
         inner = _make_post(
             platform_post_id="inner", url="https://t.me/x/2", text="quoted text"
         )
@@ -123,7 +123,7 @@ class TestPostTextSegments:
         outer.save(update_fields=["redistributes"])
         evidence = Evidence.objects.create(social_media_post=outer)
 
-        seg = next(s for s in evidence.text_segments if s.kind == "redistributed:body")
+        seg = evidence.text_segments[-1]
         assert seg.text == "quoted text"
         assert seg.attribution == str(inner.account)
 
@@ -137,7 +137,7 @@ class TestGroupedTextSegments:
 
         block = evidence.post_text_block
         assert block.heading == "Post text"
-        assert [s.base_kind for s in block.segments] == [
+        assert [s.kind for s in block.segments] == [
             "title",
             "body",
             "description",
@@ -151,7 +151,7 @@ class TestGroupedTextSegments:
 
         block = evidence.post_text_block
         assert block.heading == "Video description"
-        assert "description" in [s.base_kind for s in block.segments]
+        assert "description" in [s.kind for s in block.segments]
 
     def test_no_text_yields_no_block(self):
         post = _make_post(text="")
@@ -170,7 +170,7 @@ class TestGroupedTextSegments:
         evidence = Evidence.objects.create(social_media_post=post)
 
         block = evidence.post_text_block
-        assert not any(seg.base_kind == "transcription" for seg in block.segments)
+        assert not any(seg.kind == "transcription" for seg in block.segments)
 
     def test_repost_is_its_own_attributed_block(self):
         inner = _make_post(
@@ -188,11 +188,11 @@ class TestGroupedTextSegments:
 
         block = evidence.post_text_block
         # The repost is nested inside the post that shares it, not a sibling.
-        assert [s.base_kind for s in block.segments] == ["body"]
+        assert [s.kind for s in block.segments] == ["body"]
         repost = block.repost
         assert repost is not None
         assert repost.attribution == str(inner.account)
-        assert repost.base_kind == "body"
+        assert repost.kind == "body"
 
     def test_repost_without_own_text_yields_block_with_no_segments(self):
         inner = _make_post(
