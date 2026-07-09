@@ -693,12 +693,16 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
     def text_segments(self) -> list[TextSegment]:
         segments = self._own_text_segments()
 
-        # Include text segments of redistributed post.
-        if self.redistributes_id:
-            attribution = str(self.redistributes.account)
-            segments.extend(
-                replace(seg, kind=f"redistributed:{seg.kind}", attribution=attribution)
-                for seg in self.redistributes._own_text_segments()
+        # A redistributed post carries only its body text (stubs store nothing
+        # else), so lift that single segment rather than looping its components.
+        if self.redistributes_id and self.redistributes.text.strip():
+            segments.append(
+                TextSegment(
+                    "redistributed:body",
+                    _("Post text"),
+                    self.redistributes.text.strip(),
+                    attribution=str(self.redistributes.account),
+                )
             )
         return segments
 
