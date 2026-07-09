@@ -1,7 +1,7 @@
 import logging
 import re
 import uuid
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -496,18 +496,16 @@ class TextSegmentGroup:
 
     - ``"post"`` — the source's own authored components (title, body and
       description) merged into a single "Post text" / "Video description" block.
-      Any reposted sources the post shares hang off ``reposts`` and are shown
-      nested inside this block.
     - ``"redistributed"`` — one reposted source, kept indented and labelled with
       the ``attribution`` (the account it was lifted from). Only appears as a
-      member of a post group's ``reposts``.
+      post group's ``repost``.
     """
 
     kind: str
     heading: str
     segments: list[TextSegment]
     attribution: str = ""
-    reposts: list["TextSegmentGroup"] = field(default_factory=list)
+    repost: "TextSegmentGroup | None" = None
 
 
 class EvidenceSource:
@@ -1035,7 +1033,7 @@ class Evidence(TrackableModel):
         The source's own authored components (title, body and description) are
         merged into one block, headed "Video description" for a video and "Post text"
         otherwise. A reposted source is shown nested *inside* that block (the post is
-        quoting it), kept indented and attributed via the post group's ``reposts``.
+        quoting it), kept indented and attributed via the post group's ``repost``.
         """
         source = self.source
         is_video = bool(source and source.is_video)
@@ -1043,7 +1041,6 @@ class Evidence(TrackableModel):
 
         groups: list[TextSegmentGroup] = []
         post_group: TextSegmentGroup | None = None
-        repost_group: TextSegmentGroup | None = None
 
         def ensure_post_group() -> TextSegmentGroup:
             nonlocal post_group
@@ -1057,18 +1054,16 @@ class Evidence(TrackableModel):
                 ensure_post_group().segments.append(seg)
                 continue
             # Redistributed: nest the reposted source inside the post that
-            # shares it, grouping consecutive segments from the same account so
-            # the repost reads as one quotation.
-            reposts = ensure_post_group().reposts
-            if repost_group is None or repost_group.attribution != seg.attribution:
-                repost_group = TextSegmentGroup(
+            # shares it.
+            post = ensure_post_group()
+            if post.repost is None:
+                post.repost = TextSegmentGroup(
                     "redistributed",
                     seg.attribution,
                     [],
                     attribution=seg.attribution,
                 )
-                reposts.append(repost_group)
-            repost_group.segments.append(seg)
+            post.repost.segments.append(seg)
         return groups
 
     @property

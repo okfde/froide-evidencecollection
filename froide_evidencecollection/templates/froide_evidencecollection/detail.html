@@ -191,14 +191,14 @@
                                     {% endif %}
                                 {% endfor %}
                                 {# A reposted source is quoted within the post box, indented. #}
-                                {% for repost in group.reposts %}
+                                {% if group.repost %}
                                     <div class="seg-redistributed mt-3">
                                         <h3 class="seg-label">
                                             <span aria-hidden="true">↻</span>
                                             <span>{% trans "Reposted from" %}</span>
-                                            {% if repost.attribution %}<span class="seg-attr">{{ repost.attribution }}</span>{% endif %}
+                                            {% if group.repost.attribution %}<span class="seg-attr">{{ group.repost.attribution }}</span>{% endif %}
                                         </h3>
-                                        {% for seg in repost.segments %}
+                                        {% for seg in group.repost.segments %}
                                             {% if seg.base_kind == 'title' %}
                                                 <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
                                             {% else %}
@@ -206,7 +206,7 @@
                                             {% endif %}
                                         {% endfor %}
                                     </div>
-                                {% endfor %}
+                                {% endif %}
                             </div>
                         </div>
                     {% endfor %}

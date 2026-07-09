@@ -195,8 +195,8 @@ class TestGroupedTextSegments:
         # The repost is nested inside the post that shares it, not a sibling.
         post_group = groups[0]
         assert [s.base_kind for s in post_group.segments] == ["body"]
-        assert len(post_group.reposts) == 1
-        repost = post_group.reposts[0]
+        repost = post_group.repost
+        assert repost is not None
         # The reposted source's components are grouped together, and the block
         # keeps the reference to the account it was lifted from.
         assert repost.attribution == str(inner.account)
