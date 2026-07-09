@@ -499,10 +499,8 @@ class TextSegmentGroup:
     lifted from).
     """
 
-    kind: str
     heading: str
     segments: list[TextSegment]
-    attribution: str = ""
     repost: "TextSegment | None" = None
 
 
@@ -672,7 +670,7 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
     def is_video(self) -> bool:
         # A post counts as a video post if the import tracked a video file for
         # it. Drives the "Video description" vs "Post text" heading in
-        # `Evidence.grouped_text_segments`.
+        # `Evidence.post_text_block`.
         return bool(self.video_source_path)
 
     def _own_text_segments(self) -> list[TextSegment]:
@@ -1029,38 +1027,29 @@ class Evidence(TrackableModel):
         ]
 
     @property
-    def grouped_text_segments(self) -> list[TextSegmentGroup]:
-        """`text_segments` arranged into display blocks for the detail view.
+    def post_text_block(self) -> "TextSegmentGroup | None":
+        """`text_segments` arranged into the single display block for the detail
+        view, or None when there is no text.
 
         The source's own authored components (title, body and description) are
-        merged into one block, headed "Video description" for a video and "Post text"
-        otherwise. A reposted source is shown nested *inside* that block (the post is
-        quoting it), kept indented and attributed via the post group's ``repost``.
+        merged into one block, headed "Video description" for a video and "Post
+        text" otherwise. A reposted source is shown nested *inside* that block
+        (the post is quoting it), kept indented and attributed via ``repost``.
         """
         source = self.source
         is_video = bool(source and source.is_video)
-        post_heading = _("Video description") if is_video else _("Post text")
+        heading = _("Video description") if is_video else _("Post text")
 
-        groups: list[TextSegmentGroup] = []
-        post_group: TextSegmentGroup | None = None
-
-        def ensure_post_group() -> TextSegmentGroup:
-            nonlocal post_group
-            if post_group is None:
-                post_group = TextSegmentGroup("post", post_heading, [])
-                groups.append(post_group)
-            return post_group
-
+        block: TextSegmentGroup | None = None
         for seg in self.text_segments:
+            if block is None:
+                block = TextSegmentGroup(heading, [])
             if not seg.is_redistributed:
-                ensure_post_group().segments.append(seg)
-                continue
-            # Redistributed: nest the reposted source inside the post that
-            # shares it.
-            post = ensure_post_group()
-            if post.repost is None:
-                post.repost = seg
-        return groups
+                block.segments.append(seg)
+            elif block.repost is None:
+                # Nest the reposted source inside the post that shares it.
+                block.repost = seg
+        return block
 
     @property
     def search_text(self) -> str:

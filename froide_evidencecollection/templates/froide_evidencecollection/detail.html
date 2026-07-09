@@ -157,18 +157,13 @@
                 </div>
             {% endwith %}
             {# ── Collected text ───────────────────────────────────────── #}
-            {# `grouped_text_segments` arranges the segments into display       #}
-            {# blocks: the post's own components (title/body and, for a video,   #}
-            {# its description) merged into one "Post text" / "Video             #}
-            {# description" block, with each reposted source nested inside as    #}
-            {# its own indented, attributed block.                               #}
-            {% if object.text_segments %}
-                <section class="detail-section">
-                    {% for group in object.grouped_text_segments %}
+            {% with block=object.post_text_block %}
+                {% if block %}
+                    <section class="detail-section">
                         <div class="seg seg-post-text">
-                            <h2 class="detail-heading">{{ group.heading }}</h2>
+                            <h2 class="detail-heading">{{ block.heading }}</h2>
                             <div class="seg-body seg-body-post">
-                                {% for seg in group.segments %}
+                                {% for seg in block.segments %}
                                     {% if seg.base_kind == 'title' %}
                                         <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
                                     {% else %}
@@ -176,21 +171,21 @@
                                     {% endif %}
                                 {% endfor %}
                                 {# A reposted source is quoted within the post box, indented. #}
-                                {% if group.repost %}
+                                {% if block.repost %}
                                     <div class="seg-redistributed mt-3">
                                         <h3 class="seg-label">
                                             <span aria-hidden="true">↻</span>
                                             <span>{% trans "Reposted from" %}</span>
-                                            {% if group.repost.attribution %}<span class="seg-attr">{{ group.repost.attribution }}</span>{% endif %}
+                                            {% if block.repost.attribution %}<span class="seg-attr">{{ block.repost.attribution }}</span>{% endif %}
                                         </h3>
-                                        <div class="mb-2">{{ group.repost.text|plain_text }}</div>
+                                        <div class="mb-2">{{ block.repost.text|plain_text }}</div>
                                     </div>
                                 {% endif %}
                             </div>
                         </div>
-                    {% endfor %}
-                </section>
-            {% endif %}
+                    </section>
+                {% endif %}
+            {% endwith %}
             {# ── Evidence mentions ─────────────────────────────────────── #}
             {# Each mention is one curated footnote attributed to a single     #}
             {# originator, placed in the report (its chapter path),            #}
