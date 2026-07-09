@@ -138,11 +138,9 @@ class TestGroupedTextSegments:
         post = _make_post(title="the title", description="a description")
         evidence = Evidence.objects.create(social_media_post=post)
 
-        groups = evidence.grouped_text_segments
-        assert [g.kind for g in groups] == ["post"]
-        post_group = groups[0]
-        assert post_group.heading == "Post text"
-        assert [s.base_kind for s in post_group.segments] == [
+        block = evidence.post_text_block
+        assert block.heading == "Post text"
+        assert [s.base_kind for s in block.segments] == [
             "title",
             "body",
             "description",
@@ -154,13 +152,19 @@ class TestGroupedTextSegments:
         )
         evidence = Evidence.objects.create(social_media_post=post)
 
-        post_group = next(g for g in evidence.grouped_text_segments if g.kind == "post")
-        assert post_group.heading == "Video description"
-        assert "description" in [s.base_kind for s in post_group.segments]
+        block = evidence.post_text_block
+        assert block.heading == "Video description"
+        assert "description" in [s.base_kind for s in block.segments]
+
+    def test_no_text_yields_no_block(self):
+        post = _make_post(text="")
+        evidence = Evidence.objects.create(social_media_post=post)
+
+        assert evidence.post_text_block is None
 
     def test_transcript_is_not_a_block(self):
         # The transcription is not surfaced, so a video post with only a caption
-        # and a transcript yields just the post block — no standalone block.
+        # and a transcript yields just the caption in the post block.
         post = _make_post(
             text="caption",
             video_source_path="./video/b.mp4",
@@ -168,13 +172,8 @@ class TestGroupedTextSegments:
         )
         evidence = Evidence.objects.create(social_media_post=post)
 
-        kinds = [g.kind for g in evidence.grouped_text_segments]
-        assert "standalone" not in kinds
-        assert not any(
-            seg.base_kind == "transcription"
-            for group in evidence.grouped_text_segments
-            for seg in group.segments
-        )
+        block = evidence.post_text_block
+        assert not any(seg.base_kind == "transcription" for seg in block.segments)
 
     def test_repost_is_its_own_attributed_block(self):
         inner = _make_post(
@@ -190,12 +189,10 @@ class TestGroupedTextSegments:
         outer.save(update_fields=["redistributes"])
         evidence = Evidence.objects.create(social_media_post=outer)
 
-        groups = evidence.grouped_text_segments
-        assert [g.kind for g in groups] == ["post"]
+        block = evidence.post_text_block
         # The repost is nested inside the post that shares it, not a sibling.
-        post_group = groups[0]
-        assert [s.base_kind for s in post_group.segments] == ["body"]
-        repost = post_group.repost
+        assert [s.base_kind for s in block.segments] == ["body"]
+        repost = block.repost
         assert repost is not None
         assert repost.attribution == str(inner.account)
         assert repost.base_kind == "body"
