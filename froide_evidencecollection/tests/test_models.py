@@ -298,6 +298,22 @@ class TestRedaction:
 
         assert "Badword" in evidence.search_text
 
+    def test_rule_masks_the_display_block_including_the_repost(self):
+        # `post_text_block` is the chokepoint, so both the post's own segments
+        # and the nested repost come out masked.
+        inner = _make_post(
+            platform_post_id="inner", url="https://t.me/x/2", text="Badword quoted"
+        )
+        outer = _make_post(platform_post_id="outer", text="Badword mine")
+        outer.redistributes = inner
+        outer.save(update_fields=["redistributes"])
+        evidence = Evidence.objects.create(social_media_post=outer)
+        RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+
+        block = evidence.post_text_block
+        assert block.segments[0].text == "[X] mine"
+        assert block.repost.text == "[X] quoted"
+
     def test_scoped_rule_only_masks_its_posts(self):
         scoped = _make_post(platform_post_id="a", text="secret name here")
         other = _make_post(platform_post_id="b", text="secret name here")
