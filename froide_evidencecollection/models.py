@@ -471,7 +471,6 @@ class TextSegment:
     kind: str
     label: str
     text: str
-    fmt: str = "plain"
     for_search: bool = True
     for_topics: bool = True
     attribution: str = ""
