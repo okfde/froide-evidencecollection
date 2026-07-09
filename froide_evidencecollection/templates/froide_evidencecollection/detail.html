@@ -183,13 +183,7 @@
                                             <span>{% trans "Reposted from" %}</span>
                                             {% if group.repost.attribution %}<span class="seg-attr">{{ group.repost.attribution }}</span>{% endif %}
                                         </h3>
-                                        {% for seg in group.repost.segments %}
-                                            {% if seg.base_kind == 'title' %}
-                                                <div class="fw-semibold mb-2">{{ seg.text|plain_text }}</div>
-                                            {% else %}
-                                                <div class="mb-2">{{ seg.text|plain_text }}</div>
-                                            {% endif %}
-                                        {% endfor %}
+                                        <div class="mb-2">{{ group.repost.segments.0.text|plain_text }}</div>
                                     </div>
                                 {% endif %}
                             </div>
