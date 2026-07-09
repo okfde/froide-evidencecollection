@@ -461,11 +461,9 @@ class SocialMediaAccount(models.Model):
 class TextSegment:
     """One labelled piece of textual content belonging to an evidence source.
 
-    Sources expose their text as a list of these rather than a flat string, so
-    the same definition drives the detail view (each segment rendered as a
-    distinct, individually formatted block), full-text search and topic
-    modelling. `attribution` is set on segments lifted from a redistributed
-    post so display can show provenance.
+    `kind` is the semantic role (title / body / description / …), which the
+    detail view uses to pick a per-segment style. `attribution` names the
+    account a segment was lifted from, and is set only on a repost.
     """
 
     kind: str
@@ -473,32 +471,30 @@ class TextSegment:
     text: str
     attribution: str = ""
 
-    @property
-    def is_redistributed(self) -> bool:
-        return self.kind.startswith("redistributed:")
-
-    @property
-    def base_kind(self) -> str:
-        # The semantic kind without the `redistributed:` prefix, so the detail
-        # view can pick a per-kind style (quote / post / caption / …) without
-        # branching on provenance. Mirrors `_topic_sort_key`'s split.
-        return self.kind.split(":", 1)[1] if self.is_redistributed else self.kind
-
 
 @dataclass
 class TextSegmentGroup:
-    """A run of `TextSegment`s shown together as one "post" block in the detail
-    view: the source's own authored components (title, body and description)
-    merged into a single "Post text" / "Video description" block.
+    """The structured text of an evidence source: the canonical shape sources
+    expose, and what the detail view renders directly.
 
-    `repost` carries the reposted source's body segment, rendered indented inside
-    the block and labelled with the segment's ``attribution`` (the account it was
-    lifted from).
+    `segments` holds the source's own authored components (title, body and
+    description), shown merged into a single "Post text" / "Video description"
+    block. `repost` carries the reposted source's body segment, rendered
+    indented inside the block and labelled with its ``attribution``. Nesting
+    encodes the provenance, so no segment needs to be marked as redistributed.
     """
 
     heading: str
     segments: list[TextSegment]
     repost: "TextSegment | None" = None
+
+    def flat_segments(self) -> list[TextSegment]:
+        """The group's segments in source order, own text first, repost last.
+
+        For consumers that only tokenise or tabulate text (search, export) and
+        so have no use for the nesting.
+        """
+        return [*self.segments, *([self.repost] if self.repost else [])]
 
 
 class EvidenceSource:
@@ -506,7 +502,7 @@ class EvidenceSource:
     Uniform accessor surface for models attachable to an Evidence as a source.
 
     Subclasses expose `url` (model field) and implement `publication_date` and
-    `text_segments` so callers don't branch on source type.
+    `text_block` so callers don't branch on source type.
     """
 
     url: str
@@ -515,7 +511,7 @@ class EvidenceSource:
     def publication_date(self):
         raise NotImplementedError
 
-    def text_segments(self) -> list[TextSegment]:
+    def text_block(self) -> "TextSegmentGroup | None":
         raise NotImplementedError
 
     def compute_slug(self) -> str:
@@ -666,8 +662,7 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
     @property
     def is_video(self) -> bool:
         # A post counts as a video post if the import tracked a video file for
-        # it. Drives the "Video description" vs "Post text" heading in
-        # `Evidence.post_text_block`.
+        # it. Drives the "Video description" vs "Post text" heading.
         return bool(self.video_source_path)
 
     def _own_text_segments(self) -> list[TextSegment]:
@@ -683,21 +678,25 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
                 segments.append(TextSegment(kind, label, value.strip()))
         return segments
 
-    def text_segments(self) -> list[TextSegment]:
-        segments = self._own_text_segments()
-
+    def _repost_segment(self) -> TextSegment | None:
         # A redistributed post carries only its body text (stubs store nothing
         # else), so lift that single segment rather than looping its components.
-        if self.redistributes_id and self.redistributes.text.strip():
-            segments.append(
-                TextSegment(
-                    "redistributed:body",
-                    _("Post text"),
-                    self.redistributes.text.strip(),
-                    attribution=str(self.redistributes.account),
-                )
-            )
-        return segments
+        if not self.redistributes_id or not self.redistributes.text.strip():
+            return None
+        return TextSegment(
+            "body",
+            _("Post text"),
+            self.redistributes.text.strip(),
+            attribution=str(self.redistributes.account),
+        )
+
+    def text_block(self) -> TextSegmentGroup | None:
+        segments = self._own_text_segments()
+        repost = self._repost_segment()
+        if not segments and repost is None:
+            return None
+        heading = _("Video description") if self.is_video else _("Post text")
+        return TextSegmentGroup(heading, segments, repost)
 
     @property
     def publication_date(self):
@@ -867,7 +866,7 @@ def _invalidate_redactor_on_scope_change(sender, **kwargs):
 # Topic-modelling assembly order. The embedding model truncates to a fixed
 # token window, so whatever leads the text dominates the topic signal — lead
 # with the highest-signal fields and let lower-signal ones trail where they get
-# truncated away first. Redistributed segments always trail a piece's own content.
+# truncated away first.
 _TOPIC_KIND_PRIORITY = {
     "citation": 0,
     "body": 0,
@@ -878,10 +877,8 @@ _TOPIC_KIND_PRIORITY = {
 }
 
 
-def _topic_sort_key(seg: "TextSegment") -> tuple[int, int]:
-    redistributed = seg.is_redistributed
-    base = seg.kind.split(":", 1)[1] if redistributed else seg.kind
-    return (1 if redistributed else 0, _TOPIC_KIND_PRIORITY.get(base, 4))
+def _topic_sort_key(seg: "TextSegment") -> int:
+    return _TOPIC_KIND_PRIORITY.get(seg.kind, 4)
 
 
 # URLs are noise to the embedding model and waste the (truncated) token budget
@@ -1009,44 +1006,35 @@ class Evidence(TrackableModel):
         return " · ".join(part for part in parts if part)
 
     @property
-    def text_segments(self) -> list["TextSegment"]:
-        # The source's own labelled text. Single definition behind the detail
-        # view, search index and topic modelling. Redaction rules are applied
-        # here — the one chokepoint — so masked terms never reach display,
-        # search or topics.
-        source = self.source
-        if source is None:
-            return []
-        segments = list(source.text_segments())
-        return [
-            replace(seg, text=apply_redactions(seg.text, post=source))
-            for seg in segments
-        ]
-
-    @property
     def post_text_block(self) -> "TextSegmentGroup | None":
-        """`text_segments` arranged into the single display block for the detail
-        view, or None when there is no text.
+        """The source's structured text, or None when there is no text.
 
-        The source's own authored components (title, body and description) are
-        merged into one block, headed "Video description" for a video and "Post
-        text" otherwise. A reposted source is shown nested *inside* that block
-        (the post is quoting it), kept indented and attributed via ``repost``.
+        The canonical form behind the detail view, search index and topic
+        modelling. Redaction rules are applied here — the one chokepoint — so
+        masked terms never reach display, search or topics.
         """
         source = self.source
-        is_video = bool(source and source.is_video)
-        heading = _("Video description") if is_video else _("Post text")
+        if source is None:
+            return None
+        block = source.text_block()
+        if block is None:
+            return None
 
-        block: TextSegmentGroup | None = None
-        for seg in self.text_segments:
-            if block is None:
-                block = TextSegmentGroup(heading, [])
-            if not seg.is_redistributed:
-                block.segments.append(seg)
-            elif block.repost is None:
-                # Nest the reposted source inside the post that shares it.
-                block.repost = seg
-        return block
+        def redact(seg: TextSegment) -> TextSegment:
+            return replace(seg, text=apply_redactions(seg.text, post=source))
+
+        return TextSegmentGroup(
+            block.heading,
+            [redact(seg) for seg in block.segments],
+            redact(block.repost) if block.repost else None,
+        )
+
+    @property
+    def text_segments(self) -> list["TextSegment"]:
+        # Flattened view of `post_text_block`, for consumers that don't care
+        # about the nesting (search index, export).
+        block = self.post_text_block
+        return block.flat_segments() if block is not None else []
 
     @property
     def search_text(self) -> str:
@@ -1056,14 +1044,20 @@ class Evidence(TrackableModel):
 
     @property
     def topic_text(self) -> str:
-        # Input to BERTopic. Distinct from `search_text`: segments are reordered
-        # (`_topic_sort_key`) so the highest-signal fields lead — because the
-        # embedding model truncates to a fixed token window, so trailing text is
-        # dropped before it influences the topic. Stable sort keeps each source's
-        # internal order within a priority tier. `_clean_topic_text` strips URLs
-        # and normalises @mentions / #hashtags to plain words (noise + wasted
-        # token budget).
-        segments = sorted(self.text_segments, key=_topic_sort_key)
+        # Input to BERTopic. Distinct from `search_text`: the source's own
+        # segments are reordered (`_topic_sort_key`) so the highest-signal
+        # fields lead — because the embedding model truncates to a fixed token
+        # window, so trailing text is dropped before it influences the topic.
+        # Stable sort keeps source order within a priority tier, and a repost
+        # trails the post's own content. `_clean_topic_text` strips URLs and
+        # normalises @mentions / #hashtags to plain words (noise + wasted token
+        # budget).
+        block = self.post_text_block
+        if block is None:
+            return ""
+        segments = sorted(block.segments, key=_topic_sort_key)
+        if block.repost:
+            segments.append(block.repost)
         text = "\n\n".join(s.text for s in segments)
         return _clean_topic_text(text)
 
