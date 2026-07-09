@@ -77,7 +77,6 @@ class TestPostTextSegments:
         assert by_kind["title"] == ["the title"]
         assert by_kind["body"] == ["post body"]
         assert by_kind["description"] == ["a description"]
-        assert all(s.for_search and s.for_topics for s in evidence.text_segments)
 
     def test_video_post(self):
         post = _make_post(
@@ -94,8 +93,6 @@ class TestPostTextSegments:
 
         seg = next(s for s in evidence.text_segments if s.kind == "description")
         assert seg.text == "promo blurb"
-        assert seg.for_search is True
-        assert seg.for_topics is True
 
         assert "caption" in evidence.search_text
         assert "caption" in evidence.topic_text

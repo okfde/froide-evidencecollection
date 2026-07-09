@@ -463,16 +463,14 @@ class TextSegment:
 
     Sources expose their text as a list of these rather than a flat string, so
     the same definition drives the detail view (each segment rendered as a
-    distinct, individually formatted block), full-text search (`for_search`)
-    and topic modelling (`for_topics`). `attribution` is set on segments lifted
-    from a redistributed post so display can show provenance.
+    distinct, individually formatted block), full-text search and topic
+    modelling. `attribution` is set on segments lifted from a redistributed
+    post so display can show provenance.
     """
 
     kind: str
     label: str
     text: str
-    for_search: bool = True
-    for_topics: bool = True
     attribution: str = ""
 
     @property
@@ -1052,22 +1050,20 @@ class Evidence(TrackableModel):
 
     @property
     def search_text(self) -> str:
-        # Concatenation of the searchable segments, in source order; fed to
-        # Elasticsearch. Order is irrelevant to ES (it tokenises everything).
-        return "\n\n".join(s.text for s in self.text_segments if s.for_search)
+        # Concatenation of the segments, in source order; fed to Elasticsearch.
+        # Order is irrelevant to ES (it tokenises everything).
+        return "\n\n".join(s.text for s in self.text_segments)
 
     @property
     def topic_text(self) -> str:
-        # Input to BERTopic. Distinct from `search_text`: only `for_topics`
-        # segments, reordered (`_topic_sort_key`) so the highest-signal fields
-        # lead — because the embedding model truncates to a fixed token window,
-        # so trailing text is dropped before it influences the topic. Stable
-        # sort keeps each source's internal order within a priority tier.
-        # `_clean_topic_text` strips URLs and normalises @mentions / #hashtags
-        # to plain words (noise + wasted token budget).
-        segments = sorted(
-            (s for s in self.text_segments if s.for_topics), key=_topic_sort_key
-        )
+        # Input to BERTopic. Distinct from `search_text`: segments are reordered
+        # (`_topic_sort_key`) so the highest-signal fields lead — because the
+        # embedding model truncates to a fixed token window, so trailing text is
+        # dropped before it influences the topic. Stable sort keeps each source's
+        # internal order within a priority tier. `_clean_topic_text` strips URLs
+        # and normalises @mentions / #hashtags to plain words (noise + wasted
+        # token budget).
+        segments = sorted(self.text_segments, key=_topic_sort_key)
         text = "\n\n".join(s.text for s in segments)
         return _clean_topic_text(text)
 
