@@ -198,7 +198,7 @@ class TestGroupedTextSegments:
         repost = post_group.repost
         assert repost is not None
         assert repost.attribution == str(inner.account)
-        assert [s.base_kind for s in repost.segments] == ["body"]
+        assert repost.base_kind == "body"
 
 
 @pytest.mark.django_db
