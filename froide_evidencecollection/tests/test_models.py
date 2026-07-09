@@ -197,6 +197,86 @@ class TestGroupedTextSegments:
         assert repost.attribution == str(inner.account)
         assert repost.base_kind == "body"
 
+    def test_repost_without_own_text_yields_block_with_no_segments(self):
+        inner = _make_post(
+            platform_post_id="inner", url="https://t.me/x/2", text="quoted text"
+        )
+        outer = _make_post(platform_post_id="outer", url="https://t.me/x/3", text="")
+        outer.redistributes = inner
+        outer.save(update_fields=["redistributes"])
+        evidence = Evidence.objects.create(social_media_post=outer)
+
+        block = evidence.post_text_block
+        assert block.segments == []
+        assert block.repost.text == "quoted text"
+
+
+def _kitchen_sink_evidence():
+    """One evidence exercising every branch `search_text` and `topic_text` take.
+
+    Carries a title, a body and a description, reposts another account, and holds
+    text the topic cleaner rewrites: a URL, an @mention, a #hashtag and the
+    `RT` / `via` / `amp` artifact tokens.
+    """
+    inner = _make_post(
+        platform_post_id="inner",
+        url="https://t.me/x/2",
+        text="Zitierter Beitrag von @anderer",
+    )
+    outer = _make_post(
+        platform_post_id="outer",
+        url="https://t.me/x/3",
+        title="Skandal um @max_mustermann #Empoerung",
+        text="RT via https://example.com/artikel und www.beispiel.de &amp; mehr",
+        description="Kurze Beschreibung.",
+    )
+    outer.redistributes = inner
+    outer.save(update_fields=["redistributes"])
+    return Evidence.objects.create(social_media_post=outer)
+
+
+@pytest.mark.django_db
+class TestSearchText:
+    def test_segments_are_joined_verbatim_in_source_order(self):
+        # Title, body, description, then the repost — separated by a blank line.
+        # Nothing is cleaned: URLs, @mentions, #hashtags and the `&amp;` entity
+        # leak all reach the index as they stand.
+        assert _kitchen_sink_evidence().search_text == (
+            "Skandal um @max_mustermann #Empoerung\n"
+            "\n"
+            "RT via https://example.com/artikel und www.beispiel.de &amp; mehr\n"
+            "\n"
+            "Kurze Beschreibung.\n"
+            "\n"
+            "Zitierter Beitrag von @anderer"
+        )
+
+    def test_post_without_text_yields_empty_string(self):
+        evidence = Evidence.objects.create(social_media_post=_make_post(text=""))
+        assert evidence.search_text == ""
+
+
+@pytest.mark.django_db
+class TestTopicText:
+    def test_segments_are_reordered_and_cleaned(self):
+        # Reordered by `_topic_sort_key`: body, title, description, repost last.
+        # Cleaned by `_clean_topic_text`: URLs dropped, `@`/`#` markers stripped
+        # and underscores split, `rt` / `via` / `amp` removed as standalone
+        # tokens. Removing `amp` strands the `&` and `;` of `&amp;`.
+        assert _kitchen_sink_evidence().topic_text == (
+            "und & ; mehr\n"
+            "\n"
+            "Skandal um max mustermann Empoerung\n"
+            "\n"
+            "Kurze Beschreibung.\n"
+            "\n"
+            "Zitierter Beitrag von anderer"
+        )
+
+    def test_post_without_text_yields_empty_string(self):
+        evidence = Evidence.objects.create(social_media_post=_make_post(text=""))
+        assert evidence.topic_text == ""
+
 
 @pytest.mark.django_db
 class TestRedaction:
