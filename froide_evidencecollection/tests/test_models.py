@@ -352,6 +352,43 @@ class TestRedaction:
         # The other post is untouched (the rule is scoped, not global).
         assert "secret" in ev_other.search_text
 
+    def test_rule_masks_a_displayed_citation(self):
+        post = _make_post(text="post body")
+        evidence = Evidence.objects.create(social_media_post=post)
+        mention = EvidenceMention.objects.create(
+            evidence=evidence,
+            footnote="fn1",
+            citation="the Badword was spoken",
+            originator=_actor(),
+        )
+        RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+
+        assert mention.redacted_citation == "the [X] was spoken"
+        # The raw imported field is untouched; only the displayed text is masked.
+        mention.refresh_from_db()
+        assert mention.citation == "the Badword was spoken"
+
+    def test_scoped_rule_masks_a_citation_of_its_post(self):
+        # A citation is masked by the rules scoped to the post it was drawn
+        # from, reached through the mention's evidence.
+        scoped = _make_post(platform_post_id="a")
+        other = _make_post(platform_post_id="b")
+        rule = RedactionRule.objects.create(pattern="secret", placeholder="[Name]")
+        rule.posts.add(scoped)
+
+        citations = []
+        for post in (scoped, other):
+            evidence = Evidence.objects.create(social_media_post=post)
+            mention = EvidenceMention.objects.create(
+                evidence=evidence,
+                footnote="fn1",
+                citation="the secret name",
+                originator=_actor(),
+            )
+            citations.append(mention.redacted_citation)
+
+        assert citations == ["the [Name] name", "the secret name"]
+
 
 @pytest.mark.django_db
 class TestEvidenceSlug:
