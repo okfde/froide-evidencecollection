@@ -39,8 +39,9 @@ class EvidenceDocument(DSLDocument):
 
     def get_queryset(self):
         # `content` (= search_text) walks the source's text segments, including
-        # redistributed posts; pull the source and its redistribution chain in
-        # one go so indexing doesn't fan out per row.
+        # redistributed posts, and redacts them against the post's scoped rules;
+        # pull the source, its redistribution chain and those rules in one go so
+        # indexing doesn't fan out per row.
         return (
             super()
             .get_queryset()
@@ -48,6 +49,7 @@ class EvidenceDocument(DSLDocument):
                 "social_media_post__account",
                 "social_media_post__redistributes__account",
             )
+            .prefetch_related("social_media_post__redaction_rules")
         )
 
     def prepare_content(self, obj: Evidence):
