@@ -1116,8 +1116,6 @@ class EvidenceMention(models.Model):
         verbose_name=_("chapter"),
     )
     # The curator's relevant quote for this footnote (= source `fliesstext`).
-    # Currently often not usable, so it is kept but NOT wired into
-    # display/search/topics; revisit later.
     citation = models.TextField(blank=True, default="", verbose_name=_("citation"))
     # Public URL of the chapter this mention is filed under in the online report
     # (= source `report_urls`, row-parallel to the mention rows). Links a mention
@@ -1143,6 +1141,19 @@ class EvidenceMention(models.Model):
 
     def __str__(self):
         return f"{self.evidence} ({self.footnote})"
+
+    @cached_property
+    def redacted_citation(self) -> str:
+        """The curator's quote with masked terms removed.
+
+        The rules are scoped to the post the quote was taken from, so they are
+        reached through the evidence. Prefetch `social_media_post__redaction_rules`
+        when rendering several mentions, or each one costs a rules query.
+        """
+        source = self.evidence.source
+        if source is None:
+            return self.citation
+        return apply_redactions(self.citation, scoped_redaction_rules(source))
 
     def exclude_from_serialization(self):
         return ["id"]
