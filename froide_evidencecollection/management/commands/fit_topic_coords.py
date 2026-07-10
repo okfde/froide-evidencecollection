@@ -121,13 +121,14 @@ class Command(BaseCommand):
 
         min_len = options["min_text_len"]
         # select_related/prefetch_related cover everything Evidence.topic_text
-        # touches so iterating doesn't fan out to per-row queries.
+        # touches, so iterating doesn't fan out to per-row queries.
         qs = (
             Evidence.objects.all()
             .select_related(
                 "social_media_post__account",
                 "social_media_post__redistributes__account",
             )
+            .prefetch_related("social_media_post__redaction_rules")
             .order_by("pk")
         )
         if options["limit"]:
