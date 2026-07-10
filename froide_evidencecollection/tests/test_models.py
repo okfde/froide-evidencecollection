@@ -314,6 +314,31 @@ class TestRedaction:
         assert block.segments[0].text == "[X] mine"
         assert block.repost.text == "[X] quoted"
 
+    def test_scoped_rules_are_resolved_once_per_block(self, django_assert_num_queries):
+        # Not once per segment: `post_text_block` hoists the lookup out of the
+        # redaction loop, so a four-segment post costs one rules query, not four.
+        inner = _make_post(
+            platform_post_id="inner", url="https://t.me/x/2", text="quoted text"
+        )
+        outer = _make_post(
+            platform_post_id="outer",
+            title="a title",
+            text="my take",
+            description="a description",
+        )
+        outer.redistributes = inner
+        outer.save(update_fields=["redistributes"])
+        rule = RedactionRule.objects.create(pattern="take", placeholder="[X]")
+        rule.posts.add(outer)
+        evidence = Evidence.objects.create(social_media_post=outer)
+
+        # Warm the source FKs and the module-level global redactor, so what's
+        # left to count is the scoped-rule lookup alone.
+        assert evidence.post_text_block is not None
+        with django_assert_num_queries(1):
+            block = evidence.post_text_block
+        assert block.segments[1].text == "my [X]"
+
     def test_scoped_rule_only_masks_its_posts(self):
         scoped = _make_post(platform_post_id="a", text="secret name here")
         other = _make_post(platform_post_id="b", text="secret name here")
