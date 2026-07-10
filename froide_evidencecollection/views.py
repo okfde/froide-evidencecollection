@@ -154,12 +154,15 @@ class EvidenceDetailView(NoIndexMixin, EvidenceMixin, DetailView):
     template_name = "froide_evidencecollection/detail.html"
 
     def get_queryset(self):
+        # The rules are prefetched because both the post's text block and each
+        # mention's citation are redacted against them.
         return Evidence.objects.select_related(
             "social_media_post__account",
         ).prefetch_related(
             "originators__organization__institutional_level",
             "mentions__originator",
             "mentions__chapter",
+            "social_media_post__redaction_rules",
         )
 
     def get_breadcrumbs(self, context):

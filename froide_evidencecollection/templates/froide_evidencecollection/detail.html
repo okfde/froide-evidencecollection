@@ -244,13 +244,13 @@
                                                 </dd>
                                             {% endif %}
                                         </dl>
-                                        {% if m.citation and object.social_media_post.is_video %}
+                                        {% if m.redacted_citation and object.social_media_post.is_video %}
                                             <div class="seg seg-citation mt-3 mb-0">
                                                 <h3 class="detail-heading">
                                                     <span>{% trans "Citation" %}</span>
                                                 </h3>
                                                 <blockquote class="seg-body">
-                                                    {{ m.citation|plain_text }}
+                                                    {{ m.redacted_citation|plain_text }}
                                                 </blockquote>
                                             </div>
                                         {% endif %}
