@@ -30,28 +30,66 @@ from .models import (
 )
 from .templatetags.evidence_tags import compact_number
 
+# A post segment's `kind` -> the column its text lands in.
+SEGMENT_COLUMNS = {
+    "title": "post_title",
+    "body": "post_text",
+    "description": "post_description",
+}
 
-def get_by_key(obj, key):
-    parts = key.split("__")
-    value = obj
-    for part in parts:
-        value = getattr(value, part)
-    return str(value)
+VERBAND_GEOMETRY_FIELDS = (
+    "person__verband__geom",
+    "person__verband__geom_detail",
+    "person__verband__gov_seat",
+    "organization__verband__geom",
+    "organization__verband__geom_detail",
+    "organization__verband__gov_seat",
+)
+
+
+def originator_prefetch() -> Prefetch:
+    """The originators of the exported mentions, with everything their columns read.
+
+    `Actor.political_position_label` calls `.first()`, which re-queries unless
+    the prefetched positions carry an ordering, so they are ordered by pk.
+    """
+    positions = PoliticalPosition.objects.order_by("pk")
+    actors = (
+        Actor.objects.select_related("person__verband", "organization__verband")
+        .prefetch_related(Prefetch("person__political_positions", queryset=positions))
+        .defer(*VERBAND_GEOMETRY_FIELDS)
+    )
+    return Prefetch("mentions__originator", queryset=actors)
 
 
 class EvidenceExporter:
+    """Exports evidence as one row per mention — one footnote of the report."""
+
     FORMATS = [
         "csv",
         "xlsx",
     ]
 
     TABLE_EXPORT = [
-        "id",
         "slug",
         "documentation_date",
-        "social_media_post__url",
-        "text_segment_label",
-        "text_segment_text",
+        "post_url",
+        "post_date",
+        "posted_by",
+        "post_title",
+        "post_text",
+        "post_description",
+        "repost_text",
+        "repost_attribution",
+        "footnote",
+        "originator",
+        "political_position",
+        "verband",
+        "chapter",
+        "start",
+        "end",
+        "citation",
+        "report_url",
     ]
 
     def __init__(self, format):
@@ -61,26 +99,77 @@ class EvidenceExporter:
 
     def export(self, queryset, related_object=None):
         queryset = (
-            queryset.select_related("social_media_post").order_by("-pk").distinct()
+            queryset.select_related(
+                "social_media_post",
+                "social_media_post__account__actor__person",
+                "social_media_post__account__actor__organization",
+                "social_media_post__redistributes__account__actor__person",
+                "social_media_post__redistributes__account__actor__organization",
+            )
+            .prefetch_related(
+                "social_media_post__redaction_rules",
+                "mentions__chapter",
+                originator_prefetch(),
+            )
+            .order_by("-pk")
+            .distinct()
         )
 
         return getattr(self, f"generate_{self.format}")(
             queryset, related_object=related_object
         )
 
+    def _evidence_columns(self, evidence) -> dict[str, str]:
+        # Read off the evidence's text block, not off the raw post fields:
+        # the block is where redaction is applied.
+        source = evidence.source
+        columns = {
+            "slug": evidence.slug,
+            "documentation_date": str(evidence.documentation_date or ""),
+            "post_url": evidence.url,
+            "post_date": str(source.publication_date or "") if source else "",
+            # `account` is a social media post's, not part of `EvidenceSource`.
+            "posted_by": str(source.account) if source else "",
+        }
+        block = evidence.post_text_block
+        if block is None:
+            return columns
+
+        for segment in block.segments:
+            columns[SEGMENT_COLUMNS[segment.kind]] = segment.text
+        if block.repost:
+            columns["repost_text"] = block.repost.text
+            columns["repost_attribution"] = block.repost.attribution
+        return columns
+
+    def _mention_columns(self, mention) -> dict[str, str]:
+        chapter = " > ".join(mention.chapter_structure) or str(mention.chapter or "")
+        originator = mention.originator
+
+        return {
+            "footnote": mention.footnote,
+            "originator": originator.name,
+            "political_position": originator.political_position_label or "",
+            "verband": originator.target.verband_label,
+            "chapter": chapter,
+            "start": str(mention.start or ""),
+            "end": str(mention.end or ""),
+            "citation": mention.redacted_citation,
+            "report_url": mention.report_url,
+        }
+
     def _generate_table(self, rows):
         table = []
         table.append(self.TABLE_EXPORT)
         for evidence in rows:
-            for text_segment in evidence.text_segments:
-                table.append(
-                    [
-                        str(getattr(text_segment, key.replace("text_segment_", "")))
-                        if key.startswith("text_segment_")
-                        else get_by_key(evidence, key)
-                        for key in self.TABLE_EXPORT
-                    ]
-                )
+            evidence_columns = self._evidence_columns(evidence)
+            mentions = evidence.mentions.all()
+            rows_columns = [
+                {**evidence_columns, **self._mention_columns(mention)}
+                for mention in mentions
+            ] or [evidence_columns]
+            for columns in rows_columns:
+                table.append([columns.get(key, "") for key in self.TABLE_EXPORT])
         return table
 
     def generate_csv(self, rows, related_object=None):
