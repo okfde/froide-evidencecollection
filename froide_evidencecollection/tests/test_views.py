@@ -8,13 +8,14 @@ from froide_evidencecollection.models import (
     Actor,
     Evidence,
     EvidenceMention,
+    PoliticalPosition,
     RedactionRule,
     SocialMediaAccount,
     SocialMediaPost,
 )
 from froide_evidencecollection.views import EvidenceDetailView, EvidenceExporter
 
-from .factories import OrganizationFactory
+from .factories import GeoRegionFactory, OrganizationFactory, PersonFactory
 
 
 def _make_evidence(suffix, **overrides):
@@ -28,6 +29,7 @@ def _make_evidence(suffix, **overrides):
         "platform_post_id": suffix,
         "url": f"https://t.me/kanal_{suffix}/1",
         "text": "post body",
+        "posted_at": datetime.datetime(2026, 1, 2, 9, 30, tzinfo=datetime.UTC),
     }
     fields.update(overrides)
     post = SocialMediaPost.objects.create(**fields)
@@ -42,9 +44,46 @@ def _rows(queryset):
     return list(csv.reader(io.StringIO(payload.decode())))
 
 
+HEADER = [
+    "slug",
+    "documentation_date",
+    "post_url",
+    "post_date",
+    "posted_by",
+    "post_title",
+    "post_text",
+    "post_description",
+    "repost_text",
+    "repost_attribution",
+    "footnote",
+    "originator",
+    "political_position",
+    "verband",
+    "chapter",
+    "start",
+    "end",
+    "citation",
+    "report_url",
+]
+
+
+def _cell(row, column):
+    return row[HEADER.index(column)]
+
+
+def _mention(evidence, footnote, **overrides):
+    fields = {
+        "evidence": evidence,
+        "footnote": footnote,
+        "originator": Actor.objects.create(organization=OrganizationFactory()),
+    }
+    fields.update(overrides)
+    return EvidenceMention.objects.create(**fields)
+
+
 @pytest.mark.django_db
 class TestEvidenceExporter:
-    def test_one_row_per_text_segment(self):
+    def test_post_columns_carry_the_repost_separately(self):
         inner = _make_evidence("inner", text="quoted text").social_media_post
         evidence = _make_evidence(
             "outer", title="the title", description="a description"
@@ -53,40 +92,161 @@ class TestEvidenceExporter:
         evidence.social_media_post.save(update_fields=["redistributes"])
 
         rows = _rows(Evidence.objects.filter(pk=evidence.pk))
-        pk, slug = str(evidence.pk), evidence.slug
-        url = "https://t.me/kanal_outer/1"
+        outer = evidence.social_media_post
 
-        # Every segment repeats the evidence's identifying columns. The repost
-        # row is indistinguishable from the post's own body row: same "Post text"
-        # label, and the segment's attribution has no column of its own.
         assert rows == [
+            HEADER,
             [
-                "id",
-                "slug",
-                "documentation_date",
-                "social_media_post__url",
-                "text_segment_label",
-                "text_segment_text",
+                evidence.slug,
+                "2026-01-15",
+                "https://t.me/kanal_outer/1",
+                "2026-01-02",
+                str(outer.account),
+                "the title",
+                "post body",
+                "a description",
+                "quoted text",
+                str(inner.account),
+                *[""] * 9,
             ],
-            [pk, slug, "2026-01-15", url, "Post title", "the title"],
-            [pk, slug, "2026-01-15", url, "Post text", "post body"],
-            [pk, slug, "2026-01-15", url, "Description", "a description"],
-            [pk, slug, "2026-01-15", url, "Post text", "quoted text"],
         ]
 
-    def test_evidence_without_text_contributes_no_rows(self):
-        _make_evidence("empty", text="")
-        assert len(_rows(Evidence.objects.all())) == 1  # header only
+    def test_one_row_per_mention_repeating_the_post_columns(self):
+        evidence = _make_evidence("m")
+        _mention(
+            evidence,
+            "fn1",
+            chapter_structure=["Kapitel", "Thema"],
+            citation="the first quote",
+            report_url="https://report.example/1",
+            start=datetime.timedelta(seconds=5),
+            end=datetime.timedelta(minutes=1, seconds=3),
+        )
+        _mention(evidence, "fn2", citation="the second quote")
+
+        rows = _rows(Evidence.objects.all())[1:]
+        assert len(rows) == 2
+        # Mentions come out in footnote order, each repeating the post text.
+        assert [_cell(row, "post_text") for row in rows] == ["post body"] * 2
+        assert [_cell(row, "footnote") for row in rows] == ["fn1", "fn2"]
+        assert [_cell(row, "citation") for row in rows] == [
+            "the first quote",
+            "the second quote",
+        ]
+
+        first, second = rows
+        assert _cell(first, "chapter") == "Kapitel > Thema"
+        assert _cell(first, "start") == "0:00:05"
+        assert _cell(first, "end") == "0:01:03"
+        assert _cell(first, "report_url") == "https://report.example/1"
+        # A mention carrying none of the optional fields leaves them empty.
+        assert _cell(second, "chapter") == ""
+        assert _cell(second, "start") == ""
+        assert _cell(second, "end") == ""
+        assert _cell(second, "report_url") == ""
+
+    def test_originator_columns_describe_the_mentions_own_actor(self):
+        person = PersonFactory(
+            first_name="Ada",
+            last_name="Lovelace",
+            verband=GeoRegionFactory(name="Bayern", kind="state"),
+        )
+        PoliticalPosition.objects.create(person=person, label="MdL")
+        evidence = _make_evidence("p")
+        _mention(evidence, "fn1", originator=Actor.objects.create(person=person))
+
+        row = _rows(Evidence.objects.all())[1]
+        assert _cell(row, "originator") == "Ada Lovelace"
+        assert _cell(row, "political_position") == "MdL (Stand 24. Juni 2026)"
+        assert _cell(row, "verband") == "Bayern"
+
+    def test_an_organization_originator_has_no_political_position(self):
+        evidence = _make_evidence("o")
+        _mention(evidence, "fn1")  # originator is an organization
+
+        row = _rows(Evidence.objects.all())[1]
+        assert _cell(row, "political_position") == ""
+        assert _cell(row, "verband") == ""
+
+    def test_evidence_without_mentions_keeps_its_row(self):
+        evidence = _make_evidence("lonely")
+        rows = _rows(Evidence.objects.all())
+
+        assert len(rows) == 2
+        assert _cell(rows[1], "slug") == evidence.slug
+        assert _cell(rows[1], "post_text") == "post body"
+        assert _cell(rows[1], "footnote") == ""
+
+    def test_evidence_without_text_keeps_its_row(self):
+        evidence = _make_evidence("empty", text="")
+        rows = _rows(Evidence.objects.all())
+
+        assert rows[1] == [
+            evidence.slug,
+            "2026-01-15",
+            "https://t.me/kanal_empty/1",
+            "2026-01-02",
+            str(evidence.social_media_post.account),
+            *[""] * 14,
+        ]
+
+    def test_citation_column_is_redacted(self):
+        evidence = _make_evidence("c")
+        _mention(evidence, "fn1", citation="the Badword was spoken")
+        RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+
+        row = _rows(Evidence.objects.all())[1]
+        assert _cell(row, "citation") == "the [X] was spoken"
+
+    def test_post_columns_are_redacted(self):
+        inner = _make_evidence("inner", text="Badword quoted").social_media_post
+        evidence = _make_evidence("outer", title="Badword title", text="Badword mine")
+        evidence.social_media_post.redistributes = inner
+        evidence.social_media_post.save(update_fields=["redistributes"])
+        RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+
+        row = _rows(Evidence.objects.filter(pk=evidence.pk))[1]
+        assert _cell(row, "post_title") == "[X] title"
+        assert _cell(row, "post_text") == "[X] mine"
+        assert _cell(row, "repost_text") == "[X] quoted"
 
     def test_rows_follow_the_descending_pk_order_of_the_queryset(self):
         first = _make_evidence("a", text="erst")
         second = _make_evidence("b", text="dann")
 
         assert first.pk < second.pk
-        assert [row[-1] for row in _rows(Evidence.objects.all())[1:]] == [
-            "dann",
-            "erst",
-        ]
+        assert [
+            _cell(row, "post_text") for row in _rows(Evidence.objects.all())[1:]
+        ] == ["dann", "erst"]
+
+    def test_rows_cost_no_query_per_evidence(self, django_assert_num_queries):
+        inner = _make_evidence("inner").social_media_post
+        for i in range(3):
+            evidence = _make_evidence(f"q{i}")
+            evidence.social_media_post.redistributes = inner
+            evidence.social_media_post.save(update_fields=["redistributes"])
+            person = PersonFactory(
+                first_name=f"Ada{i}",
+                last_name="Lovelace",
+                verband=GeoRegionFactory(name="Bayern", kind="state"),
+            )
+            PoliticalPosition.objects.create(person=person, label="MdL")
+            _mention(
+                evidence,
+                "fn1",
+                citation="a quote",
+                originator=Actor.objects.create(person=person),
+            )
+
+        # Warm the module-level global redactor, so what's left to count is the
+        # queryset and its prefetches.
+        assert Evidence.objects.first().post_text_block is not None
+
+        with django_assert_num_queries(5):
+            rows = _rows(Evidence.objects.all())
+
+        # Header, the three reposting evidence, and the reposted one.
+        assert len(rows) == 5
 
     def test_unsupported_format_is_rejected(self):
         with pytest.raises(ValueError, match="format json is not supported"):
