@@ -768,8 +768,17 @@ def invalidate_global_redactor(*args, **kwargs):
     _GLOBAL_REDACTOR = None
 
 
-def apply_redactions(text: str, post=None) -> str:
-    """Mask redacted terms in `text`: global rules, then `post`'s scoped rules.
+def scoped_redaction_rules(post) -> list["RedactionRule"]:
+    """The enabled rules scoped to `post`.
+
+    Resolved once per post and passed into `apply_redactions` for each of its
+    segments, so a post's rules cost one query rather than one per segment.
+    """
+    return [rule for rule in post.redaction_rules.all() if rule.enabled]
+
+
+def apply_redactions(text: str, scoped_rules=()) -> str:
+    """Mask redacted terms in `text`: global rules, then the given scoped rules.
 
     Applied at display time and when assembling `search_text` / `topic_text`, so
     the masked form is what reaches the page, the search index and the topic
@@ -779,10 +788,8 @@ def apply_redactions(text: str, post=None) -> str:
     if not text:
         return text
     text = _get_global_redactor()(text)
-    if post is not None:
-        for rule in post.redaction_rules.all():
-            if rule.enabled:
-                text = rule.apply(text)
+    for rule in scoped_rules:
+        text = rule.apply(text)
     return text
 
 
@@ -1020,8 +1027,11 @@ class Evidence(TrackableModel):
         if block is None:
             return None
 
+        # Resolved once for the whole block, not per segment.
+        scoped_rules = scoped_redaction_rules(source)
+
         def redact(seg: TextSegment) -> TextSegment:
-            return replace(seg, text=apply_redactions(seg.text, post=source))
+            return replace(seg, text=apply_redactions(seg.text, scoped_rules))
 
         return TextSegmentGroup(
             block.heading,
