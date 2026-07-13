@@ -459,7 +459,7 @@ class SocialMediaAccount(models.Model):
 
 @dataclass(frozen=True)
 class TextSegment:
-    """One labelled piece of textual content belonging to an evidence source.
+    """One piece of textual content belonging to an evidence source.
 
     `kind` is the semantic role (title / body / description / …), which the
     detail view uses to pick a per-segment style. `attribution` names the
@@ -467,7 +467,6 @@ class TextSegment:
     """
 
     kind: str
-    label: str
     text: str
     attribution: str = ""
 
@@ -671,13 +670,13 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
         # order below is the only place segment order is declared; display,
         # search and topics all take it from here.
         segments = []
-        for kind, label, value in (
-            ("title", _("Post title"), self.title),
-            ("body", _("Post text"), self.text),
-            ("description", _("Description"), self.description),
+        for kind, value in (
+            ("title", self.title),
+            ("body", self.text),
+            ("description", self.description),
         ):
             if value and value.strip():
-                segments.append(TextSegment(kind, label, value.strip()))
+                segments.append(TextSegment(kind, value.strip()))
         return segments
 
     def _repost_segment(self) -> TextSegment | None:
@@ -687,7 +686,6 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
             return None
         return TextSegment(
             "body",
-            _("Post text"),
             self.redistributes.text.strip(),
             attribution=str(self.redistributes.account),
         )
@@ -1050,7 +1048,7 @@ class Evidence(TrackableModel):
             if not text or text in seen:
                 continue
             seen.add(text)
-            segments.append(TextSegment("citation", _("Citation"), text))
+            segments.append(TextSegment("citation", text))
         return segments
 
     @property
