@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import os
@@ -144,6 +145,10 @@ def _parse_dt(value):
     if not value:
         return None
     return datetime.fromisoformat(value)
+
+
+def _text(value):
+    return html.unescape(value or "")
 
 
 class JSONImporter:
@@ -715,12 +720,12 @@ class JSONImporter:
             "url": item["url"],
             "posted_at": posted_at,
             "edited_at": edited_at,
-            "text": item.get("text") or "",
-            "title": item.get("title") or "",
-            "description": item.get("description") or "",
-            "transcription": item.get("transcription") or "",
+            "text": _text(item.get("text")),
+            "title": _text(item.get("title")),
+            "description": _text(item.get("description")),
+            "transcription": _text(item.get("transcription")),
             "image_source_path": item.get("image_file") or "",
-            "image_description": (alt.get("alt_text") or "").strip(),
+            "image_description": _text(alt.get("alt_text")).strip(),
             "video_source_path": item.get("video_file") or "",
             "screenshot_source_path": item.get("screenshot_file") or "",
             "view_count": item.get("view_count"),
@@ -956,7 +961,7 @@ class JSONImporter:
             defaults={
                 "url": ref.get("url") or "",
                 "posted_at": _parse_dt(ref.get("created_at")),
-                "text": ref.get("text") or "",
+                "text": _text(ref.get("text")),
             },
         )
         if created_post:
@@ -1097,7 +1102,7 @@ class JSONImporter:
             vts = vts or {}
             scalar_fields = {
                 "chapter_structure": topic_path,
-                "citation": citation or "",
+                "citation": _text(citation),
                 "report_url": report_url or "",
                 "start": self._parse_timestamp(vts.get("start")),
                 "end": self._parse_timestamp(vts.get("end")),

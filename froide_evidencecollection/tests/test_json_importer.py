@@ -278,6 +278,51 @@ class TestJSONImporter:
         assert sm_post.screenshot.read() == b"fake-screenshot"
 
     @pytest.mark.django_db
+    def test_html_entities_are_decoded_from_free_text_fields(self, person, tmp_path):
+        post = _make_post(
+            text="Recht &amp; Freiheit",
+            title="Er sagte &#39;nein&#39;",
+            description="Mehr &lt;dazu&gt;",
+            transcription="Bund &amp; L&auml;nder",
+            references=[
+                {
+                    "platform_post_id": "9",
+                    "url": "https://t.me/other/9",
+                    "text": "Zitat &amp; Antwort",
+                    "account": _make_account(username="other", platform_user_id="999"),
+                }
+            ],
+            report_data={
+                "footnote_url": ["https://t.me/example/1"],
+                "topic": ["A"],
+                "footnote_id": ["1"],
+                "fliesstext": ["Zitiert &amp; belegt"],
+            },
+        )
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "social_media": {"telegram": [post]},
+                }
+            },
+        )
+
+        JSONImporter(path).run()
+
+        sm_post = SocialMediaPost.objects.get(platform_post_id="1")
+        assert sm_post.text == "Recht & Freiheit"
+        assert sm_post.title == "Er sagte 'nein'"
+        assert sm_post.description == "Mehr <dazu>"
+        assert sm_post.transcription == "Bund & Länder"
+
+        stub = SocialMediaPost.objects.get(platform_post_id="9")
+        assert stub.text == "Zitat & Antwort"
+
+        assert EvidenceMention.objects.get().citation == "Zitiert & belegt"
+
+    @pytest.mark.django_db
     def test_video_timestamps_fold_into_mentions(self, person, tmp_path):
         post = _make_post(
             video_file="./video/x.mp4",
