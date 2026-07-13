@@ -42,6 +42,15 @@ def _actor():
     return Actor.objects.create(organization=OrganizationFactory())
 
 
+def _mention(evidence, footnote, citation):
+    return EvidenceMention.objects.create(
+        evidence=evidence,
+        footnote=footnote,
+        citation=citation,
+        originator=_actor(),
+    )
+
+
 def _make_post(**overrides):
     # Each call gets its own account (unique platform_user_id) so multiple
     # posts in one test don't collide on the (platform, platform_user_id)
@@ -99,20 +108,14 @@ class TestPostTextSegments:
         assert "promo blurb" in evidence.search_text
         assert "promo blurb" in evidence.topic_text
 
-    def test_citation_is_not_wired_into_segments(self):
-        # `EvidenceMention.citation` is kept on the model but unwired from
-        # display/search/topics.
+    def test_citation_is_not_a_post_segment(self):
+        # A citation belongs to a mention, not to the post, so it stays out of
+        # the block the detail view and the export render.
         post = _make_post(text="body")
         evidence = Evidence.objects.create(social_media_post=post)
-        EvidenceMention.objects.create(
-            evidence=evidence,
-            footnote="fn3",
-            citation="the curated quote",
-            originator=_actor(),
-        )
+        _mention(evidence, "fn3", "the curated quote")
 
-        assert "the curated quote" not in evidence.search_text
-        assert "the curated quote" not in evidence.topic_text
+        assert "the curated quote" not in [s.text for s in evidence.text_segments]
 
     def test_redistributed_text_trails_and_is_attributed(self):
         inner = _make_post(
@@ -234,14 +237,13 @@ def _kitchen_sink_evidence():
 
 @pytest.mark.django_db
 class TestSearchText:
-    def test_segments_are_joined_verbatim_in_source_order(self):
-        # Title, body, description, then the repost — separated by a blank line.
+    def test_segments_are_joined_verbatim(self):
         # Nothing is cleaned: URLs, @mentions, #hashtags and the `&amp;` entity
         # leak all reach the index as they stand.
         assert _kitchen_sink_evidence().search_text == (
-            "Skandal um @max_mustermann #Empoerung\n"
-            "\n"
             "RT via https://example.com/artikel und www.beispiel.de &amp; mehr\n"
+            "\n"
+            "Skandal um @max_mustermann #Empoerung\n"
             "\n"
             "Kurze Beschreibung.\n"
             "\n"
@@ -252,14 +254,31 @@ class TestSearchText:
         evidence = Evidence.objects.create(social_media_post=_make_post(text=""))
         assert evidence.search_text == ""
 
+    def test_citations_lead_and_are_not_deduped_against_the_post(self):
+        # A citation restating the post is indexed anyway.
+        evidence = Evidence.objects.create(social_media_post=_make_post(text="body"))
+        _mention(evidence, "fn1", "body")
+
+        assert evidence.search_text == "body\n\nbody"
+
+    def test_one_quote_under_several_footnotes_appears_once(self):
+        evidence = Evidence.objects.create(social_media_post=_make_post(text="body"))
+        _mention(evidence, "fn1", "the same quote")
+        _mention(evidence, "fn2", "the same quote")
+        _mention(evidence, "fn3", "another quote")
+
+        assert evidence.search_text == "the same quote\n\nanother quote\n\nbody"
+
+    def test_citation_is_indexed_for_a_post_without_text(self):
+        evidence = Evidence.objects.create(social_media_post=_make_post(text=""))
+        _mention(evidence, "fn1", "citation")
+
+        assert evidence.search_text == "citation"
+
 
 @pytest.mark.django_db
 class TestTopicText:
     def test_segments_are_reordered_and_cleaned(self):
-        # Reordered by `_topic_sort_key`: body, title, description, repost last.
-        # Cleaned by `_clean_topic_text`: URLs dropped, `@`/`#` markers stripped
-        # and underscores split, `rt` / `via` / `amp` removed as standalone
-        # tokens. Removing `amp` strands the `&` and `;` of `&amp;`.
         assert _kitchen_sink_evidence().topic_text == (
             "und & ; mehr\n"
             "\n"
@@ -273,6 +292,14 @@ class TestTopicText:
     def test_post_without_text_yields_empty_string(self):
         evidence = Evidence.objects.create(social_media_post=_make_post(text=""))
         assert evidence.topic_text == ""
+
+    def test_citation_leads_the_post_text(self):
+        evidence = Evidence.objects.create(
+            social_media_post=_make_post(text="body", title="the title")
+        )
+        _mention(evidence, "fn1", "citation")
+
+        assert evidence.topic_text == ("citation\n\nbody\n\nthe title")
 
 
 @pytest.mark.django_db
@@ -297,6 +324,18 @@ class TestRedaction:
         )
 
         assert "Badword" in evidence.search_text
+
+    def test_rule_masks_the_citation(self):
+        # Citations reach search and topics through `redacted_citation`, not
+        # through `post_text_block` — so they need masking of their own.
+        post = _make_post(text="clean")
+        evidence = Evidence.objects.create(social_media_post=post)
+        _mention(evidence, "fn1", "the Badword appears here")
+        RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+
+        assert "Badword" not in evidence.search_text
+        assert "[X]" in evidence.search_text
+        assert "Badword" not in evidence.topic_text
 
     def test_rule_masks_the_display_block_including_the_repost(self):
         # `post_text_block` is the chokepoint, so both the post's own segments

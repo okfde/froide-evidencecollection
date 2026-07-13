@@ -28,9 +28,8 @@ def _make_text_field():
 
 @evidence_index.document
 class EvidenceDocument(DSLDocument):
-    # Concatenated source text (post body/title/description, redistributed
-    # content, …), assembled by Evidence.search_text with redaction rules
-    # already applied.
+    # Concatenated source text, assembled by Evidence.search_text
+    # with redaction rules already applied.
     content = _make_text_field()
 
     class Django:
@@ -38,10 +37,9 @@ class EvidenceDocument(DSLDocument):
         fields = []
 
     def get_queryset(self):
-        # `content` (= search_text) walks the source's text segments, including
-        # redistributed posts, and redacts them against the post's scoped rules;
-        # pull the source, its redistribution chain and those rules in one go so
-        # indexing doesn't fan out per row.
+        # `content` (= search_text) walks the source's text segments and redacts them
+        # against the post's scoped rules; pull everything needed so indexing doesn't fan
+        # out per row.
         return (
             super()
             .get_queryset()
@@ -49,7 +47,7 @@ class EvidenceDocument(DSLDocument):
                 "social_media_post__account",
                 "social_media_post__redistributes__account",
             )
-            .prefetch_related("social_media_post__redaction_rules")
+            .prefetch_related("social_media_post__redaction_rules", "mentions")
         )
 
     def prepare_content(self, obj: Evidence):

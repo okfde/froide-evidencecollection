@@ -870,24 +870,6 @@ def _invalidate_redactor_on_scope_change(sender, **kwargs):
     invalidate_global_redactor()
 
 
-# Topic-modelling assembly order. The embedding model truncates to a fixed
-# token window, so whatever leads the text dominates the topic signal — lead
-# with the highest-signal fields and let lower-signal ones trail where they get
-# truncated away first.
-_TOPIC_KIND_PRIORITY = {
-    "citation": 0,
-    "body": 0,
-    "extracted_text": 0,
-    "title": 2,
-    "caption": 3,
-    "description": 3,
-}
-
-
-def _topic_sort_key(seg: "TextSegment") -> int:
-    return _TOPIC_KIND_PRIORITY.get(seg.kind, 4)
-
-
 # URLs are noise to the embedding model and waste the (truncated) token budget
 # on ~10-20 subword tokens of gibberish each, so they're dropped from the topic
 # input only (search/display keep them). Matches http(s):// and bare www. URLs;
@@ -927,6 +909,31 @@ def _clean_topic_text(text: str) -> str:
     # the `\n\n` separators between text segments are load-bearing, so newlines
     # are preserved.
     return re.sub(r"[^\S\n]+", " ", text).strip()
+
+
+def _assemble_segments(block, citations) -> list["TextSegment"]:
+    """Every text an evidence carries, highest-signal first, repost last.
+
+    Citations from mentions in the report lead because they contain the "essence"
+    of the evidence. The post's own text follows (may overlap with citations -
+    in case of videos citations most often come from the transcript which is not
+    included here).
+
+    The order is chosen for topic modelling: the embedding model truncates to a
+    fixed token window, so whatever trails is cut first. For search, order doesn't
+    matter so the same order is simply reused.
+    """
+    # An unlisted kind sorts after these rather than being dropped, so a new kind
+    # reaches search and topics unordered instead of silently vanishing from both.
+    order = ("citation", "body", "title", "description")
+    own = block.segments if block is not None else []
+    segments = sorted(
+        [*citations, *own],
+        key=lambda seg: order.index(seg.kind) if seg.kind in order else len(order),
+    )
+    if block is not None and block.repost:
+        segments.append(block.repost)
+    return segments
 
 
 class Evidence(TrackableModel):
@@ -1042,34 +1049,40 @@ class Evidence(TrackableModel):
     @property
     def text_segments(self) -> list["TextSegment"]:
         # Flattened view of `post_text_block`, for consumers that don't care
-        # about the nesting (search index, export).
+        # about the nesting.
         block = self.post_text_block
         return block.flat_segments() if block is not None else []
 
+    @cached_property
+    def citation_segments(self) -> list["TextSegment"]:
+        """The report's prose about this evidence, one segment per mention.
+
+        Redaction goes through `EvidenceMention.redacted_citation`, the same
+        chokepoint the detail view and the export read, so the masked form is
+        what reaches search and topics. A quote filed under several footnotes
+        appears once. Prefetch `mentions`, or each evidence costs a query.
+        """
+        segments, seen = [], set()
+        for mention in self.mentions.all():
+            text = mention.redacted_citation.strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            segments.append(TextSegment("citation", _("Citation"), text))
+        return segments
+
     @property
     def search_text(self) -> str:
-        # Concatenation of the segments, in source order; fed to Elasticsearch.
-        # Order is irrelevant to ES (it tokenises everything).
-        return "\n\n".join(s.text for s in self.text_segments)
+        segments = _assemble_segments(self.post_text_block, self.citation_segments)
+        return "\n\n".join(s.text for s in segments)
 
     @property
     def topic_text(self) -> str:
-        # Input to BERTopic. Distinct from `search_text`: the source's own
-        # segments are reordered (`_topic_sort_key`) so the highest-signal
-        # fields lead — because the embedding model truncates to a fixed token
-        # window, so trailing text is dropped before it influences the topic.
-        # Stable sort keeps source order within a priority tier, and a repost
-        # trails the post's own content. `_clean_topic_text` strips URLs and
-        # normalises @mentions / #hashtags to plain words (noise + wasted token
-        # budget).
-        block = self.post_text_block
-        if block is None:
-            return ""
-        segments = sorted(block.segments, key=_topic_sort_key)
-        if block.repost:
-            segments.append(block.repost)
-        text = "\n\n".join(s.text for s in segments)
-        return _clean_topic_text(text)
+        # Input to the embedding model: the same text and order `search_text`
+        # gets, minus what only wastes the token window — `_clean_topic_text`
+        # strips URLs and normalises @mentions / #hashtags to plain words.
+        segments = _assemble_segments(self.post_text_block, self.citation_segments)
+        return _clean_topic_text("\n\n".join(s.text for s in segments))
 
     @cached_property
     def originator_actors(self):
