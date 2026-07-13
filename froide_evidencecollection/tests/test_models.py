@@ -237,13 +237,13 @@ def _kitchen_sink_evidence():
 
 @pytest.mark.django_db
 class TestSearchText:
-    def test_segments_are_joined_verbatim(self):
+    def test_segments_are_joined_verbatim_in_display_order(self):
         # Nothing is cleaned: URLs, @mentions, #hashtags and the `&amp;` entity
         # leak all reach the index as they stand.
         assert _kitchen_sink_evidence().search_text == (
-            "RT via https://example.com/artikel und www.beispiel.de &amp; mehr\n"
-            "\n"
             "Skandal um @max_mustermann #Empoerung\n"
+            "\n"
+            "RT via https://example.com/artikel und www.beispiel.de &amp; mehr\n"
             "\n"
             "Kurze Beschreibung.\n"
             "\n"
@@ -278,11 +278,11 @@ class TestSearchText:
 
 @pytest.mark.django_db
 class TestTopicText:
-    def test_segments_are_reordered_and_cleaned(self):
+    def test_segments_are_cleaned_and_keep_the_search_order(self):
         assert _kitchen_sink_evidence().topic_text == (
-            "und & ; mehr\n"
-            "\n"
             "Skandal um max mustermann Empoerung\n"
+            "\n"
+            "und & ; mehr\n"
             "\n"
             "Kurze Beschreibung.\n"
             "\n"
@@ -293,13 +293,25 @@ class TestTopicText:
         evidence = Evidence.objects.create(social_media_post=_make_post(text=""))
         assert evidence.topic_text == ""
 
+    def test_a_segment_cleaned_away_leaves_no_blank_line_behind(self):
+        # The body is nothing but a link, so the cleaner empties it.
+        evidence = Evidence.objects.create(
+            social_media_post=_make_post(
+                title="the title",
+                text="https://example.com/artikel",
+                description="Kurze Beschreibung.",
+            )
+        )
+
+        assert evidence.topic_text == "the title\n\nKurze Beschreibung."
+
     def test_citation_leads_the_post_text(self):
         evidence = Evidence.objects.create(
             social_media_post=_make_post(text="body", title="the title")
         )
         _mention(evidence, "fn1", "citation")
 
-        assert evidence.topic_text == ("citation\n\nbody\n\nthe title")
+        assert evidence.topic_text == "citation\n\nthe title\n\nbody"
 
 
 @pytest.mark.django_db

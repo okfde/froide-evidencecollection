@@ -489,10 +489,10 @@ class TextSegmentGroup:
     repost: "TextSegment | None" = None
 
     def flat_segments(self) -> list[TextSegment]:
-        """The group's segments in source order, own text first, repost last.
+        """The group's segments in display order, own text first, repost last.
 
-        For consumers that only tokenise or tabulate text (search, export) and
-        so have no use for the nesting.
+        For consumers that only tokenise the text (search, topics) and so have
+        no use for the nesting.
         """
         return [*self.segments, *([self.repost] if self.repost else [])]
 
@@ -667,7 +667,9 @@ class SocialMediaPost(EvidenceSource, PostMediaMixin, models.Model):
 
     def _own_text_segments(self) -> list[TextSegment]:
         # This post's own authored text, excluding anything redistributed. Title,
-        # body and description all ride along, searched and topic-modelled.
+        # body and description all ride along, searched and topic-modelled. The
+        # order below is the only place segment order is declared; display,
+        # search and topics all take it from here.
         segments = []
         for kind, label, value in (
             ("title", _("Post title"), self.title),
@@ -907,33 +909,13 @@ def _clean_topic_text(text: str) -> str:
     text = _TOPIC_ARTIFACT_RE.sub(" ", text)
     # Collapse only the horizontal whitespace the substitutions leave behind;
     # the `\n\n` separators between text segments are load-bearing, so newlines
-    # are preserved.
-    return re.sub(r"[^\S\n]+", " ", text).strip()
-
-
-def _assemble_segments(block, citations) -> list["TextSegment"]:
-    """Every text an evidence carries, highest-signal first, repost last.
-
-    Citations from mentions in the report lead because they contain the "essence"
-    of the evidence. The post's own text follows (may overlap with citations -
-    in case of videos citations most often come from the transcript which is not
-    included here).
-
-    The order is chosen for topic modelling: the embedding model truncates to a
-    fixed token window, so whatever trails is cut first. For search, order doesn't
-    matter so the same order is simply reused.
-    """
-    # An unlisted kind sorts after these rather than being dropped, so a new kind
-    # reaches search and topics unordered instead of silently vanishing from both.
-    order = ("citation", "body", "title", "description")
-    own = block.segments if block is not None else []
-    segments = sorted(
-        [*citations, *own],
-        key=lambda seg: order.index(seg.kind) if seg.kind in order else len(order),
-    )
-    if block is not None and block.repost:
-        segments.append(block.repost)
-    return segments
+    # are preserved. Strip per line, or a substitution at the start or end of a
+    # segment leaves its space stranded against a separator.
+    text = re.sub(r"[^\S\n]+", " ", text)
+    text = "\n".join(line.strip() for line in text.split("\n"))
+    # A segment cleaned away in full — a body that was nothing but a link —
+    # leaves a run of blank lines where it stood.
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 class Evidence(TrackableModel):
@@ -1072,17 +1054,28 @@ class Evidence(TrackableModel):
         return segments
 
     @property
+    def all_segments(self) -> list["TextSegment"]:
+        """Every text the evidence carries: the citations, then the post's own.
+
+        Citations lead because they hold the essence of the evidence, and the
+        embedding model truncates to a fixed token window, so whatever trails is
+        cut away first. They may restate the post; for videos they usually come
+        from the transcript, which the post itself does not carry.
+        """
+        return [*self.citation_segments, *self.text_segments]
+
+    @property
     def search_text(self) -> str:
-        segments = _assemble_segments(self.post_text_block, self.citation_segments)
-        return "\n\n".join(s.text for s in segments)
+        # Fed to Elasticsearch, which tokenises everything, so only the content
+        # matters here, not the order.
+        return "\n\n".join(s.text for s in self.all_segments)
 
     @property
     def topic_text(self) -> str:
-        # Input to the embedding model: the same text and order `search_text`
-        # gets, minus what only wastes the token window — `_clean_topic_text`
-        # strips URLs and normalises @mentions / #hashtags to plain words.
-        segments = _assemble_segments(self.post_text_block, self.citation_segments)
-        return _clean_topic_text("\n\n".join(s.text for s in segments))
+        # Input to the embedding model: the text search gets, minus what only
+        # wastes the token window — `_clean_topic_text` strips URLs and
+        # normalises @mentions / #hashtags to plain words.
+        return _clean_topic_text(self.search_text)
 
     @cached_property
     def originator_actors(self):
