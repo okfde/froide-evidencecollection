@@ -884,15 +884,6 @@ _TOPIC_URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 # `#fun` with plain "fun" in body text.
 _TOPIC_TAG_RE = re.compile(r"(?<!\w)[@#](\w+)")
 
-# Residual web/social artifacts that survive URL stripping and tag
-# normalisation: the `&amp;` entity leak and retweet/cross-post markers. Matched
-# as standalone tokens only (`\b…\b`), so words containing them — "amplitude",
-# "wert" — are untouched. Numbers are intentionally NOT removed here: they carry
-# semantic signal for the document embedding (e.g. "50 Prozent", "Artikel 3").
-# They're kept out of the keyword vocabulary downstream in `fit_keywords`
-# instead, so the embedding sees them but they never become a facet.
-_TOPIC_ARTIFACT_RE = re.compile(r"\b(?:amp|rt|via)\b", re.IGNORECASE)
-
 
 def _strip_tag_marker(match: "re.Match") -> str:
     return match.group(1).replace("_", " ")
@@ -903,8 +894,6 @@ def _clean_topic_text(text: str) -> str:
     # rather than being half-normalised by the tag pass.
     text = _TOPIC_URL_RE.sub(" ", text)
     text = _TOPIC_TAG_RE.sub(_strip_tag_marker, text)
-    # Then drop the content-free web/social artifact tokens.
-    text = _TOPIC_ARTIFACT_RE.sub(" ", text)
     # Collapse only the horizontal whitespace the substitutions leave behind;
     # the `\n\n` separators between text segments are load-bearing, so newlines
     # are preserved. Strip per line, or a substitution at the start or end of a
