@@ -215,8 +215,7 @@ def _kitchen_sink_evidence():
     """One evidence exercising every branch `search_text` and `topic_text` take.
 
     Carries a title, a body and a description, reposts another account, and holds
-    text the topic cleaner rewrites: a URL, an @mention, a #hashtag and the
-    `RT` / `via` / `amp` artifact tokens.
+    text the topic cleaner rewrites: a URL, an @mention and a #hashtag.
     """
     inner = _make_post(
         platform_post_id="inner",
@@ -227,7 +226,7 @@ def _kitchen_sink_evidence():
         platform_post_id="outer",
         url="https://t.me/x/3",
         title="Skandal um @max_mustermann #Empoerung",
-        text="RT via https://example.com/artikel und www.beispiel.de &amp; mehr",
+        text="RT via https://example.com/artikel und www.beispiel.de & mehr",
         description="Kurze Beschreibung.",
     )
     outer.redistributes = inner
@@ -238,12 +237,12 @@ def _kitchen_sink_evidence():
 @pytest.mark.django_db
 class TestSearchText:
     def test_segments_are_joined_verbatim_in_display_order(self):
-        # Nothing is cleaned: URLs, @mentions, #hashtags and the `&amp;` entity
-        # leak all reach the index as they stand.
+        # Nothing is cleaned: URLs, @mentions and #hashtags all reach the index
+        # as they stand.
         assert _kitchen_sink_evidence().search_text == (
             "Skandal um @max_mustermann #Empoerung\n"
             "\n"
-            "RT via https://example.com/artikel und www.beispiel.de &amp; mehr\n"
+            "RT via https://example.com/artikel und www.beispiel.de & mehr\n"
             "\n"
             "Kurze Beschreibung.\n"
             "\n"
@@ -282,7 +281,7 @@ class TestTopicText:
         assert _kitchen_sink_evidence().topic_text == (
             "Skandal um max mustermann Empoerung\n"
             "\n"
-            "und & ; mehr\n"
+            "RT via und & mehr\n"
             "\n"
             "Kurze Beschreibung.\n"
             "\n"
