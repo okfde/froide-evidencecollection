@@ -1205,7 +1205,7 @@ class EvidenceTopicCloudView(TemplateView):
         # selection is parsed back out of the date params the filter applies, so
         # an empty selection lands the handles at the full extent.
         year_agg = Evidence.objects.filter(
-            # topic__isnull=False,
+            topic_fit_at__isnull=False,
             social_media_post__posted_at__isnull=False,
         ).aggregate(
             earliest=Min("social_media_post__posted_at"),
