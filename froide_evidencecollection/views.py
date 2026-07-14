@@ -61,12 +61,19 @@ VERBAND_GEOMETRY_FIELDS = tuple(
 )
 
 
-def originator_prefetch() -> Prefetch:
-    """The originators of the exported mentions, with everything their columns read."""
-    actors = Actor.objects.select_related(
+def actor_queryset() -> QuerySet:
+    """Actors carrying everything their display columns read: the person /
+    organization side backs `Actor.name`, and its Verband backs `verband_label`
+    (which reads only `kind`/`name`, so the geometry is deferred).
+    """
+    return Actor.objects.select_related(
         "person__verband", "organization__verband"
     ).defer(*VERBAND_GEOMETRY_FIELDS)
-    return Prefetch("mentions__originator", queryset=actors)
+
+
+def originator_prefetch() -> Prefetch:
+    """The originators of the exported mentions, with everything their columns read."""
+    return Prefetch("mentions__originator", queryset=actor_queryset())
 
 
 class EvidenceExporter:
@@ -575,40 +582,22 @@ class EvidenceTopicCloudView(TemplateView):
         name otherwise — see `AbstractActor.verband_label`) is shown in
         parentheses after the name, and omitted entirely for an originator that
         has none. Evidence with no originator is absent from the map.
+
+        The originators are prefetched with their person / organization and its
+        Verband, so this costs no query.
         """
-        # Originator actor ids per evidence, in originator order (originators are
-        # prefetched, so this iterates in-memory).
-        actor_ids = set()
-        ev_meta = []  # (evidence_pk, [actor_id, ...])
-        for ev in evidences:
-            ids = [actor.id for actor in ev.originators.all()]
-            if ids:
-                actor_ids.update(ids)
-                ev_meta.append((ev.pk, ids))
-        if not actor_ids:
-            return {}
-
-        # One query for the name + verband label of every originator in view.
-        info_by_actor = {}  # actor_id -> (name, verband_label)
-        for actor in (
-            Actor.objects.filter(id__in=actor_ids)
-            .select_related("person__verband", "organization__verband")
-            .defer(*VERBAND_GEOMETRY_FIELDS)
-        ):
-            target = actor.person or actor.organization
-            label = target.verband_label if target else ""
-            info_by_actor[actor.id] = (str(actor), label)
-
         result = {}
-        for ev_pk, ids in ev_meta:
+        for ev in evidences:
             parts = []
-            for actor_id in ids:
-                name, label = info_by_actor.get(actor_id, ("", ""))
+            for actor in ev.originators.all():
+                target = actor.person or actor.organization
+                name = str(target) if target else ""
                 if not name:
                     continue
+                label = target.verband_label
                 parts.append(f"{name} ({label})" if label else name)
             if parts:
-                result[ev_pk] = ", ".join(parts)
+                result[ev.pk] = ", ".join(parts)
         return result
 
     @staticmethod
@@ -681,10 +670,10 @@ class EvidenceTopicCloudView(TemplateView):
             )
             .prefetch_related(
                 # Originators drive the actor display/panel and the
-                # verband-by-evidence read; person/organization are needed for
-                # the actor's display name (`Actor.name`).
-                "originators__person",
-                "originators__organization",
+                # verband-by-evidence read; both the display name and the
+                # Verband label ride along on the actor, so those two read
+                # in-memory.
+                Prefetch("originators", queryset=actor_queryset()),
                 # Mentions back the per-dot chapter display.
                 Prefetch(
                     "mentions",
