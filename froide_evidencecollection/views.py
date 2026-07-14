@@ -48,13 +48,16 @@ SEGMENT_COLUMNS = {
     "description": "post_description",
 }
 
-VERBAND_GEOMETRY_FIELDS = (
-    "person__verband__geom",
-    "person__verband__geom_detail",
-    "person__verband__gov_seat",
-    "organization__verband__geom",
-    "organization__verband__geom_detail",
-    "organization__verband__gov_seat",
+# GeoRegion's geometry columns are large multipolygons that get GEOS-deserialized
+# per row. Defer them wherever only `kind`/`name` is readq.
+GEOREGION_GEOMETRY_FIELDS = ("geom", "geom_detail", "gov_seat")
+
+# The same columns as seen through an Actor: the FK may sit on the person or the
+# organization side.
+VERBAND_GEOMETRY_FIELDS = tuple(
+    f"{side}__verband__{field}"
+    for side in ("person", "organization")
+    for field in GEOREGION_GEOMETRY_FIELDS
 )
 
 
@@ -593,24 +596,12 @@ class EvidenceTopicCloudView(TemplateView):
         if not actor_ids:
             return {}
 
-        # One query for the name + verband label of every originator in view; the
-        # FK may sit on the person or the organization side of the Actor.
-        # `verband` is a GeoRegion, whose geometry columns (`geom`, `geom_detail`,
-        # `gov_seat`) are large multipolygons GEOS-deserialized per row — defer
-        # them, since `verband_label` only reads `kind`/`name`. Without this the
-        # join dominates the topic-cloud render (seconds).
+        # One query for the name + verband label of every originator in view.
         info_by_actor = {}  # actor_id -> (name, verband_label)
         for actor in (
             Actor.objects.filter(id__in=actor_ids)
             .select_related("person__verband", "organization__verband")
-            .defer(
-                "person__verband__geom",
-                "person__verband__geom_detail",
-                "person__verband__gov_seat",
-                "organization__verband__geom",
-                "organization__verband__geom_detail",
-                "organization__verband__gov_seat",
-            )
+            .defer(*VERBAND_GEOMETRY_FIELDS)
         ):
             target = actor.person or actor.organization
             label = target.verband_label if target else ""
@@ -1222,13 +1213,11 @@ class EvidenceTopicCloudView(TemplateView):
                 .values_list("verband_id", flat=True)
                 .distinct()
             )
-        # `verband` is a GeoRegion; defer its large geometry columns since only
-        # `kind`/`name` are read here (see `_originators_with_verband`).
         verbaende = sorted(
             (
                 {"id": r.id, "label": "Bund" if r.kind == "country" else r.name}
                 for r in GeoRegion.objects.filter(id__in=verband_ids).defer(
-                    "geom", "geom_detail", "gov_seat"
+                    *GEOREGION_GEOMETRY_FIELDS
                 )
             ),
             key=lambda v: (v["label"] != "Bund", v["label"]),
