@@ -461,9 +461,10 @@ class SocialMediaAccount(models.Model):
 class TextSegment:
     """One piece of textual content belonging to an evidence source.
 
-    `kind` is the semantic role (title / body / description / …), which the
-    detail view uses to pick a per-segment style. `attribution` names the
-    account a segment was lifted from, and is set only on a repost.
+    `kind` is the semantic role (title, body or description), which the detail
+    view uses to pick a per-segment style and the export uses to pick a column.
+    `attribution` names the account a segment was lifted from, and is set only
+    on a repost.
     """
 
     kind: str
@@ -487,13 +488,14 @@ class TextSegmentGroup:
     segments: list[TextSegment]
     repost: "TextSegment | None" = None
 
-    def flat_segments(self) -> list[TextSegment]:
-        """The group's segments in display order, own text first, repost last.
+    def texts(self) -> list[str]:
+        """The group's text in display order, own text first, repost last.
 
-        For consumers that only tokenise the text (search, topics) and so have
-        no use for the nesting.
+        For consumers that only tokenise it (search, topics) and so have no use
+        for the nesting, nor for `kind` and `attribution`.
         """
-        return [*self.segments, *([self.repost] if self.repost else [])]
+        segments = [*self.segments, *([self.repost] if self.repost else [])]
+        return [seg.text for seg in segments]
 
 
 class EvidenceSource:
@@ -1007,23 +1009,23 @@ class Evidence(TrackableModel):
         )
 
     @cached_property
-    def citation_segments(self) -> list["TextSegment"]:
-        """The report's prose about this evidence, one segment per mention.
+    def citation_texts(self) -> list[str]:
+        """Cited texts from this evidence appearing in the report, one text per mention.
 
         A quote filed under several footnotes appears once. Prefetch `mentions`,
         or each evidence costs a query.
         """
-        segments, seen = [], set()
+        texts, seen = [], set()
         for mention in self.mentions.all():
             text = mention.citation.strip()
             if not text or text in seen:
                 continue
             seen.add(text)
-            segments.append(TextSegment("citation", text))
-        return segments
+            texts.append(text)
+        return texts
 
     @property
-    def all_segments(self) -> list["TextSegment"]:
+    def all_texts(self) -> list[str]:
         """Every text the evidence carries: the citations, then the post's own.
 
         Flat, and not redacted — redaction happens where text leaves the system,
@@ -1036,8 +1038,7 @@ class Evidence(TrackableModel):
         """
         source = self.source
         block = source.text_block() if source is not None else None
-        post_segments = block.flat_segments() if block is not None else []
-        return [*self.citation_segments, *post_segments]
+        return [*self.citation_texts, *(block.texts() if block is not None else [])]
 
     @property
     def search_text(self) -> str:
@@ -1048,7 +1049,7 @@ class Evidence(TrackableModel):
         """
         scoped_rules = scoped_redaction_rules(self.source) if self.source else ()
         return "\n\n".join(
-            apply_redactions(s.text, scoped_rules) for s in self.all_segments
+            apply_redactions(text, scoped_rules) for text in self.all_texts
         )
 
     @property
@@ -1058,7 +1059,7 @@ class Evidence(TrackableModel):
         `_clean_topic_text` drops what only wastes the token window: URLs, and
         the @ / # markers on mentions and hashtags.
         """
-        return _clean_topic_text("\n\n".join(s.text for s in self.all_segments))
+        return _clean_topic_text("\n\n".join(self.all_texts))
 
     @cached_property
     def originator_actors(self):
