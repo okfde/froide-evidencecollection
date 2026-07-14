@@ -1006,14 +1006,6 @@ class Evidence(TrackableModel):
             redact(block.repost) if block.repost else None,
         )
 
-    @property
-    def text_segments(self) -> list["TextSegment"]:
-        # Flattened view of the source's text, for consumers that don't care
-        # about the nesting.
-        source = self.source
-        block = source.text_block() if source is not None else None
-        return block.flat_segments() if block is not None else []
-
     @cached_property
     def citation_segments(self) -> list["TextSegment"]:
         """The report's prose about this evidence, one segment per mention.
@@ -1034,12 +1026,18 @@ class Evidence(TrackableModel):
     def all_segments(self) -> list["TextSegment"]:
         """Every text the evidence carries: the citations, then the post's own.
 
+        Flat, and not redacted — redaction happens where text leaves the system,
+        in `redacted_text_block` (display, export) and in `search_text`.
+
         Citations lead because they hold the essence of the evidence, and the
         embedding model truncates to a fixed token window, so whatever trails is
         cut away first. They may restate the post; for videos they usually come
         from the transcript, which the post itself does not carry.
         """
-        return [*self.citation_segments, *self.text_segments]
+        source = self.source
+        block = source.text_block() if source is not None else None
+        post_segments = block.flat_segments() if block is not None else []
+        return [*self.citation_segments, *post_segments]
 
     @property
     def search_text(self) -> str:
