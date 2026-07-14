@@ -7,7 +7,6 @@ from collections import defaultdict
 from django.core.exceptions import BadRequest
 from django.db.models import F, Max, Min, Prefetch, Q, QuerySet
 from django.http import Http404, HttpResponse
-from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
@@ -450,20 +449,16 @@ class EvidenceTopicCloudView(TemplateView):
     SVG_HEIGHT = 600
     SVG_PADDING = 16
 
-    # Template fragment rendered on its own when htmx asks for an in-place
-    # filter refresh (detected via the HX-Request header / request.htmx) —
-    # covers the count line, the cloud, the legend, and the SR-only outline.
-    PARTIAL_TEMPLATE = "froide_evidencecollection/_topic_cloud_partial.html"
+    # This view only ever answers htmx's in-place filter refresh, so it renders
+    # the fragment alone: the count line, the cloud, the main-topic tree and the
+    # actor panel. The full page is assembled by the CMS plugin from
+    # topic_cloud.html, which reuses this view's context.
+    template_name = "froide_evidencecollection/_topic_cloud_partial.html"
 
     def get(self, request, *args, **kwargs):
         if request.headers.get("HX-Request") != "true":
             raise Http404
         return super().get(request, *args, **kwargs)
-
-    def render_to_response(self, context, **response_kwargs):
-        return HttpResponse(
-            render_to_string(self.PARTIAL_TEMPLATE, context, request=self.request)
-        )
 
     # Relation path from an Evidence to the political positions held by an
     # originator who is a person. Evidence whose originators are all
@@ -1044,9 +1039,9 @@ class EvidenceTopicCloudView(TemplateView):
             e for e in evidences if e.topic_x is not None and e.topic_y is not None
         ]
         # Render every <circle> as a single string in Python instead of
-        # looping in the template. With ~1000 points the template loop is the
-        # dominant cost in render_to_response; building the markup directly here
-        # (with html.escape on each value) cuts it by an order of magnitude.
+        # looping in the template. With ~1000 points the template loop dominates
+        # the render; building the markup directly here (with html.escape on each
+        # value) cuts it by an order of magnitude.
         # Originator-with-Verband and chapter display strings, computed once over
         # the whole filtered set (two grouped queries each — see the helpers) and
         # shared by both the dot tooltips and the outline/table below. The dot
