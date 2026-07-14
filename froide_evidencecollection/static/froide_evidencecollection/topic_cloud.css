@@ -334,6 +334,7 @@
 }
 
 .topic-cloud-svg circle[data-href] {
+    fill: #7a6e60;
     cursor: pointer;
 }
 
