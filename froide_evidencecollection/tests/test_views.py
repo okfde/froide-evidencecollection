@@ -240,7 +240,7 @@ class TestEvidenceExporter:
 
         # Warm the module-level global redactor, so what's left to count is the
         # queryset and its prefetches.
-        assert Evidence.objects.first().post_text_block is not None
+        assert Evidence.objects.first().redacted_text_block is not None
 
         with django_assert_num_queries(5):
             rows = _rows(Evidence.objects.all())

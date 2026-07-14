@@ -721,14 +721,8 @@ def _delete_post_screenshot_file(sender, instance, **kwargs):
         instance.screenshot.delete(save=False)
 
 
-# Redaction: read-time term→placeholder substitution over assembled text. The
-# raw imported text is never mutated, so changing a rule only requires
-# re-deriving downstream artifacts (search index, topic fit), never a data
-# migration. Global rules (no `posts`) apply to every post; scoped rules apply
-# only to the posts they list. The enabled global rules compile to a single
-# callable cached at module level and invalidated by signals on `RedactionRule`
-# (see below); per-post scoped rules are few and applied directly.
-_GLOBAL_REDACTOR = None  # compiled callable for enabled global rules; None = stale
+# compiled callable for enabled global rules; None = stale
+_GLOBAL_REDACTOR = None
 
 
 def _compile_redaction_rules(rules) -> "callable":
@@ -780,10 +774,11 @@ def scoped_redaction_rules(post) -> list["RedactionRule"]:
 def apply_redactions(text: str, scoped_rules=()) -> str:
     """Mask redacted terms in `text`: global rules, then the given scoped rules.
 
-    Applied at display time and when assembling `search_text` / `topic_text`, so
-    the masked form is what reaches the page, the search index and the topic
-    fit. Changing rules requires a re-index / topic re-fit to take effect on
-    already-derived artifacts.
+    Applied where text leaves the system — the detail page, the export and
+    `search_text` — never to `topic_text`, whose fit emits only coordinates.
+    Display and export redact read-time, so a rule takes effect there at once;
+    the search index freezes the masked form when it is written, so it takes a
+    re-index to catch up.
     """
     if not text:
         return text
@@ -794,15 +789,14 @@ def apply_redactions(text: str, scoped_rules=()) -> str:
 
 
 class RedactionRule(models.Model):
-    """A term→placeholder substitution masking sensitive text (slurs, names).
+    """A term→placeholder substitution masking sensitive text (slurs, deadnames).
 
-    Applied read-time over assembled text — display, `search_text` and
-    `topic_text` — by `apply_redactions`, so the raw imported text is never
-    mutated. A rule is *global* when it lists no `posts` (applied to every post,
-    for terms that are always sensitive) or *scoped* to the `posts` it lists
-    (the context-dependent cases, shareable across several posts). The masked
-    form is frozen into the search index / topic fit when those are derived, so
-    editing a rule requires a re-index / topic re-fit to take effect there.
+    Applied read-time by `apply_redactions` over assembled text, so the raw
+    imported text is never mutated. A rule is *global* when it lists no `posts`
+    (applied to every post, for terms that are always sensitive) or *scoped* to
+    the `posts` it lists (the context-dependent cases, shareable across several
+    posts). The search index freezes the masked form when it is written, so
+    editing a rule takes a re-index to take effect there.
     """
 
     pattern = models.CharField(
@@ -858,8 +852,7 @@ class RedactionRule(models.Model):
 @receiver(post_delete, sender=RedactionRule)
 def _invalidate_redactor_on_change(sender, **kwargs):
     # Drop the cached global redactor so the next render/index recompiles. A
-    # rule change only affects already-derived search/topic artifacts after a
-    # re-index / topic re-fit.
+    # rule change only reaches the already-written search index after a re-index.
     invalidate_global_redactor()
 
 
@@ -990,21 +983,28 @@ class Evidence(TrackableModel):
 
     @property
     def post_text_block(self) -> "TextSegmentGroup | None":
-        """The source's structured text, or None when there is no text.
+        """The source's structured text as imported, or None when there is none.
 
-        The canonical form behind the detail view, search index and topic
-        modelling. Redaction rules are applied here — the one chokepoint — so
-        masked terms never reach display, search or topics.
+        The canonical form every text consumer starts from. It is *not* redacted:
+        redaction happens where text leaves the system, in `redacted_text_block`
+        (display, export) and in `search_text`.
         """
         source = self.source
-        if source is None:
-            return None
-        block = source.text_block()
+        return source.text_block() if source is not None else None
+
+    @property
+    def redacted_text_block(self) -> "TextSegmentGroup | None":
+        """`post_text_block` with masked terms replaced, for display and export.
+
+        Prefetch `social_media_post__redaction_rules`, or the scoped rules cost a
+        query per evidence.
+        """
+        block = self.post_text_block
         if block is None:
             return None
 
         # Resolved once for the whole block, not per segment.
-        scoped_rules = scoped_redaction_rules(source)
+        scoped_rules = scoped_redaction_rules(self.source)
 
         def redact(seg: TextSegment) -> TextSegment:
             return replace(seg, text=apply_redactions(seg.text, scoped_rules))
@@ -1026,14 +1026,12 @@ class Evidence(TrackableModel):
     def citation_segments(self) -> list["TextSegment"]:
         """The report's prose about this evidence, one segment per mention.
 
-        Redaction goes through `EvidenceMention.redacted_citation`, the same
-        chokepoint the detail view and the export read, so the masked form is
-        what reaches search and topics. A quote filed under several footnotes
-        appears once. Prefetch `mentions`, or each evidence costs a query.
+        A quote filed under several footnotes appears once. Prefetch `mentions`,
+        or each evidence costs a query.
         """
         segments, seen = [], set()
         for mention in self.mentions.all():
-            text = mention.redacted_citation.strip()
+            text = mention.citation.strip()
             if not text or text in seen:
                 continue
             seen.add(text)
@@ -1053,16 +1051,24 @@ class Evidence(TrackableModel):
 
     @property
     def search_text(self) -> str:
-        # Fed to Elasticsearch, which tokenises everything, so only the content
-        # matters here, not the order.
-        return "\n\n".join(s.text for s in self.all_segments)
+        """Fed to Elasticsearch, and redacted.
+
+        Elasticsearch tokenises everything, so only the content matters here, not
+        the order.
+        """
+        scoped_rules = scoped_redaction_rules(self.source) if self.source else ()
+        return "\n\n".join(
+            apply_redactions(s.text, scoped_rules) for s in self.all_segments
+        )
 
     @property
     def topic_text(self) -> str:
-        # Input to the embedding model: the text search gets, minus what only
-        # wastes the token window — `_clean_topic_text` strips URLs and
-        # normalises @mentions / #hashtags to plain words.
-        return _clean_topic_text(self.search_text)
+        """Input to the embedding model, and *not* redacted.
+
+        `_clean_topic_text` drops what only wastes the token window: URLs, and
+        the @ / # markers on mentions and hashtags.
+        """
+        return _clean_topic_text("\n\n".join(s.text for s in self.all_segments))
 
     @cached_property
     def originator_actors(self):
