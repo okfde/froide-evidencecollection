@@ -78,10 +78,9 @@ class TestPostTextSegments:
             title="the title",
             description="a description",
         )
-        evidence = Evidence.objects.create(social_media_post=post)
 
         by_kind = {}
-        for seg in evidence.text_segments:
+        for seg in post.text_block().flat_segments():
             by_kind.setdefault(seg.kind, []).append(seg.text)
         assert by_kind["title"] == ["the title"]
         assert by_kind["body"] == ["post body"]
@@ -96,11 +95,12 @@ class TestPostTextSegments:
         )
         evidence = Evidence.objects.create(social_media_post=post)
 
-        assert not any(s.kind == "transcription" for s in evidence.text_segments)
+        segments = post.text_block().flat_segments()
+        assert not any(s.kind == "transcription" for s in segments)
         assert "the whole transcript" not in evidence.search_text
         assert "the whole transcript" not in evidence.topic_text
 
-        seg = next(s for s in evidence.text_segments if s.kind == "description")
+        seg = next(s for s in segments if s.kind == "description")
         assert seg.text == "promo blurb"
 
         assert "caption" in evidence.search_text
@@ -115,7 +115,8 @@ class TestPostTextSegments:
         evidence = Evidence.objects.create(social_media_post=post)
         _mention(evidence, "fn3", "the curated quote")
 
-        assert "the curated quote" not in [s.text for s in evidence.text_segments]
+        rendered = evidence.redacted_text_block.flat_segments()
+        assert "the curated quote" not in [s.text for s in rendered]
 
     def test_redistributed_text_trails_and_is_attributed(self):
         inner = _make_post(
@@ -124,9 +125,8 @@ class TestPostTextSegments:
         outer = _make_post(platform_post_id="outer", url="https://t.me/x/3")
         outer.redistributes = inner
         outer.save(update_fields=["redistributes"])
-        evidence = Evidence.objects.create(social_media_post=outer)
 
-        seg = evidence.text_segments[-1]
+        seg = outer.text_block().flat_segments()[-1]
         assert seg.text == "quoted text"
         assert seg.attribution == str(inner.account)
 
