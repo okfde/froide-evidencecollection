@@ -454,9 +454,9 @@ class EvidenceTopicCloudView(TemplateView):
     SVG_PADDING = 16
 
     # This view only ever answers htmx's in-place filter refresh, so it renders
-    # the fragment alone: the count line, the cloud, the main-topic tree and the
-    # actor panel. The full page is assembled by the CMS plugin from
-    # topic_cloud.html, which reuses this view's context.
+    # the fragment alone — the context `get_context_data` builds. The full page
+    # is assembled by the CMS plugin from topic_cloud.html, which wraps that
+    # fragment in the filter toolbar and so asks for `get_page_context`.
     template_name = "froide_evidencecollection/_topic_cloud_partial.html"
 
     def get(self, request, *args, **kwargs):
@@ -991,8 +991,20 @@ class EvidenceTopicCloudView(TemplateView):
         return out
 
     def get_context_data(self, **kwargs):
+        """Context for the htmx partial: the filtered set and everything drawn
+        from it.
+        """
         context = super().get_context_data(**kwargs)
+        context.update(self._results_context())
+        return context
 
+    def get_page_context(self):
+        """Context for the CMS plugin's full page — the partial's, plus the
+        toolbar's.
+        """
+        return {**self.get_context_data(), **self._toolbar_context()}
+
+    def _results_context(self):
         search_unavailable = False
         try:
             qs = self._filter_qs()
@@ -1113,6 +1125,47 @@ class EvidenceTopicCloudView(TemplateView):
         ]
         outline_hidden_count = max(0, len(evidences) - len(outline_shown))
 
+        return {
+            "outline_items": outline_items,
+            "outline_hidden_count": outline_hidden_count,
+            "cloud_circles_svg": cloud_circles_svg,
+            "svg_width": self.SVG_WIDTH,
+            "svg_height": self.SVG_HEIGHT,
+            "evidence_count": len(evidences),
+            "truncated": truncated,
+            "search_unavailable": search_unavailable,
+            "max_evidence": self.MAX_EVIDENCE,
+            "main_topics": main_topics,
+            "selected_chapter_id": selected_chapter_id,
+            "actors_in_view": actors_in_view,
+            "has_filters": self._has_filters(),
+        }
+
+    # Params that count as an active filter — drives the Reset button and the
+    # "no evidence matches these filters" wording. Read by both templates.
+    FILTER_PARAMS = (
+        "q",
+        "chapter",
+        "platform",
+        "posted_after",
+        "posted_before",
+        "actor",
+        "role",
+        "level",
+        "verband",
+    )
+
+    def _has_filters(self):
+        params = self.request.GET
+        return any((params.get(p) or "").strip() for p in self.FILTER_PARAMS)
+
+    def _toolbar_context(self):
+        """Filter-option universe for the toolbar, plus the form's URLs.
+
+        Every option list here is drawn from the whole topic-fitted corpus, not
+        from the filtered set: the dropdowns keep their full range as the user
+        drills in. Only the full page renders them.
+        """
         # Look up the currently-selected actor so the combobox button can
         # display its name on the initial server-rendered page.
         selected_actor = None
@@ -1202,55 +1255,26 @@ class EvidenceTopicCloudView(TemplateView):
             self._param_year(self.request.GET.get("posted_before")) or year_max
         )
 
-        context.update(
-            {
-                "outline_items": outline_items,
-                "outline_hidden_count": outline_hidden_count,
-                "cloud_circles_svg": cloud_circles_svg,
-                "svg_width": self.SVG_WIDTH,
-                "svg_height": self.SVG_HEIGHT,
-                "evidence_count": len(evidences),
-                "truncated": truncated,
-                "search_unavailable": search_unavailable,
-                "max_evidence": self.MAX_EVIDENCE,
-                "main_topics": main_topics,
-                "selected_chapter_id": selected_chapter_id,
-                # Only actors that have actually posted — keeps the
-                # searchable dropdown bounded to options that can yield
-                # a non-empty result.
-                "actors": actors,
-                "actors_in_view": actors_in_view,
-                "selected_actor": selected_actor,
-                "platforms": SocialMediaAccount.Platform.choices,
-                # Originator-function filters: the function (role) and its
-                # institutional level, as held by the posting person when the
-                # evidence was posted. Selected values ride through
-                # `request.GET` in the template, like the platform select.
-                "roles": roles,
-                "levels": levels,
-                # Verband of the originator (a direct actor attribute, not
-                # function-derived).
-                "verbaende": verbaende,
-                "year_min": year_min,
-                "year_max": year_max,
-                "selected_year_from": selected_year_from,
-                "selected_year_to": selected_year_to,
-                "has_filters": any(
-                    (self.request.GET.get(p) or "").strip()
-                    for p in (
-                        "q",
-                        "chapter",
-                        "platform",
-                        "posted_after",
-                        "posted_before",
-                        "actor",
-                        "role",
-                        "level",
-                        "verband",
-                    )
-                ),
-                "reset_url": apphook_page_url(self.request),
-                "topic_cloud_url": reverse("evidencecollection:evidence-topic-cloud"),
-            }
-        )
-        return context
+        return {
+            # Only actors that have actually posted — keeps the
+            # searchable dropdown bounded to options that can yield
+            # a non-empty result.
+            "actors": actors,
+            "selected_actor": selected_actor,
+            "platforms": SocialMediaAccount.Platform.choices,
+            # Originator-function filters: the function (role) and its
+            # institutional level, as held by the posting person when the
+            # evidence was posted. Selected values ride through
+            # `request.GET` in the template, like the platform select.
+            "roles": roles,
+            "levels": levels,
+            # Verband of the originator (a direct actor attribute, not
+            # function-derived).
+            "verbaende": verbaende,
+            "year_min": year_min,
+            "year_max": year_max,
+            "selected_year_from": selected_year_from,
+            "selected_year_to": selected_year_to,
+            "reset_url": apphook_page_url(self.request),
+            "topic_cloud_url": reverse("evidencecollection:evidence-topic-cloud"),
+        }
