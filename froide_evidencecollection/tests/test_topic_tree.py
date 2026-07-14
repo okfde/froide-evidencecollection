@@ -1,6 +1,7 @@
 """Tests for the topic cloud view's browse surfaces: the main-topic tree."""
 
 from django.http import QueryDict
+from django.test import RequestFactory
 from django.utils import timezone
 
 import pytest
@@ -178,3 +179,83 @@ class TestBuildMainTopicTree:
 
         # Biggest coverage leads.
         assert [n["id"] for n in nodes] == [big.id, small.id]
+
+
+@pytest.mark.django_db
+class TestSelectionCoherence:
+    """A `chapter` param either narrows the cloud *and* shows as the tree's
+    active node *and* counts toward Reset, or it does none of the three. The
+    tree validates the param; the filter and the Reset button follow it, so a
+    selection the tree cannot render can never filter invisibly."""
+
+    def _view(self, chapter=None):
+        view = EvidenceTopicCloudView()
+        params = {"chapter": str(chapter)} if chapter is not None else {}
+        view.request = RequestFactory().get("/", params)
+        return view
+
+    def _assert_inactive(self, view):
+        """No selection anywhere: no active node, no Reset button."""
+        selected, nodes = view.main_topic_tree
+        assert selected is None
+        assert not any(n["selected"] for n in nodes)
+        assert view._has_filters() is False
+
+    def test_selectable_chapter_filters_and_shows_as_active(self):
+        topic = _make_chapter("Topic", is_main_topic=True)
+        other = _make_chapter("Other", is_main_topic=True)
+        inside = _make_evidence(1, fitted=True)
+        _file_under(inside, topic)
+        _file_under(_make_evidence(2, fitted=True), other)
+
+        view = self._view(topic.id)
+        selected, nodes = view.main_topic_tree
+
+        # All three surfaces agree the topic is selected.
+        assert selected == topic.id
+        assert {n["id"]: n for n in nodes}[topic.id]["selected"] is True
+        assert view._has_filters() is True
+        assert set(view._filter_qs().values_list("pk", flat=True)) == {inside.pk}
+
+    def test_main_topic_without_fitted_evidence_narrows_nothing(self):
+        # The reported bug: an empty main topic used to filter the cloud down to
+        # nothing while the tree dropped it (and pruned its node), leaving a
+        # Reset button pointing at no visible selection.
+        empty = _make_chapter("Empty", is_main_topic=True)
+        populated = _make_chapter("Populated", is_main_topic=True)
+        evidence = _make_evidence(1, fitted=True)
+        _file_under(evidence, populated)
+
+        view = self._view(empty.id)
+
+        self._assert_inactive(view)
+        assert set(view._filter_qs().values_list("pk", flat=True)) == {evidence.pk}
+
+    def test_non_main_chapter_narrows_nothing(self):
+        # The worse variant: a non-main chapter that *does* hold fitted evidence
+        # is never a tree node, so it used to narrow the cloud to a real subset
+        # with nothing on screen naming the filter that did it.
+        topic = _make_chapter("Topic", is_main_topic=True)
+        plain = _make_chapter("Plain", parent=topic)  # not a main topic
+        under_plain = _make_evidence(1, fitted=True)
+        elsewhere = _make_evidence(2, fitted=True)
+        _file_under(under_plain, plain)
+        _file_under(elsewhere, topic)
+
+        view = self._view(plain.id)
+
+        self._assert_inactive(view)
+        assert set(view._filter_qs().values_list("pk", flat=True)) == {
+            under_plain.pk,
+            elsewhere.pk,
+        }
+
+    def test_unknown_chapter_narrows_nothing(self):
+        topic = _make_chapter("Topic", is_main_topic=True)
+        evidence = _make_evidence(1, fitted=True)
+        _file_under(evidence, topic)
+
+        view = self._view(9999)
+
+        self._assert_inactive(view)
+        assert set(view._filter_qs().values_list("pk", flat=True)) == {evidence.pk}
