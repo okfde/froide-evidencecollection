@@ -80,7 +80,7 @@ class TestPostTextSegments:
         )
 
         by_kind = {}
-        for seg in post.text_block().flat_segments():
+        for seg in post.text_block().segments:
             by_kind.setdefault(seg.kind, []).append(seg.text)
         assert by_kind["title"] == ["the title"]
         assert by_kind["body"] == ["post body"]
@@ -95,7 +95,7 @@ class TestPostTextSegments:
         )
         evidence = Evidence.objects.create(social_media_post=post)
 
-        segments = post.text_block().flat_segments()
+        segments = post.text_block().segments
         assert not any(s.kind == "transcription" for s in segments)
         assert "the whole transcript" not in evidence.search_text
         assert "the whole transcript" not in evidence.topic_text
@@ -115,8 +115,7 @@ class TestPostTextSegments:
         evidence = Evidence.objects.create(social_media_post=post)
         _mention(evidence, "fn3", "the curated quote")
 
-        rendered = evidence.redacted_text_block.flat_segments()
-        assert "the curated quote" not in [s.text for s in rendered]
+        assert "the curated quote" not in evidence.redacted_text_block.texts()
 
     def test_redistributed_text_trails_and_is_attributed(self):
         inner = _make_post(
@@ -126,9 +125,9 @@ class TestPostTextSegments:
         outer.redistributes = inner
         outer.save(update_fields=["redistributes"])
 
-        seg = outer.text_block().flat_segments()[-1]
-        assert seg.text == "quoted text"
-        assert seg.attribution == str(inner.account)
+        block = outer.text_block()
+        assert block.texts()[-1] == "quoted text"
+        assert block.repost.attribution == str(inner.account)
 
 
 @pytest.mark.django_db
