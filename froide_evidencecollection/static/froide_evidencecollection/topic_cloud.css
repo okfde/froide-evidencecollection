@@ -116,32 +116,6 @@
     overflow: hidden;
 }
 
-/* Dominant-group colour key above the cloud: a row of swatch + label
-    chips, one per coloured group. */
-.topic-cloud-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: .3rem .9rem;
-    align-items: center;
-    margin-bottom: .5rem;
-    font-size: .8rem;
-    color: #5a5048;
-}
-
-.topic-cloud-legend__item {
-    display: inline-flex;
-    align-items: center;
-    gap: .3rem;
-}
-
-.topic-cloud-legend__swatch {
-    width: .75rem;
-    height: .75rem;
-    border-radius: 50%;
-    flex: 0 0 auto;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
-}
-
 .topic-cloud-svg svg {
     display: block;
     width: 100%;
@@ -617,10 +591,6 @@
     /* Drop the scatter — the main-topic tree above acts as the filter,
         the outline below becomes the visible post list. */
     .topic-cloud-svg {
-        display: none;
-    }
-
-    .topic-cloud-legend {
         display: none;
     }
 

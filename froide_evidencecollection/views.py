@@ -411,8 +411,7 @@ class EvidenceTopicCloudView(TemplateView):
     outline listing the matching evidence. A small SVG scatter sits on top
     as a visual aid — ``aria-hidden`` because the list below carries the
     same information in semantic form. Browsing is by main-topic tree; the
-    toolbar additionally filters by platform, date range, actor, and
-    free-text search.
+    toolbar contains additional filters.
 
     The free-text search runs against Elasticsearch (`EvidenceDocument`), whose
     `content` field is the redacted `Evidence.search_text`. Every other filter
@@ -713,9 +712,8 @@ class EvidenceTopicCloudView(TemplateView):
                 "slug",
                 "topic_x",
                 "topic_y",
-                "social_media_post__url",
-                "social_media_post__title",
-                "social_media_post__text",
+                # `posted_at` backs the outline's date (via `source.publication_date`)
+                # and the queryset ordering.
                 "social_media_post__posted_at",
                 # Engagement counts for the dot tooltip's stats line — load
                 # them here so reading each isn't a deferred per-row query.
@@ -960,24 +958,19 @@ class EvidenceTopicCloudView(TemplateView):
             key=lambda a: a.name.casefold(),
         )
 
-    def _project(self, posts, bounds=None):
+    def _project(self, posts, bounds):
         """Map post x/y into SVG pixel coordinates. Coords are formatted as
         plain strings (always a ``.`` decimal) so Django's locale-aware
         templating doesn't slip a German comma into the SVG attributes.
 
-        ``bounds`` (``(xmin, xmax, ymin, ymax)``) lets the caller pin the
-        projection to the unfiltered dataset's extents so dots keep the
-        same screen position when filters shrink the visible set.
+        ``bounds`` (``(xmin, xmax, ymin, ymax)``) pins the projection to the
+        unfiltered dataset's extents so dots keep the same screen position when
+        filters shrink the visible set. It is None only when nothing is fitted,
+        in which case there is nothing to plot either.
         """
-        if not posts:
+        if not posts or bounds is None:
             return []
-        if bounds is None:
-            xs = [p.topic_x for p in posts]
-            ys = [p.topic_y for p in posts]
-            xmin, xmax = min(xs), max(xs)
-            ymin, ymax = min(ys), max(ys)
-        else:
-            xmin, xmax, ymin, ymax = bounds
+        xmin, xmax, ymin, ymax = bounds
         # Guard against degenerate ranges (single point, or all-equal).
         x_span = xmax - xmin or 1.0
         y_span = ymax - ymin or 1.0
@@ -1063,7 +1056,6 @@ class EvidenceTopicCloudView(TemplateView):
             actor_id = self._originator_ids(ev)
             pub_date = ev.source.publication_date if ev.source else None
             posted_on = pub_date.isoformat() if pub_date else ""
-            fill = self.DOT_COLOR
             # Tooltip metadata — the same columns the table shows (originator
             # with Verband, chapters); no text snippet. `data-stats` adds the
             # engagement line from the evidence detail view (views/likes/…).
@@ -1081,10 +1073,9 @@ class EvidenceTopicCloudView(TemplateView):
                 f' data-stats="{esc(stats)}"'
                 f' cx="{pt["cx"]}" cy="{pt["cy"]}"'
                 f' r="4"'
-                f' fill="{fill}"></circle>'
+                f' fill="{self.DOT_COLOR}"></circle>'
             )
         cloud_circles_svg = mark_safe("".join(circle_parts))
-        cloud_point_count = len(circle_parts)
 
         # Actors present in the filtered set, tallied over the visible evidence
         # via each evidence's originators (prefetched, so no extra per-row
@@ -1212,7 +1203,6 @@ class EvidenceTopicCloudView(TemplateView):
                 "outline_items": outline_items,
                 "outline_hidden_count": outline_hidden_count,
                 "cloud_circles_svg": cloud_circles_svg,
-                "cloud_point_count": cloud_point_count,
                 "svg_width": self.SVG_WIDTH,
                 "svg_height": self.SVG_HEIGHT,
                 "evidence_count": len(evidences),
