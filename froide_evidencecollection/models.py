@@ -2,10 +2,11 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, replace
+from functools import partial
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
-from django.db.models.signals import m2m_changed, post_delete, post_save
+from django.db import models, transaction
+from django.db.models.signals import m2m_changed, post_delete, post_save, pre_delete
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
@@ -779,8 +780,8 @@ def apply_redactions(text: str, scoped_rules=()) -> str:
     Applied where text leaves the system — the detail page, the export and
     `search_text` — never to `topic_text`, whose fit emits only coordinates.
     Display and export redact read-time, so a rule takes effect there at once;
-    the search index freezes the masked form when it is written, so it takes a
-    re-index to catch up.
+    the search index freezes the masked form when it is written, so a rule change
+    queues a re-index (see `_queue_evidence_reindex`).
     """
     if not text:
         return text
@@ -797,8 +798,8 @@ class RedactionRule(models.Model):
     imported text is never mutated. A rule is *global* when it lists no `posts`
     (applied to every post, for terms that are always sensitive) or *scoped* to
     the `posts` it lists (the context-dependent cases, shareable across several
-    posts). The search index freezes the masked form when it is written, so
-    editing a rule takes a re-index to take effect there.
+    posts). Editing a rule re-indexes the evidence it touches, so the masked form
+    frozen into the search index keeps up with it.
     """
 
     pattern = models.CharField(
@@ -853,8 +854,7 @@ class RedactionRule(models.Model):
 @receiver(post_save, sender=RedactionRule)
 @receiver(post_delete, sender=RedactionRule)
 def _invalidate_redactor_on_change(sender, **kwargs):
-    # Drop the cached global redactor so the next render/index recompiles. A
-    # rule change only reaches the already-written search index after a re-index.
+    # Drop the cached global redactor so the next render/index recompiles.
     invalidate_global_redactor()
 
 
@@ -863,6 +863,53 @@ def _invalidate_redactor_on_scope_change(sender, **kwargs):
     # Adding/removing posts can flip a rule between global and scoped, so the
     # global set may have changed — invalidate the cache.
     invalidate_global_redactor()
+
+
+def _rule_post_pks(rule) -> list[int] | None:
+    """The posts a rule masks, or None for a global rule — which is every post."""
+    return list(rule.posts.values_list("pk", flat=True)) or None
+
+
+def _queue_evidence_reindex(post_pks: "list[int] | None" = None):
+    """Re-index the evidence whose search text a rule change can alter.
+
+    Display and export redact read-time, so they need nothing; the index froze
+    the masked form when it was written, and a stale one keeps answering queries
+    for the term the rule now masks. Deferred to commit, so the task re-derives
+    `search_text` from the rules as they finally stand.
+    """
+    from froide_evidencecollection.tasks import reindex_evidence
+
+    pks = None
+    if post_pks is not None:
+        pks = list(
+            Evidence.objects.filter(social_media_post__in=post_pks).values_list(
+                "pk", flat=True
+            )
+        )
+    transaction.on_commit(partial(reindex_evidence.delay, pks))
+
+
+@receiver(post_save, sender=RedactionRule)
+def _reindex_on_rule_save(sender, instance, **kwargs):
+    _queue_evidence_reindex(_rule_post_pks(instance))
+
+
+@receiver(pre_delete, sender=RedactionRule)
+def _reindex_on_rule_delete(sender, instance, **kwargs):
+    # `pre_delete`, not `post_delete`: the m2m rows are cascaded away first, so
+    # by then a scoped rule reads as global and would re-index the whole corpus.
+    # The task itself runs on commit, when the rule is gone.
+    _queue_evidence_reindex(_rule_post_pks(instance))
+
+
+@receiver(m2m_changed, sender=RedactionRule.posts.through)
+def _reindex_on_rule_scope_change(sender, action, **kwargs):
+    # Re-scoping can flip a rule between global and scoped, which masks or
+    # un-masks posts the rule never listed — so the whole index is in play, and
+    # narrowing this to the posts that changed would leave the rest stale.
+    if action in ("post_add", "post_remove", "post_clear"):
+        _queue_evidence_reindex()
 
 
 # URLs are noise to the embedding model and waste the (truncated) token budget

@@ -1,5 +1,8 @@
+from unittest import mock
+
 import pytest
 
+from froide_evidencecollection.documents import EvidenceDocument
 from froide_evidencecollection.models import (
     Actor,
     Evidence,
@@ -10,6 +13,7 @@ from froide_evidencecollection.models import (
     SocialMediaPost,
     SyncableModel,
 )
+from froide_evidencecollection.tasks import reindex_evidence
 
 from .factories import (
     GeoRegionFactory,
@@ -17,6 +21,10 @@ from .factories import (
     RoleFactory,
     syncable_model_factories,
 )
+
+# The receiver looks the task up at dispatch time, so patching it here catches
+# the call without the celery machinery running.
+TASK = "froide_evidencecollection.tasks.reindex_evidence.delay"
 
 
 class TestVerbandLabel:
@@ -440,6 +448,90 @@ class TestRedaction:
             citations.append(mention.redacted_citation)
 
         assert citations == ["the [Name] name", "the secret name"]
+
+
+@pytest.mark.django_db
+class TestRedactionReindex:
+    """A rule change must reach the search index, which froze the masked form.
+
+    The re-index runs on commit, so the tests capture the callbacks; the task is
+    mocked out, since it is the dispatch — which evidence, and whether at all —
+    that carries the meaning.
+    """
+
+    def test_a_global_rule_reindexes_the_whole_corpus(
+        self, django_capture_on_commit_callbacks
+    ):
+        Evidence.objects.create(social_media_post=_make_post())
+
+        with mock.patch(TASK) as reindex:
+            with django_capture_on_commit_callbacks(execute=True):
+                RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+
+        # `None`, not a list of every pk: the rule masks every post there is.
+        reindex.assert_called_once_with(None)
+
+    def test_a_scoped_rule_reindexes_only_its_posts(
+        self, django_capture_on_commit_callbacks
+    ):
+        scoped, other = (
+            _make_post(platform_post_id="a"),
+            _make_post(platform_post_id="b"),
+        )
+        evidence = Evidence.objects.create(social_media_post=scoped)
+        Evidence.objects.create(social_media_post=other)
+        rule = RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+        rule.posts.add(scoped)
+
+        with mock.patch(TASK) as reindex:
+            with django_capture_on_commit_callbacks(execute=True):
+                rule.placeholder = "[Y]"
+                rule.save()
+
+        reindex.assert_called_once_with([evidence.pk])
+
+    def test_deleting_a_scoped_rule_reindexes_its_posts(
+        self, django_capture_on_commit_callbacks
+    ):
+        # The rule's posts are read before the delete cascades the m2m rows away,
+        # so a scoped rule doesn't read as global and re-index everything.
+        post = _make_post()
+        evidence = Evidence.objects.create(social_media_post=post)
+        rule = RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+        rule.posts.add(post)
+
+        with mock.patch(TASK) as reindex:
+            with django_capture_on_commit_callbacks(execute=True):
+                rule.delete()
+
+        reindex.assert_called_once_with([evidence.pk])
+
+    def test_rescoping_a_rule_reindexes_the_whole_corpus(
+        self, django_capture_on_commit_callbacks
+    ):
+        # Scoping a global rule to one post un-masks every other post, so the
+        # posts that changed are not the posts whose text changed.
+        post = _make_post()
+        Evidence.objects.create(social_media_post=post)
+        rule = RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+
+        with mock.patch(TASK) as reindex:
+            with django_capture_on_commit_callbacks(execute=True):
+                rule.posts.add(post)
+
+        reindex.assert_called_once_with(None)
+
+    def test_the_task_indexes_the_given_evidence_only(self):
+        evidence = Evidence.objects.create(
+            social_media_post=_make_post(platform_post_id="a")
+        )
+        Evidence.objects.create(social_media_post=_make_post(platform_post_id="b"))
+
+        with mock.patch.object(EvidenceDocument, "update") as update:
+            reindex_evidence([evidence.pk])
+
+        queryset = update.call_args.args[0]
+        assert list(queryset.values_list("pk", flat=True)) == [evidence.pk]
 
 
 @pytest.mark.django_db
