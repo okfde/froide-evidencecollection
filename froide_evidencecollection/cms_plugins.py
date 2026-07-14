@@ -18,5 +18,5 @@ class EvidenceTopicCloudPlugin(CMSPluginBase):
         context = super().render(context, instance, placeholder)
         view = EvidenceTopicCloudView()
         view.setup(context["request"])
-        context.update(view.get_context_data())
+        context.update(view.get_page_context())
         return context
