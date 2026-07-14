@@ -79,8 +79,10 @@
         {# "Table" tab is active (CSS toggles on .topic-cloud-page).  #}
         {% include "froide_evidencecollection/_topic_cloud_table.html" %}
     {% else %}
-        <div class="alert alert-info">
-            {% if has_filters %}
+        <div class="alert {% if search_unavailable %}alert-warning{% else %}alert-info{% endif %}">
+            {% if search_unavailable %}
+                {% trans "The search is temporarily unavailable, so your search term could not be applied. Please try again in a moment." %}
+            {% elif has_filters %}
                 {% trans "No evidence matches these filters." %}
             {% else %}
                 {% blocktrans trimmed %}
