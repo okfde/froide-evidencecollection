@@ -1,6 +1,7 @@
 import csv
 import html
 import io
+import logging
 from collections import defaultdict
 
 from django.core.exceptions import BadRequest
@@ -13,9 +14,13 @@ from django.utils.translation import gettext as _
 from django.views.decorators.cache import never_cache
 from django.views.generic import DetailView, TemplateView
 
+from elasticsearch_dsl.query import Q as SearchQ
+
 from froide.georegion.models import GeoRegion
 from froide.helper.breadcrumbs import BreadcrumbView
+from froide.helper.search import get_query_preprocessor
 
+from .documents import EvidenceDocument
 from .models import (
     Actor,
     Chapter,
@@ -29,6 +34,13 @@ from .models import (
     SocialMediaAccount,
 )
 from .templatetags.evidence_tags import compact_number
+
+logger = logging.getLogger(__name__)
+
+
+class SearchUnavailable(Exception):
+    """Elasticsearch could not answer a free-text query."""
+
 
 # A post segment's `kind` -> the column its text lands in.
 SEGMENT_COLUMNS = {
@@ -411,16 +423,21 @@ class EvidenceTopicCloudView(TemplateView):
     toolbar additionally filters by platform, date range, actor, and
     free-text search.
 
+    The free-text search runs against Elasticsearch (`EvidenceDocument`), whose
+    `content` field is the redacted `Evidence.search_text`. Every other filter
+    is a plain ORM narrowing; the two meet as a `pk__in` over the ids the index
+    returns.
+
     Dot *positions* come from the fit's 2D embedding (``topic_x`` /
     ``topic_y``); every dot is drawn in the neutral ink (``DOT_COLOR``).
 
-    Account-derived filters (platform, username, organization, actor) are
-    sourced from each evidence's social-media-post source; evidence backed
-    by a document instead has no account and falls out of those filters.
+    Account-derived filters (platform, actor) are sourced from each evidence's
+    social-media-post source.
     """
 
-    # Safety bound on rows fetched from the DB. The cloud SVG renders one
-    # circle per row; the screen-reader outline is further trimmed by
+    # Safety bound on rows fetched from the DB, and on the ids the free-text
+    # search pulls out of the index. The cloud SVG renders one circle per row;
+    # the screen-reader outline is further trimmed by
     # OUTLINE_MAX_EVIDENCE so the hidden HTML payload stays small. Set well
     # above the fitted corpus so it never trips in practice — it only exists
     # so the page degrades gracefully (via the "Result capped at…" notice)
@@ -534,6 +551,35 @@ class EvidenceTopicCloudView(TemplateView):
         return Q(originators__person__verband_id=vid) | Q(
             originators__organization__verband_id=vid
         )
+
+    def _search_ids(self, q):
+        """Evidence pks whose indexed text matches the free-text query ``q``.
+
+        Only document ids are requested (`source(False)`) — the rows themselves
+        come from the ORM, which the remaining filters narrow. Capped at
+        MAX_EVIDENCE + 1 so the caller's "capped" detection still trips on an
+        over-large result. Raises `SearchUnavailable` if the index cannot answer.
+        """
+        query = get_query_preprocessor().prepare_query(q)
+        search = (
+            EvidenceDocument.search()
+            .query(
+                SearchQ(
+                    "simple_query_string",
+                    query=query,
+                    fields=["content"],
+                    default_operator="and",
+                    lenient=True,
+                )
+            )
+            .source(False)[: self.MAX_EVIDENCE + 1]
+        )
+        try:
+            response = search.execute()
+        except Exception as e:
+            logger.error("Elasticsearch error on topic cloud search: %s", e)
+            raise SearchUnavailable from e
+        return [int(hit.meta.id) for hit in response]
 
     @staticmethod
     def _originators_with_verband(evidences):
@@ -665,8 +711,7 @@ class EvidenceTopicCloudView(TemplateView):
                 # the actor's display name (`Actor.name`).
                 "originators__person",
                 "originators__organization",
-                # Mentions back the per-dot chapter display and the full-text
-                # search join.
+                # Mentions back the per-dot chapter display.
                 Prefetch(
                     "mentions",
                     queryset=EvidenceMention.objects.only(
@@ -698,13 +743,12 @@ class EvidenceTopicCloudView(TemplateView):
         )
 
         params = self.request.GET
+        # Free text: answered by the index, not by SQL — see `_search_ids`. The
+        # ids come back unordered; the queryset's own date ordering stands, which
+        # is what the cloud wants (a scatter, not a ranked list).
         q = (params.get("q") or "").strip()
         if q:
-            qs = qs.filter(
-                Q(social_media_post__title__icontains=q)
-                | Q(social_media_post__text__icontains=q)
-                | Q(social_media_post__description__icontains=q)
-            )
+            qs = qs.filter(pk__in=self._search_ids(q))
 
         # Main topic (report chapter): the hierarchical entry point, single-
         # select. Selecting a main-topic node narrows to evidence filed under
@@ -964,10 +1008,15 @@ class EvidenceTopicCloudView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        qs = self._filter_qs()
-        # Fetch one extra row to detect "more than MAX_EVIDENCE" without
-        # running a second COUNT query against the filtered set.
-        fetched = list(qs[: self.MAX_EVIDENCE + 1])
+        search_unavailable = False
+        try:
+            qs = self._filter_qs()
+            # Fetch one extra row to detect "more than MAX_EVIDENCE" without
+            # running a second COUNT query against the filtered set.
+            fetched = list(qs[: self.MAX_EVIDENCE + 1])
+        except SearchUnavailable:
+            search_unavailable = True
+            fetched = []
         truncated = len(fetched) > self.MAX_EVIDENCE
         evidences = fetched[: self.MAX_EVIDENCE]
 
@@ -1181,6 +1230,7 @@ class EvidenceTopicCloudView(TemplateView):
                 "svg_height": self.SVG_HEIGHT,
                 "evidence_count": len(evidences),
                 "truncated": truncated,
+                "search_unavailable": search_unavailable,
                 "max_evidence": self.MAX_EVIDENCE,
                 "main_topics": main_topics,
                 "selected_chapter_id": selected_chapter_id,
