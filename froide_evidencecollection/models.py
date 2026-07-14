@@ -982,29 +982,20 @@ class Evidence(TrackableModel):
         return " · ".join(part for part in parts if part)
 
     @property
-    def post_text_block(self) -> "TextSegmentGroup | None":
-        """The source's structured text as imported, or None when there is none.
-
-        The canonical form every text consumer starts from. It is *not* redacted:
-        redaction happens where text leaves the system, in `redacted_text_block`
-        (display, export) and in `search_text`.
-        """
-        source = self.source
-        return source.text_block() if source is not None else None
-
-    @property
     def redacted_text_block(self) -> "TextSegmentGroup | None":
-        """`post_text_block` with masked terms replaced, for display and export.
+        """The source's structured text with masked terms replaced, for display
+        and export.
 
         Prefetch `social_media_post__redaction_rules`, or the scoped rules cost a
         query per evidence.
         """
-        block = self.post_text_block
+        source = self.source
+        block = source.text_block() if source is not None else None
         if block is None:
             return None
 
         # Resolved once for the whole block, not per segment.
-        scoped_rules = scoped_redaction_rules(self.source)
+        scoped_rules = scoped_redaction_rules(source)
 
         def redact(seg: TextSegment) -> TextSegment:
             return replace(seg, text=apply_redactions(seg.text, scoped_rules))
@@ -1017,9 +1008,10 @@ class Evidence(TrackableModel):
 
     @property
     def text_segments(self) -> list["TextSegment"]:
-        # Flattened view of `post_text_block`, for consumers that don't care
+        # Flattened view of the source's text, for consumers that don't care
         # about the nesting.
-        block = self.post_text_block
+        source = self.source
+        block = source.text_block() if source is not None else None
         return block.flat_segments() if block is not None else []
 
     @cached_property

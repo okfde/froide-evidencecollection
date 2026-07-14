@@ -138,7 +138,7 @@ class TestGroupedTextSegments:
         post = _make_post(title="the title", description="a description")
         evidence = Evidence.objects.create(social_media_post=post)
 
-        block = evidence.post_text_block
+        block = evidence.source.text_block()
         assert block.heading == "Post text"
         assert [s.kind for s in block.segments] == [
             "title",
@@ -152,7 +152,7 @@ class TestGroupedTextSegments:
         )
         evidence = Evidence.objects.create(social_media_post=post)
 
-        block = evidence.post_text_block
+        block = evidence.source.text_block()
         assert block.heading == "Video description"
         assert "description" in [s.kind for s in block.segments]
 
@@ -160,7 +160,7 @@ class TestGroupedTextSegments:
         post = _make_post(text="")
         evidence = Evidence.objects.create(social_media_post=post)
 
-        assert evidence.post_text_block is None
+        assert evidence.source.text_block() is None
 
     def test_transcript_is_not_a_block(self):
         # The transcription is not surfaced, so a video post with only a caption
@@ -172,7 +172,7 @@ class TestGroupedTextSegments:
         )
         evidence = Evidence.objects.create(social_media_post=post)
 
-        block = evidence.post_text_block
+        block = evidence.source.text_block()
         assert not any(seg.kind == "transcription" for seg in block.segments)
 
     def test_repost_is_its_own_attributed_block(self):
@@ -189,7 +189,7 @@ class TestGroupedTextSegments:
         outer.save(update_fields=["redistributes"])
         evidence = Evidence.objects.create(social_media_post=outer)
 
-        block = evidence.post_text_block
+        block = evidence.source.text_block()
         # The repost is nested inside the post that shares it, not a sibling.
         assert [s.kind for s in block.segments] == ["body"]
         repost = block.repost
@@ -206,7 +206,7 @@ class TestGroupedTextSegments:
         outer.save(update_fields=["redistributes"])
         evidence = Evidence.objects.create(social_media_post=outer)
 
-        block = evidence.post_text_block
+        block = evidence.source.text_block()
         assert block.segments == []
         assert block.repost.text == "quoted text"
 
@@ -355,7 +355,7 @@ class TestRedaction:
 
     def test_rule_masks_the_display_block_including_the_repost(self):
         # Both the post's own segments and the nested repost come out masked —
-        # while `post_text_block`, the raw form the topic fit reads, does not.
+        # while the source's own block, the raw form the topic fit reads, does not.
         inner = _make_post(
             platform_post_id="inner", url="https://t.me/x/2", text="Badword quoted"
         )
@@ -369,7 +369,7 @@ class TestRedaction:
         assert block.segments[0].text == "[X] mine"
         assert block.repost.text == "[X] quoted"
 
-        raw = evidence.post_text_block
+        raw = evidence.source.text_block()
         assert raw.segments[0].text == "Badword mine"
         assert raw.repost.text == "Badword quoted"
 
