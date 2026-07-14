@@ -131,8 +131,8 @@ class TestFreeTextSearch:
 
 
 @pytest.mark.django_db
-# `get_context_data` reverses the cloud URL, which the CMS apphook mounts in
-# production; these tests build no CMS page, so mount it directly.
+# `get_context_data` builds each row's evidence link, whose URL the CMS apphook
+# mounts in production; these tests build no CMS page, so mount it directly.
 @pytest.mark.urls("froide_evidencecollection.tests.urls")
 class TestSearchUnavailable:
     def setup_method(self):
