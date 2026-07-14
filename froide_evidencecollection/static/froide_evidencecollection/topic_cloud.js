@@ -999,8 +999,8 @@
             var newFigure = fresh.querySelector('.topic-cloud-svg');
 
             // Swap each non-figure top-level section in place; missing
-            // sections (e.g. legend disappears when filters yield zero
-            // results) are removed, new ones are appended.
+            // sections (e.g. the outline and table give way to the alert when
+            // filters yield zero results) are removed, new ones are appended.
             TOP_LEVEL_SELECTORS.forEach(function (sel) {
                 var oldEl = container.querySelector(':scope > ' + sel);
                 var newEl = fresh.querySelector(':scope > ' + sel);
