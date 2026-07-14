@@ -8,6 +8,7 @@ from django.core.exceptions import BadRequest
 from django.db.models import F, Max, Min, Prefetch, Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.urls import reverse
+from django.utils.functional import cached_property
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 from django.views.decorators.cache import never_cache
@@ -664,6 +665,19 @@ class EvidenceTopicCloudView(TemplateView):
                 chapters[ev_pk] = ", ".join(names)
         return chapters
 
+    @cached_property
+    def main_topic_tree(self):
+        """``(selected_chapter_id, nodes)`` for this request — the single source
+        of truth for the main-topic selection.
+
+        The ``chapter`` param is validated here and nowhere else: the id it
+        yields is one the tree actually renders as a selectable node, so the
+        filter, the tree's active state and the Reset button can never disagree
+        about whether a main topic is selected. Cached because the filtered
+        queryset, the tree and the Reset button all need it within one request.
+        """
+        return self._build_main_topic_tree(self.request.GET)
+
     def _filter_qs(self):
         # `.only()` is load-bearing: SocialMediaPost has wide JSONFields
         # (`user_snapshot`, `reactions`) that would otherwise be fetched +
@@ -727,12 +741,11 @@ class EvidenceTopicCloudView(TemplateView):
         # tree) — so a parent node matches a superset of its children, the
         # "higher level → more evidence" behaviour of the tree. distinct()
         # because the mention join can match through several mentions.
-        chapter_id = self._selected_chapter_id(params)
+        chapter_id, _nodes = self.main_topic_tree
         if chapter_id is not None:
             chapter = Chapter.objects.filter(pk=chapter_id).first()
-            if chapter is not None:
-                subtree = Chapter.get_tree(chapter)
-                qs = qs.filter(mentions__chapter__in=subtree).distinct()
+            subtree = Chapter.get_tree(chapter)
+            qs = qs.filter(mentions__chapter__in=subtree).distinct()
 
         platform = (params.get("platform") or "").strip()
         if platform:
@@ -1023,7 +1036,7 @@ class EvidenceTopicCloudView(TemplateView):
         # `is_main_topic` chapters (condensed so each node hangs off its nearest
         # main-topic ancestor). Coverage is corpus-wide and cumulative, so the
         # order/counts don't reshuffle as the user drills in.
-        selected_chapter_id, main_topics = self._build_main_topic_tree(self.request.GET)
+        selected_chapter_id, main_topics = self.main_topic_tree
 
         # Cloud points — keep dotted only if we have coordinates.
         plottable = [
@@ -1126,7 +1139,6 @@ class EvidenceTopicCloudView(TemplateView):
     # "no evidence matches these filters" wording. Read by both templates.
     FILTER_PARAMS = (
         "q",
-        "chapter",
         "platform",
         "posted_after",
         "posted_before",
@@ -1137,6 +1149,8 @@ class EvidenceTopicCloudView(TemplateView):
     )
 
     def _has_filters(self):
+        if self.main_topic_tree[0] is not None:
+            return True
         params = self.request.GET
         return any((params.get(p) or "").strip() for p in self.FILTER_PARAMS)
 
