@@ -128,7 +128,7 @@ class Command(BaseCommand):
                 "social_media_post__account",
                 "social_media_post__redistributes__account",
             )
-            .prefetch_related("social_media_post__redaction_rules", "mentions")
+            .prefetch_related("mentions")
             .order_by("pk")
         )
         if options["limit"]:

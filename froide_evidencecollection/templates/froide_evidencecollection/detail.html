@@ -172,7 +172,7 @@
                 </div>
             {% endwith %}
             {# ── Collected text ───────────────────────────────────────── #}
-            {% with block=object.post_text_block %}
+            {% with block=object.redacted_text_block %}
                 {% if block %}
                     <section class="detail-section">
                         <div class="seg seg-post-text">

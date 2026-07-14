@@ -120,8 +120,8 @@ class EvidenceExporter:
         )
 
     def _evidence_columns(self, evidence) -> dict[str, str]:
-        # Read off the evidence's text block, not off the raw post fields:
-        # the block is where redaction is applied.
+        # Read off the redacted text block, not off the raw post fields: the
+        # export leaves the system, so masked terms must not ride along.
         source = evidence.source
         columns = {
             "slug": evidence.slug,
@@ -131,7 +131,7 @@ class EvidenceExporter:
             # `account` is a social media post's, not part of `EvidenceSource`.
             "posted_by": str(source.account) if source else "",
         }
-        block = evidence.post_text_block
+        block = evidence.redacted_text_block
         if block is None:
             return columns
 

@@ -315,17 +315,24 @@ class TestTopicText:
 
 @pytest.mark.django_db
 class TestRedaction:
-    def test_global_rule_masks_everywhere(self):
+    def test_global_rule_masks_the_search_text(self):
         post = _make_post(text="the Badword appears here")
         evidence = Evidence.objects.create(social_media_post=post)
         RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
 
         assert "Badword" not in evidence.search_text
         assert "[X]" in evidence.search_text
-        assert "Badword" not in evidence.topic_text
         # The raw imported field is untouched; only the assembled text is masked.
         post.refresh_from_db()
         assert "Badword" in post.text
+
+    def test_topic_text_is_not_redacted(self):
+        post = _make_post(text="the Badword appears here")
+        evidence = Evidence.objects.create(social_media_post=post)
+        RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
+
+        assert "Badword" in evidence.topic_text
+        assert "[X]" not in evidence.topic_text
 
     def test_disabled_rule_does_not_mask(self):
         post = _make_post(text="the Badword appears here")
@@ -336,9 +343,8 @@ class TestRedaction:
 
         assert "Badword" in evidence.search_text
 
-    def test_rule_masks_the_citation(self):
-        # Citations reach search and topics through `redacted_citation`, not
-        # through `post_text_block` — so they need masking of their own.
+    def test_rule_masks_a_citation_in_the_search_text(self):
+        # A citation is a segment of its own, so the search text masks it too.
         post = _make_post(text="clean")
         evidence = Evidence.objects.create(social_media_post=post)
         _mention(evidence, "fn1", "the Badword appears here")
@@ -346,11 +352,10 @@ class TestRedaction:
 
         assert "Badword" not in evidence.search_text
         assert "[X]" in evidence.search_text
-        assert "Badword" not in evidence.topic_text
 
     def test_rule_masks_the_display_block_including_the_repost(self):
-        # `post_text_block` is the chokepoint, so both the post's own segments
-        # and the nested repost come out masked.
+        # Both the post's own segments and the nested repost come out masked —
+        # while `post_text_block`, the raw form the topic fit reads, does not.
         inner = _make_post(
             platform_post_id="inner", url="https://t.me/x/2", text="Badword quoted"
         )
@@ -360,13 +365,17 @@ class TestRedaction:
         evidence = Evidence.objects.create(social_media_post=outer)
         RedactionRule.objects.create(pattern="Badword", placeholder="[X]")
 
-        block = evidence.post_text_block
+        block = evidence.redacted_text_block
         assert block.segments[0].text == "[X] mine"
         assert block.repost.text == "[X] quoted"
 
+        raw = evidence.post_text_block
+        assert raw.segments[0].text == "Badword mine"
+        assert raw.repost.text == "Badword quoted"
+
     def test_scoped_rules_are_resolved_once_per_block(self, django_assert_num_queries):
-        # Not once per segment: `post_text_block` hoists the lookup out of the
-        # redaction loop, so a four-segment post costs one rules query, not four.
+        # Not once per segment: `redacted_text_block` hoists the lookup out of
+        # the redaction loop, so a four-segment post costs one rules query.
         inner = _make_post(
             platform_post_id="inner", url="https://t.me/x/2", text="quoted text"
         )
@@ -384,9 +393,9 @@ class TestRedaction:
 
         # Warm the source FKs and the module-level global redactor, so what's
         # left to count is the scoped-rule lookup alone.
-        assert evidence.post_text_block is not None
+        assert evidence.redacted_text_block is not None
         with django_assert_num_queries(1):
-            block = evidence.post_text_block
+            block = evidence.redacted_text_block
         assert block.segments[1].text == "my [X]"
 
     def test_scoped_rule_only_masks_its_posts(self):
