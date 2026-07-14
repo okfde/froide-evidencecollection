@@ -427,7 +427,7 @@ class EvidenceTopicCloudView(TemplateView):
     returns.
 
     Dot *positions* come from the fit's 2D embedding (``topic_x`` /
-    ``topic_y``); every dot is drawn in the neutral ink (``DOT_COLOR``).
+    ``topic_y``); every dot is drawn in the same neutral ink, set in CSS.
 
     Account-derived filters (platform, actor) are sourced from each evidence's
     social-media-post source.
@@ -446,9 +446,6 @@ class EvidenceTopicCloudView(TemplateView):
     # bounded even when the filtered set is large; users hunting a specific
     # item can narrow via the toolbar filters.
     OUTLINE_MAX_EVIDENCE = 100
-
-    # Neutral ink for every dot.
-    DOT_COLOR = "#7a6e60"
 
     # SVG viewport. The data x/y are projected into this box; the actual
     # rendered size is fluid (width:100%) so it adapts to mobile widths.
@@ -1080,8 +1077,7 @@ class EvidenceTopicCloudView(TemplateView):
                 f' data-chapters="{esc(chapters)}"'
                 f' data-stats="{esc(stats)}"'
                 f' cx="{pt["cx"]}" cy="{pt["cy"]}"'
-                f' r="4"'
-                f' fill="{self.DOT_COLOR}"></circle>'
+                f' r="4"></circle>'
             )
         cloud_circles_svg = mark_safe("".join(circle_parts))
 
