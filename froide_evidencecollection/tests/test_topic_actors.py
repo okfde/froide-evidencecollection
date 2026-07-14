@@ -22,7 +22,7 @@ from froide_evidencecollection.models import (
 )
 from froide_evidencecollection.views import EvidenceTopicCloudView
 
-from .factories import OrganizationFactory, PersonFactory
+from .factories import GeoRegionFactory, OrganizationFactory, PersonFactory
 
 
 def _person_actor(first, last):
@@ -138,6 +138,58 @@ class TestOutlineActors:
         ev = _fitted_evidence(1, [])
 
         assert EvidenceTopicCloudView._originators_with_verband([ev]) == {}
+
+    def test_pairs_each_originator_with_its_own_verband(self):
+        ada = Actor.objects.create(
+            person=PersonFactory(
+                first_name="Ada",
+                last_name="Lovelace",
+                verband=GeoRegionFactory(name="Bayern", kind="state"),
+            )
+        )
+        # The country-level region shows as "Bund", not the region's name.
+        acme = Actor.objects.create(
+            organization=OrganizationFactory(
+                organization_name="Acme",
+                verband=GeoRegionFactory(name="Deutschland", kind="country"),
+            )
+        )
+        ev = _fitted_evidence(1, [ada, acme])
+
+        rows = EvidenceTopicCloudView._originators_with_verband([ev])
+
+        assert set(rows[ev.pk].split(", ")) == {"Ada Lovelace (Bayern)", "Acme (Bund)"}
+
+
+@pytest.mark.django_db
+class TestOriginatorPrefetch:
+    def test_actor_surfaces_cost_no_query_of_their_own(self, django_assert_num_queries):
+        """The originators ride along on the filtered queryset's prefetch, with
+        their person / organization and its Verband — so the panel and the
+        outline's originator column both read purely in-memory."""
+        bayern = GeoRegionFactory(name="Bayern", kind="state")
+        ada = Actor.objects.create(
+            person=PersonFactory(first_name="Ada", last_name="Lovelace", verband=bayern)
+        )
+        acme = Actor.objects.create(
+            organization=OrganizationFactory(organization_name="Acme", verband=bayern)
+        )
+        for i, originators in enumerate([[ada], [acme], [ada, acme]], start=1):
+            _fitted_evidence(i, originators)
+
+        view = EvidenceTopicCloudView()
+        view.request = RequestFactory().get("/")
+        evidences = list(view._filter_qs())
+
+        with django_assert_num_queries(0):
+            panel = view._actors_in_view(evidences)
+            rows = view._originators_with_verband(evidences)
+
+        assert {(a["name"], a["count"]) for a in panel} == {
+            ("Ada Lovelace", 2),
+            ("Acme", 2),
+        }
+        assert len(rows) == 3
 
 
 @pytest.mark.django_db
