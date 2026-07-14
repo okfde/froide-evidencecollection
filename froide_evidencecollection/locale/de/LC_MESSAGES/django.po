@@ -297,8 +297,8 @@ msgid "No related evidence."
 msgstr "Keine verwandten Belege."
 
 #: froide_evidencecollection/templates/froide_evidencecollection/_topic_cloud_results.html
-msgid "No topic data yet. Run <code>./manage.py fit_post_topics</code> to fit BERTopic over your evidence."
-msgstr "Noch keine Themendaten vorhanden. <code>./manage.py fit_post_topics</code> ausführen, um BERTopic auf die Belege anzuwenden."
+msgid "No topic data yet. Run <code>./manage.py fit_topic_coords</code> to compute the embedding coordinates the cloud plots."
+msgstr "Noch keine Themendaten vorhanden. <code>./manage.py fit_topic_coords</code> ausführen, um die Embedding-Koordinaten für die Wolke zu berechnen."
 
 #: froide_evidencecollection/models.py
 msgid "NocoDB"
