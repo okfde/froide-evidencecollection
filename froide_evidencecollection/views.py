@@ -1029,8 +1029,6 @@ class EvidenceTopicCloudView(TemplateView):
         # dot keeps the same screen position as filters narrow the visible set.
         bounds_agg = Evidence.objects.filter(
             topic_fit_at__isnull=False,
-            topic_x__isnull=False,
-            topic_y__isnull=False,
         ).aggregate(
             xmin=Min("topic_x"),
             xmax=Max("topic_x"),
@@ -1052,10 +1050,6 @@ class EvidenceTopicCloudView(TemplateView):
         # order/counts don't reshuffle as the user drills in.
         selected_chapter_id, main_topics = self.main_topic_tree
 
-        # Cloud points — keep dotted only if we have coordinates.
-        plottable = [
-            e for e in evidences if e.topic_x is not None and e.topic_y is not None
-        ]
         # Render every <circle> as a single string in Python instead of
         # looping in the template. With ~1000 points the template loop dominates
         # the render; building the markup directly here (with html.escape on each
@@ -1068,7 +1062,7 @@ class EvidenceTopicCloudView(TemplateView):
         chapters_by_ev = self._chapters_by_evidence(evidences)
         esc = html.escape
         circle_parts = []
-        for pt in self._project(plottable, bounds=bounds):
+        for pt in self._project(evidences, bounds=bounds):
             ev = pt["post"]
             # Account- and engagement-derived bits come from the social-media-
             # post source.
