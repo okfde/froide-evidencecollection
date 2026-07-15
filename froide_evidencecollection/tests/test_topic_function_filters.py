@@ -261,3 +261,27 @@ class TestChaptersByEvidence:
         # collapses); mention order isn't a deterministic tiebreak, so compare
         # the set of labels rather than their order.
         assert set(labels[self.multi_ev.pk].split(", ")) == {"Climate", "Migration"}
+
+
+@pytest.mark.django_db
+class TestDateFilter:
+    """The year-slider writes `posted_after` / `posted_before` as ``YYYY-MM-DD``
+    dates. A valid bound narrows the set; a malformed value is ignored rather
+    than reaching the ORM as a raw string (which would error at query time)."""
+
+    def setup_method(self):
+        self.actor = Actor.objects.create(person=PersonFactory())
+        tz = datetime.timezone.utc
+        self.old = _posted_evidence(
+            self.actor, datetime.datetime(2020, 6, 1, tzinfo=tz), 1
+        )
+        self.new = _posted_evidence(
+            self.actor, datetime.datetime(2022, 6, 1, tzinfo=tz), 2
+        )
+
+    def test_valid_lower_bound_narrows(self):
+        assert _filtered_ids({"posted_after": "2021-01-01"}) == {self.new.pk}
+
+    def test_malformed_date_is_ignored(self):
+        # No crash, and the bad bound drops out entirely — both evidences match.
+        assert _filtered_ids({"posted_after": "banana"}) == {self.old.pk, self.new.pk}
