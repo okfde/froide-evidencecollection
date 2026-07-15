@@ -3,6 +3,7 @@ import html
 import io
 import logging
 from collections import defaultdict
+from datetime import date
 
 from django.core.exceptions import BadRequest
 from django.db.models import F, Max, Min, Prefetch, Q, QuerySet
@@ -491,6 +492,16 @@ class EvidenceTopicCloudView(TemplateView):
         return int(raw) if raw.isdigit() else None
 
     @staticmethod
+    def _param_date(params, name):
+        """Parse a ``YYYY-MM-DD`` query param as a date, or None when it is
+        absent or not a valid ISO date."""
+        raw = (params.get(name) or "").strip()
+        try:
+            return date.fromisoformat(raw)
+        except ValueError:
+            return None
+
+    @staticmethod
     def _selected_chapter_id(params):
         """Selected main topic = the first valid ``chapter`` query param (a
         Chapter pk), or ``None`` when none is set. The main-topic tree is
@@ -752,8 +763,8 @@ class EvidenceTopicCloudView(TemplateView):
             ("posted_after", "social_media_post__posted_at__date__gte"),
             ("posted_before", "social_media_post__posted_at__date__lte"),
         ):
-            value = (params.get(name) or "").strip()
-            if value:
+            value = self._param_date(params, name)
+            if value is not None:
                 qs = qs.filter(**{lookup: value})
 
         actor = self._param_int(params, "actor")
