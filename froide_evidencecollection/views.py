@@ -493,6 +493,13 @@ class EvidenceTopicCloudView(TemplateView):
         return None
 
     @staticmethod
+    def _param_int(params, name):
+        """Parse a query param as an integer pk, or None when it is absent or
+        not all-digits."""
+        raw = (params.get(name) or "").strip()
+        return int(raw) if raw.isdigit() else None
+
+    @staticmethod
     def _selected_chapter_id(params):
         """Selected main topic = the first valid ``chapter`` query param (a
         Chapter pk), or ``None`` when none is set. The main-topic tree is
@@ -528,9 +535,9 @@ class EvidenceTopicCloudView(TemplateView):
             ("role", "role_id"),
             ("level", "institutional_level_id"),
         ):
-            raw = (params.get(name) or "").strip()
-            if raw.isdigit():
-                cond = Q(**{f"{pp}__{field}": int(raw)})
+            value = cls._param_int(params, name)
+            if value is not None:
+                cond = Q(**{f"{pp}__{field}": value})
                 position_q = cond if position_q is None else position_q & cond
         return position_q
 
@@ -547,10 +554,9 @@ class EvidenceTopicCloudView(TemplateView):
         queryset (the caller folds the to-many originators join with
         ``distinct()``), or ``None`` when the param is absent or non-numeric.
         """
-        raw = (params.get("verband") or "").strip()
-        if not raw.isdigit():
+        vid = EvidenceTopicCloudView._param_int(params, "verband")
+        if vid is None:
             return None
-        vid = int(raw)
         return Q(originators__person__verband_id=vid) | Q(
             originators__organization__verband_id=vid
         )
@@ -759,13 +765,10 @@ class EvidenceTopicCloudView(TemplateView):
             if value:
                 qs = qs.filter(**{lookup: value})
 
-        actor = (params.get("actor") or "").strip()
-        if actor:
-            try:
-                # originators is a to-many, so de-dupe.
-                qs = qs.filter(originators__id=int(actor)).distinct()
-            except ValueError:
-                pass
+        actor = self._param_int(params, "actor")
+        if actor is not None:
+            # originators is a to-many, so de-dupe.
+            qs = qs.filter(originators__id=actor).distinct()
 
         # Originator-function filters (role / institutional level of a political
         # position the posting person held). Bound to a single position via one
@@ -1164,12 +1167,9 @@ class EvidenceTopicCloudView(TemplateView):
         # Look up the currently-selected actor so the combobox button can
         # display its name on the initial server-rendered page.
         selected_actor = None
-        raw_actor = (self.request.GET.get("actor") or "").strip()
-        if raw_actor:
-            try:
-                selected_actor = Actor.objects.filter(pk=int(raw_actor)).first()
-            except ValueError:
-                pass
+        actor_id = self._param_int(self.request.GET, "actor")
+        if actor_id is not None:
+            selected_actor = Actor.objects.filter(pk=actor_id).first()
 
         actors = self._actor_options()
 
