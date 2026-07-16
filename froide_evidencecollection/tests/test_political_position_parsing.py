@@ -67,6 +67,11 @@ class TestParseRole:
             parse_role("Vorstandsmitglied im Kreisverband Helmstedt")
             == "Vorstandsmitglied"
         )
+        # A "Bürgermeisterkandidat" is just a "Kandidat", not a "Bürgermeister".
+        assert (
+            parse_role("ehemaliger Bürgermeisterkandidat aus Hintertupfingen")
+            == "Kandidat*in"
+        )
 
     def test_only_plain_membership_maps_to_mitglied(self):
         assert parse_role("einfaches Mitglied") == "Mitglied"
