@@ -82,6 +82,11 @@ msgstr "Akteure in der Ansicht"
 msgid "Also known as"
 msgstr "Auch bekannt als"
 
+#: froide_evidencecollection/models.py
+#, python-format
+msgid "As of: %(date)s"
+msgstr "Stand: %(date)s"
+
 #: froide_evidencecollection/templates/froide_evidencecollection/_topic_chapters.html
 msgid "Browse by main topic"
 msgstr "Nach Hauptthema filtern"
@@ -750,11 +755,19 @@ msgstr "Plattform-Benutzer-ID"
 
 #: froide_evidencecollection/models.py
 msgid "political position"
-msgstr "politische Position"
+msgstr "politische Funktion"
+
+#: froide_evidencecollection/models.py
+msgid "political position checked at"
+msgstr "politische Funktion überprüft am"
+
+#: froide_evidencecollection/models.py
+msgid "political position label"
+msgstr "Bezeichung der politischen Funktion(en)"
 
 #: froide_evidencecollection/models.py
 msgid "political positions"
-msgstr "politische Positionen"
+msgstr "politische Funktionen"
 
 #: froide_evidencecollection/models.py
 msgid "posted at"
