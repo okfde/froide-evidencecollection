@@ -3,6 +3,7 @@ import pytest
 from froide_evidencecollection.json_importer import (
     parse_level,
     parse_role,
+    segment_positions,
 )
 
 
@@ -138,3 +139,33 @@ class TestParseLevel:
 
     def test_no_level_token_returns_empty(self):
         assert parse_level("Fraktionsvorsitzender") == ""
+
+
+class TestSegmentPositions:
+    @pytest.mark.parametrize(
+        "label,expected",
+        [
+            (
+                "MdB aus Sachsen und Ehrenvorsitzender",
+                ["MdB aus Sachsen", "Ehrenvorsitzender"],
+            ),
+            (
+                "MdB aus Rheinland-Pfalz, umweltpolitischer Sprecher und "
+                "Ex-Mitglied im Landesvorstand",
+                [
+                    "MdB aus Rheinland-Pfalz",
+                    "umweltpolitischer Sprecher",
+                    "Ex-Mitglied im Landesvorstand",
+                ],
+            ),
+            # "und" inside "Bund"/"Bundestagsfraktion" must not trigger a split.
+            (
+                "Sprecher der Bundestagsfraktion im Bund",
+                ["Sprecher der Bundestagsfraktion im Bund"],
+            ),
+            ("", []),
+            ("   ", []),
+        ],
+    )
+    def test_segments(self, label, expected):
+        assert segment_positions(label) == expected

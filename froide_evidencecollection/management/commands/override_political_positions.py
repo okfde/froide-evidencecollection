@@ -5,7 +5,11 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from froide_evidencecollection.json_importer import parse_level, parse_role
+from froide_evidencecollection.json_importer import (
+    parse_level,
+    parse_role,
+    segment_positions,
+)
 from froide_evidencecollection.models import (
     InstitutionalLevel,
     Person,
@@ -19,11 +23,11 @@ DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 class Command(BaseCommand):
     help = (
-        "Override each listed person's first political position with the label "
-        "from a CSV (columns: name, position). The label is replaced and the "
-        "linked role / institutional level are re-derived from the new label. A "
-        "person with no position yet gets one created. Persons are matched by "
-        "normalized full name. Dry-run unless --apply is given."
+        "Override each listed person's political position label with the blob "
+        "from a CSV (columns: name, position). The verbatim blob is stored on the "
+        "person; it is segmented on commas / 'und' and each segment's parsed "
+        "(role, level) is materialized as a tag. Persons are matched by "
+        "normalized full name. Dry-run unless --apply."
     )
 
     def add_arguments(self, parser):
@@ -47,8 +51,7 @@ class Command(BaseCommand):
         for p in persons:
             by_norm[normalize_name(f"{p.first_name} {p.last_name}")].append(p)
 
-        updates = []  # (person, old_label, new_label) — existing position relabelled
-        creations = []  # (person, new_label)
+        changes = []  # (person, old_label, new_label) — blob set or relabelled
         unmatched = []  # (name, reason)
         collisions = []  # (name, [persons])
 
@@ -63,14 +66,11 @@ class Command(BaseCommand):
                 continue
 
             person = candidates[0]
-            position = person.political_positions.first()
-            if position is None:
-                creations.append((person, label))
-            elif position.label != label:
-                updates.append((person, position.label, label))
-            # else: already set to this label (idempotent re-run) — nothing to do.
+            if person.political_position_label != label:
+                changes.append((person, person.political_position_label, label))
+            # else: already set to this blob (idempotent re-run) — nothing to do.
 
-        self.report(updates, creations, unmatched, collisions)
+        self.report(changes, unmatched, collisions)
 
         if collisions:
             raise CommandError(
@@ -85,45 +85,41 @@ class Command(BaseCommand):
             return
 
         with transaction.atomic():
-            for person, _old_label, label in updates:
-                position = person.political_positions.first()
-                position.label = label
-                position.role = self.resolve_role(label)
-                position.institutional_level = self.resolve_level(label)
-                position.save()
-            for person, label in creations:
-                PoliticalPosition.objects.create(
-                    person=person,
-                    label=label,
-                    role=self.resolve_role(label),
-                    institutional_level=self.resolve_level(label),
-                )
+            for person, _old_label, label in changes:
+                person.political_position_label = label
+                person.save(update_fields=["political_position_label", "updated_at"])
+                for segment in segment_positions(label):
+                    role = self.resolve_role(segment)
+                    level = self.resolve_level(segment)
+                    if role is None and level is None:
+                        continue
+                    PoliticalPosition.objects.get_or_create(
+                        person=person,
+                        role=role,
+                        institutional_level=level,
+                    )
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"\nApplied: {len(updates)} relabelled, {len(creations)} created."
-            )
-        )
+        self.stdout.write(self.style.SUCCESS(f"\nApplied: {len(changes)} labels set."))
 
     # ------------------------------------------------------------------
-    # Role / level resolution (re-derived from the new label)
+    # Role / level resolution (per segment of the blob)
     # ------------------------------------------------------------------
-    def resolve_role(self, label):
-        name = parse_role(label)
+    def resolve_role(self, segment):
+        name = parse_role(segment)
         if not name:
             return None
         role, _ = Role.objects.get_or_create(name=name)
         return role
 
-    def resolve_level(self, label):
-        name = parse_level(label)
+    def resolve_level(self, segment):
+        name = parse_level(segment)
         if not name:
             return None
         level = InstitutionalLevel.objects.filter(name=name).first()
         if level is None:
             self.stdout.write(
                 self.style.WARNING(
-                    f"  No InstitutionalLevel {name!r} for label {label!r}"
+                    f"  No InstitutionalLevel {name!r} for segment {segment!r}"
                 )
             )
         return level
@@ -145,16 +141,12 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
     # Reporting
     # ------------------------------------------------------------------
-    def report(self, updates, creations, unmatched, collisions):
+    def report(self, changes, unmatched, collisions):
         w = self.stdout.write
 
-        w(self.style.MIGRATE_HEADING(f"\nRelabel ({len(updates)}):"))
-        for person, old, new in sorted(updates, key=lambda r: str(r[0])):
+        w(self.style.MIGRATE_HEADING(f"\nSet label ({len(changes)}):"))
+        for person, old, new in sorted(changes, key=lambda r: str(r[0])):
             w(f"  {person}: {old!r} -> {new!r}")
-
-        w(self.style.MIGRATE_HEADING(f"\nCreate ({len(creations)}):"))
-        for person, label in sorted(creations, key=lambda r: str(r[0])):
-            w(f"  {person}: {label!r}")
 
         if unmatched:
             w(self.style.WARNING(f"\nUnmatched ({len(unmatched)}):"))

@@ -72,10 +72,10 @@
             {# ── Identity details ─────────────────────────────────────── #}
             <section class="detail-section">
                 <h2 class="detail-heading">{% trans "Details" %}</h2>
-                {% if actor.person.also_known_as or actor.person.political_positions.all or actor.organization.institutional_level or actor.organization.also_known_as %}
+                {% if actor.person.also_known_as or actor.person.political_position_label or actor.organization.institutional_level or actor.organization.also_known_as %}
                     <dl class="row mb-0">
                         {% if actor.person %}
-                            {% if actor.person.political_positions.all %}
+                            {% if actor.person.political_position_label %}
                                 <dd class="col-sm-9 mb-1">
                                     {{ actor.political_position_label }}
                                 </dd>

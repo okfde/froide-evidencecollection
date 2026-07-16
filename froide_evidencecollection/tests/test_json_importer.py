@@ -18,7 +18,6 @@ from .factories import (
     InstitutionalLevelFactory,
     OrganizationFactory,
     PersonFactory,
-    RoleFactory,
 )
 
 
@@ -125,20 +124,16 @@ class TestJSONImporter:
             assert model_stats["deleted"] == []
 
     @pytest.mark.django_db
-    def test_import_functions_keeps_only_first_as_political_position(
-        self, person, tmp_path
-    ):
-        # `functions` is a list of free-text label strings; only the first
-        # becomes a PoliticalPosition, with role/level parsed from the label.
-        InstitutionalLevelFactory(name="AfD-Landesverbände")
+    def test_import_functions_stores_blob_and_parses_segments(self, person, tmp_path):
+        InstitutionalLevelFactory(name="AfD-Bundespartei")
         path = _write_dump(
             tmp_path,
             {
                 str(person.pk): {
                     "label": "Max Mustermann",
                     "functions": [
-                        "MdL in Rheinland-Pfalz",
-                        "Mitglied im Bundesvorstand",
+                        "MdB aus Sachsen und Ehrenvorsitzender",
+                        "ignored second entry",
                     ],
                     "social_media": {"telegram": [_make_post()]},
                 }
@@ -147,17 +142,26 @@ class TestJSONImporter:
 
         JSONImporter(path).run()
 
-        position = person.political_positions.get()
-        assert position.label == "MdL in Rheinland-Pfalz"
-        assert position.role.name == "Abgeordnete*r"
-        assert position.institutional_level.name == "AfD-Landesverbände"
+        person.refresh_from_db()
+        assert (
+            person.political_position_label == "MdB aus Sachsen und Ehrenvorsitzender"
+        )
+        assert person.political_position_checked_at is None
+
+        tags = {
+            (p.role.name if p.role else None): p
+            for p in person.political_positions.all()
+        }
+        assert set(tags) == {"Abgeordnete*r", "Ehrenvorsitzende*r"}
+        assert tags["Abgeordnete*r"].institutional_level.name == "AfD-Bundespartei"
+        # "Ehrenvorsitzender" matches no level rule — the tag still exists.
+        assert tags["Ehrenvorsitzende*r"].institutional_level is None
 
     @pytest.mark.django_db
-    def test_import_functions_is_idempotent_and_keeps_manual_role(
-        self, person, tmp_path
-    ):
-        # Re-importing matches on label and never clobbers a curator's edit: a
-        # manually changed role survives, and no duplicate position is created.
+    def test_import_functions_is_idempotent(self, person, tmp_path):
+        # Re-importing the same dump creates no duplicate tags: each (role, level)
+        # is get_or_create'd on the person.
+        InstitutionalLevelFactory(name="AfD-Landesverbände")
         dump = {
             str(person.pk): {
                 "label": "Max Mustermann",
@@ -167,17 +171,31 @@ class TestJSONImporter:
         }
         path = _write_dump(tmp_path, dump)
         JSONImporter(path).run()
+        JSONImporter(path).run()
 
         position = person.political_positions.get()
-        manual_role = RoleFactory(name="Hand-picked role")
-        position.role = manual_role
-        position.save()
+        assert position.role.name == "Abgeordnete*r"
+        assert position.institutional_level.name == "AfD-Landesverbände"
+
+    @pytest.mark.django_db
+    def test_import_does_not_overwrite_existing_label(self, person, tmp_path):
+        person.political_position_label = "Hand-curated blob"
+        person.save(update_fields=["political_position_label"])
+        path = _write_dump(
+            tmp_path,
+            {
+                str(person.pk): {
+                    "label": "Max Mustermann",
+                    "functions": ["MdL in Rheinland-Pfalz"],
+                    "social_media": {"telegram": [_make_post()]},
+                }
+            },
+        )
 
         JSONImporter(path).run()
 
-        position.refresh_from_db()
-        assert person.political_positions.count() == 1
-        assert position.role == manual_role
+        person.refresh_from_db()
+        assert person.political_position_label == "Hand-curated blob"
 
     @pytest.mark.django_db
     def test_import_creates_post_media(self, person, tmp_path, settings):

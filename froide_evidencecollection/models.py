@@ -9,9 +9,10 @@ from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.formats import date_format
 from django.utils.functional import cached_property
+from django.utils.translation import gettext, pgettext_lazy
 from django.utils.translation import gettext_lazy as _
-from django.utils.translation import pgettext_lazy
 
 from cms.models import CMSPlugin
 from treebeard.mp_tree import MP_Node
@@ -125,6 +126,19 @@ class Person(AbstractActor):
     )
     aw_id = models.PositiveIntegerField(
         unique=True, blank=True, null=True, verbose_name=_("abgeordnetenwatch.de ID")
+    )
+    # Verbatim free-text blob of the person's political functions. The parsed positions live in
+    # `political_positions`.
+    political_position_label = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("political position label"),
+    )
+    political_position_checked_at = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name=_("political position checked at"),
     )
 
     class Meta:
@@ -240,8 +254,14 @@ class Actor(TrackableModel):
     def political_position_label(self):
         if self.person_id is None:
             return ""
-        position = self.person.political_positions.first()
-        return f"{position.label} (Stand 24. Juni 2026)" if position else None
+        label = self.person.political_position_label
+        if not label:
+            return ""
+        checked_at = self.person.political_position_checked_at
+        if checked_at:
+            as_of = gettext("As of: %(date)s") % {"date": date_format(checked_at)}
+            return f"{label} ({as_of})"
+        return label
 
 
 class InstitutionalLevel(models.Model):
@@ -347,12 +367,11 @@ class Affiliation(SyncableModel):
 
 
 class PoliticalPosition(TrackableModel):
-    """A political mandate, parliamentary role, or party office held by a person.
+    """A single political mandate, parliamentary role, or party office held by
+    a person — a tag on the person.
 
-    Imported from the partner JSON dump's per-person ``functions`` list. Unlike
-    `Affiliation` (person↔organization, synced with abgeordnetenwatch),
-    this is curated data: the dump's free-text label, classified into a
-    canonical `role` and an `institutional_level`.
+    One row per parsed segment of the person's `political_position_label` blob,
+    classified into a canonical `role` and `institutional_level`.
     """
 
     person = models.ForeignKey(
@@ -368,7 +387,6 @@ class PoliticalPosition(TrackableModel):
         null=True,
         verbose_name=_("role"),
     )
-    label = models.CharField(max_length=255, verbose_name=_("label"))
     institutional_level = models.ForeignKey(
         "InstitutionalLevel",
         on_delete=models.PROTECT,
@@ -376,14 +394,19 @@ class PoliticalPosition(TrackableModel):
         null=True,
         verbose_name=_("institutional level"),
     )
-    comment = models.TextField(blank=True, default="", verbose_name=_("comment"))
 
     class Meta:
         verbose_name = _("political position")
         verbose_name_plural = _("political positions")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["person", "role", "institutional_level"],
+                name="unique_political_position",
+            ),
+        ]
 
     def __str__(self):
-        return f"{self.person} - {self.label}"
+        return f"{self.person} - {self.role} ({self.institutional_level})"
 
 
 class SocialMediaAccount(models.Model):
