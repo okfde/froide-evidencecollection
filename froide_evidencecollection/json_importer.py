@@ -72,8 +72,8 @@ ROLE_RULES = [
     (r"innenpolitische\w*\s+sprecher", "Innenpolitische*r Sprecher*in"),
     (r"stellvertretende\w*\s+sprecher", "Stellvertretende*r Sprecher*in"),
     (r"sprecher", "Sprecher*in"),
-    (r"bürgermeister", "Bürgermeister*in"),
     (r"kandidat", "Kandidat*in"),
+    (r"bürgermeister", "Bürgermeister*in"),
     # Council seats (kommunale Mandate) are distinct roles, *not* "Abgeordnete*r"
     # (that title is reserved for parliaments). Matched before the generic
     # abgeordnete/mitglied rules below so "Kreistagsabgeordneter" and "Mitglied
