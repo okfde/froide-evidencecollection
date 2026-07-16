@@ -235,9 +235,8 @@ class PersonAdmin(ReadOnlyAdmin):
         "updated_at",
     ]
     list_filter = [
-        "affiliations__organization__institutional_level",
-        "affiliations__role",
-        "affiliations__organization",
+        "political_positions__institutional_level",
+        "political_positions__role",
     ]
     search_fields = ["first_name", "last_name", "also_known_as"]
 
