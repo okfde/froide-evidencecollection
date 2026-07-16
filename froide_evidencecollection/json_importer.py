@@ -88,8 +88,10 @@ ROLE_RULES = [
     # alongside the spelled-out form.
     (r"\bmd(b|l|a|ep|hb)\b|\bmep\b|abgeordnete", "Abgeordnete*r"),
     (r"präsident", "Präsident*in"),
-    (r"vorstandsmitglied", "Vorstandsmitglied"),
-    (r"mitglied", "Mitglied"),
+    # Board membership, in the compound ("Vorstandsmitglied") and the analytic
+    # form ("Mitglied im/des <body>vorstand": Bundes-, Landes-, Fraktionsvorstand …).
+    (r"vorstandsmitglied|mitglied.*vorstand", "Vorstandsmitglied"),
+    (r"einfaches mitglied", "Mitglied"),
 ]
 ROLE_RULES = [(re.compile(pattern), name) for pattern, name in ROLE_RULES]
 
