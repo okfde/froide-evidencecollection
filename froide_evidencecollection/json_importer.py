@@ -122,6 +122,17 @@ LEVEL_RULES = [
 LEVEL_RULES = [(re.compile(pattern), name) for pattern, name in LEVEL_RULES]
 
 
+# Split a free-text political-position blob into individual positions on commas
+# and the conjunction "und". The word boundaries keep "und" as a substring of
+# "Bund", "Bundestagsfraktion", etc. from triggering a split.
+POSITION_SEPARATOR = re.compile(r"\s*(?:,|\bund\b)\s*")
+
+
+def segment_positions(label):
+    """Split a political-position blob into its individual position segments."""
+    return [seg.strip() for seg in POSITION_SEPARATOR.split(label or "") if seg.strip()]
+
+
 def parse_role(label):
     """Canonical role name for a function label, or "" if none matches."""
     text = (label or "").lower()
@@ -594,11 +605,12 @@ class JSONImporter:
     # Political positions (per-person "functions" list)
     # ------------------------------------------------------------------
     def _import_functions(self, person, entry):
-        # The dump lists a person's functions as free-text strings, most relevant
-        # first; we keep only the first as that person's single PoliticalPosition.
-        # Idempotent: matched on label and only updated when an import-owned field
-        # changed. Add/update-only (never deletes), so a curator's own positions
-        # and manual fixes survive re-runs.
+        # The dump lists a person's functions as a list of free-text strings. In practice,
+        # the list contains only one string which is used as that person's verbatim
+        # `political_position_label` blob. The blob is segmented on commas / "und" and each
+        # segment parsed into a (role, level) PoliticalPosition tag. Add-only (never deletes), so
+        # a curator's own tags and manual fixes survive re-runs; an unparsed segment yields no tag
+        # but the blob still displays.
         functions = entry.get("functions") or []
         if not functions or self.dry_run:
             return
@@ -607,38 +619,35 @@ class JSONImporter:
         if not label:
             return
 
-        # Heuristic, curator-correctable links: set on create and only filled in
-        # later if still empty, so a re-import never clobbers a manual fix.
-        role = self._resolve_role(label)
-        level = self._resolve_level(label)
+        self._set_political_position_label(person, label)
 
-        existing = {p.label: p for p in person.political_positions.all()}
-        position = existing.get(label)
-        if position is None:
-            self.stats.reset_instance(PoliticalPosition)
-            position = PoliticalPosition.objects.create(
-                person=person,
-                label=label,
-                role=role,
-                institutional_level=level,
-            )
-            self.stats.track_created(PoliticalPosition, position)
+        for segment in segment_positions(label):
+            role = self._resolve_role(segment)
+            level = self._resolve_level(segment)
+            if role is None and level is None:
+                continue
+            self._get_or_create_position(person, role, level)
+
+    def _set_political_position_label(self, person, label):
+        # Fill the verbatim blob only while empty, so a re-import never clobbers a
+        # curator's edit or an override. The checked-on date is not set by the import.
+        if person.political_position_label:
             return
+        old_data = to_dict(person)
+        person.political_position_label = label
+        self.stats.reset_instance(Person)
+        person.save(update_fields=["political_position_label", "updated_at"])
+        self.stats.track_updated(Person, old_data, person)
 
-        old_data = to_dict(position)
-        update = False
-        # Override policy: only populate the heuristic / matched links while
-        # empty, so a re-import never clobbers a manual fix.
-        if role is not None and position.role_id is None:
-            position.role = role
-            update = True
-        if level is not None and position.institutional_level_id is None:
-            position.institutional_level = level
-            update = True
-        if update:
-            self.stats.reset_instance(PoliticalPosition)
-            position.save()
-            self.stats.track_updated(PoliticalPosition, old_data, position)
+    def _get_or_create_position(self, person, role, level):
+        self.stats.reset_instance(PoliticalPosition)
+        position, created = PoliticalPosition.objects.get_or_create(
+            person=person,
+            role=role,
+            institutional_level=level,
+        )
+        if created:
+            self.stats.track_created(PoliticalPosition, position)
 
     def _resolve_role(self, label):
         # Parse a canonical role name from the (clean) label and link it to a Role

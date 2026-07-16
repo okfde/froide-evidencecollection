@@ -196,12 +196,10 @@ class PoliticalPositionInline(admin.TabularInline):
     model = PoliticalPosition
     extra = 0
     fields = [
-        "label",
         "role",
         "institutional_level",
     ]
     readonly_fields = fields
-    ordering = ("label",)
 
 
 @admin.register(Person)
@@ -223,6 +221,8 @@ class PersonAdmin(ReadOnlyAdmin):
         "wikidata_link",
         "aw_link",
         "verband_display",
+        "political_position_label",
+        "political_position_checked_at",
         "created_at",
         "updated_at",
     ]
@@ -376,7 +376,6 @@ class AffiliationAdmin(ReadOnlyAdmin):
 class PoliticalPositionAdmin(admin.ModelAdmin):
     list_display = [
         "person",
-        "label",
         "role",
         "institutional_level",
     ]
@@ -384,7 +383,6 @@ class PoliticalPositionAdmin(admin.ModelAdmin):
     search_fields = [
         "person__first_name",
         "person__last_name",
-        "label",
         "role__name",
     ]
     raw_id_fields = ["person", "role"]

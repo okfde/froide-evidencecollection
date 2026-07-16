@@ -48,17 +48,10 @@ VERBAND_GEOMETRY_FIELDS = (
 
 
 def originator_prefetch() -> Prefetch:
-    """The originators of the exported mentions, with everything their columns read.
-
-    `Actor.political_position_label` calls `.first()`, which re-queries unless
-    the prefetched positions carry an ordering, so they are ordered by pk.
-    """
-    positions = PoliticalPosition.objects.order_by("pk")
-    actors = (
-        Actor.objects.select_related("person__verband", "organization__verband")
-        .prefetch_related(Prefetch("person__political_positions", queryset=positions))
-        .defer(*VERBAND_GEOMETRY_FIELDS)
-    )
+    """The originators of the exported mentions, with everything their columns read."""
+    actors = Actor.objects.select_related(
+        "person__verband", "organization__verband"
+    ).defer(*VERBAND_GEOMETRY_FIELDS)
     return Prefetch("mentions__originator", queryset=actors)
 
 
@@ -280,7 +273,6 @@ class ActorDetailView(NoIndexMixin, AppHookBreadcrumbMixin, DetailView):
             "organization__institutional_level",
         ).prefetch_related(
             "social_media_accounts",
-            "person__political_positions",
         )
 
     def get_breadcrumbs(self, context):

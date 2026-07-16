@@ -2,13 +2,14 @@ import csv
 import datetime
 import io
 
+from django.utils.formats import date_format
+
 import pytest
 
 from froide_evidencecollection.models import (
     Actor,
     Evidence,
     EvidenceMention,
-    PoliticalPosition,
     RedactionRule,
     SocialMediaAccount,
     SocialMediaPost,
@@ -150,14 +151,16 @@ class TestEvidenceExporter:
             first_name="Ada",
             last_name="Lovelace",
             verband=GeoRegionFactory(name="Bayern", kind="state"),
+            political_position_label="MdL",
+            political_position_checked_at=datetime.date(2026, 6, 24),
         )
-        PoliticalPosition.objects.create(person=person, label="MdL")
         evidence = _make_evidence("p")
         _mention(evidence, "fn1", originator=Actor.objects.create(person=person))
 
+        stand = date_format(datetime.date(2026, 6, 24))
         row = _rows(Evidence.objects.all())[1]
         assert _cell(row, "originator") == "Ada Lovelace"
-        assert _cell(row, "political_position") == "MdL (Stand 24. Juni 2026)"
+        assert _cell(row, "political_position") == f"MdL (As of: {stand})"
         assert _cell(row, "verband") == "Bayern"
 
     def test_an_organization_originator_has_no_political_position(self):
@@ -229,8 +232,9 @@ class TestEvidenceExporter:
                 first_name=f"Ada{i}",
                 last_name="Lovelace",
                 verband=GeoRegionFactory(name="Bayern", kind="state"),
+                political_position_label="MdL",
+                political_position_checked_at=datetime.date(2026, 6, 24),
             )
-            PoliticalPosition.objects.create(person=person, label="MdL")
             _mention(
                 evidence,
                 "fn1",
@@ -242,7 +246,7 @@ class TestEvidenceExporter:
         # queryset and its prefetches.
         assert Evidence.objects.first().redacted_text_block is not None
 
-        with django_assert_num_queries(5):
+        with django_assert_num_queries(4):
             rows = _rows(Evidence.objects.all())
 
         # Header, the three reposting evidence, and the reposted one.

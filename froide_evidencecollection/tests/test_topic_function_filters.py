@@ -76,7 +76,6 @@ class TestPoliticalPositionFilter:
         self.actor = Actor.objects.create(person=self.person)
         self.position = PoliticalPosition.objects.create(
             person=self.person,
-            label="Member",
             role=self.role_a,
             institutional_level=self.level,
         )
@@ -117,7 +116,6 @@ class TestPoliticalPositionFilter:
         other_level = InstitutionalLevelFactory()
         PoliticalPosition.objects.create(
             person=self.person,
-            label="Spokesperson",
             role=self.role_b,
             institutional_level=other_level,
         )
