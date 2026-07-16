@@ -11,7 +11,7 @@ class TestParseRole:
     @pytest.mark.parametrize(
         "label,expected",
         [
-            ("Mitglied des Bundestags", "Mitglied"),
+            ("einfaches Mitglied", "Mitglied"),
             ("Vorsitzender des Kreisverbands Konstanz", "Vorsitzende*r"),
             ("Vorsitzende des Landesverbands Berlin", "Vorsitzende*r"),
             (
@@ -67,6 +67,15 @@ class TestParseRole:
             parse_role("Vorstandsmitglied im Kreisverband Helmstedt")
             == "Vorstandsmitglied"
         )
+
+    def test_only_plain_membership_maps_to_mitglied(self):
+        assert parse_role("einfaches Mitglied") == "Mitglied"
+        assert parse_role("Mitglied im Kreistag") == "Kreisrat*rätin"
+
+    def test_board_membership_maps_to_vorstandsmitglied(self):
+        assert parse_role("Mitglied des Fraktionsvorstands") == "Vorstandsmitglied"
+        assert parse_role("Mitglied im Landesvorstand") == "Vorstandsmitglied"
+        assert parse_role("Ex-Mitglied im Bundesvorstand") == "Vorstandsmitglied"
 
     def test_no_match_returns_empty(self):
         assert parse_role("Schatzmeister des Ortsvereins") == ""
