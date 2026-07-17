@@ -55,12 +55,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--max-seq-length",
             type=int,
-            default=256,
+            default=128,
             help=(
                 "Token window the embedding model reads; text beyond it is "
-                "truncated. The default model ships with 128, but most evidence "
-                "exceeds that — 256 captures the typical document; the "
-                "architectural max is ~512 (default: 256)."
+                "truncated. The default model ships with 128, the architectural "
+                "max is ~512 (default: 128)."
             ),
         )
         parser.add_argument(
