@@ -69,11 +69,22 @@ ROLE_RULES = [
     ),
     (r"landesvorsitzende", "Landesvorsitzende*r"),
     (r"ehrenvorsitzende", "Ehrenvorsitzende*r"),
+    (STV + r"fraktionsvorsitzende", "Stellvertretende*r Fraktionsvorsitzende*r"),
     (r"fraktionsvorsitzende", "Fraktionsvorsitzende*r"),
     (STV + r"vorsitzende", "Stellvertretende*r Vorsitzende*r"),
     (r"vorsitzende", "Vorsitzende*r"),
+    (
+        STV + r"parlamentarische\w*\s+geschäftsführer",
+        "Stellvertretende*r parlamentarische*r Geschäftsführer*in",
+    ),
     (r"parlamentarische\w*\s+geschäftsführer", "Parlamentarische*r Geschäftsführer*in"),
+    (
+        STV + r"innenpolitische\w*\s+sprecher",
+        "Stellvertretende*r innenpolitische*r Sprecher*in",
+    ),
     (r"innenpolitische\w*\s+sprecher", "Innenpolitische*r Sprecher*in"),
+    (STV + r"landessprecher", "Stellvertretende*r Landessprecher*in"),
+    (r"landessprecher", "Landessprecher*in"),
     (STV + r"sprecher", "Stellvertretende*r Sprecher*in"),
     (r"sprecher", "Sprecher*in"),
     (r"kandidat", "Kandidat*in"),
@@ -85,16 +96,21 @@ ROLE_RULES = [
     (r"stadtrat|stadträt", "Stadtrat*rätin"),
     (r"kreisrat|kreisrät|kreistag", "Kreisrat*rätin"),
     (r"gemeinderat|gemeinderät", "Gemeinderat*rätin"),
-    (r"bezirksrat|bezirksrät", "Bezirksrat*rätin"),
+    # Bezirkstag (Bavarian district assembly) members are Bezirksräte.
+    (r"bezirksrat|bezirksrät|bezirkstag", "Bezirksrat*rätin"),
     # Advisory council bodies (Bezirks-/Stadtbezirksbeirat).
     (r"beirat|beirät", "Beirat*rätin"),
     # Parliamentary mandates: the dump's acronyms (MdB/MdL/MdEP/MdA/MdHB/MEP)
     # alongside the spelled-out form.
     (r"\bmd(b|l|a|ep|hb)\b|\bmep\b|abgeordnete", "Abgeordnete*r"),
     (r"präsident", "Präsident*in"),
-    # Board membership, in the compound ("Vorstandsmitglied") and the analytic
-    # form ("Mitglied im/des <body>vorstand": Bundes-, Landes-, Fraktionsvorstand …).
-    (r"vorstandsmitglied|mitglied.*vorstand", "Vorstandsmitglied"),
+    (r"generalsekretär", "Generalsekretär*in"),
+    # Party-court members (Bundesschiedsgericht).
+    (r"bundesschiedsrichter", "Bundesschiedsrichter*in"),
+    # Board membership: the compound ("Vorstandsmitglied"), the analytic form
+    # ("Mitglied im/des <body>vorstand": Bundes-, Landes-, Fraktionsvorstand …),
+    # and 'Beisitzer'. The body's level (Bund/Land/…) is captured by `parse_level`.
+    (r"vorstandsmitglied|mitglied.*vorstand|beisitzer", "Vorstandsmitglied"),
     (r"einfaches mitglied", "Mitglied"),
 ]
 ROLE_RULES = [(re.compile(pattern), name) for pattern, name in ROLE_RULES]

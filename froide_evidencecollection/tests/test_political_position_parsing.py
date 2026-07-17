@@ -44,6 +44,9 @@ class TestParseRole:
             ("Abgeordneter des Landtags Sachsen-Anhalt", "Abgeordnete*r"),
             ("Präsident des Bundesschiedsgerichts", "Präsident*in"),
             ("Stadtrat Erfurt", "Stadtrat*rätin"),
+            ("Generalsekretär Thüringen", "Generalsekretär*in"),
+            ("Bundesschiedsrichter", "Bundesschiedsrichter*in"),
+            ("Mitglied des Bezirkstags Schwaben", "Bezirksrat*rätin"),
             # Dump acronyms for parliamentary mandates.
             ("MdB aus Bayern", "Abgeordnete*r"),
             ("MdL in Thüringen", "Abgeordnete*r"),
@@ -113,6 +116,7 @@ class TestParseRole:
         assert parse_role("Mitglied des Fraktionsvorstands") == "Vorstandsmitglied"
         assert parse_role("Mitglied im Landesvorstand") == "Vorstandsmitglied"
         assert parse_role("Ex-Mitglied im Bundesvorstand") == "Vorstandsmitglied"
+        assert parse_role("Beisitzerin im Landesvorstand") == "Vorstandsmitglied"
 
     def test_no_match_returns_empty(self):
         assert parse_role("Schatzmeister des Ortsvereins") == ""
