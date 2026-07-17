@@ -395,6 +395,10 @@ msgstr "Text im Beleg…"
 msgid "Textual description (alt text) of what the image shows."
 msgstr "Textbeschreibung (Alt-Text) dessen, was das Bild zeigt."
 
+#: froide_evidencecollection/templates/froide_evidencecollection/_topic_cloud_results.html
+msgid "The search is temporarily unavailable, so your search term could not be applied. Please try again in a moment."
+msgstr ""
+
 #: froide_evidencecollection/models.py
 msgid "TikTok"
 msgstr "TikTok"
