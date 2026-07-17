@@ -139,6 +139,10 @@ msgstr "Frühestes Jahr"
 msgid "Edit in admin"
 msgstr "Im Admin bearbeiten"
 
+#: froide_evidencecollection/models.py
+msgid "Evidence"
+msgstr "Beleg"
+
 #: froide_evidencecollection/views.py
 #, python-format
 msgid "Evidence #%s"
@@ -995,9 +999,6 @@ msgstr "🔧 Importe/Exporte"
 
 #~ msgid "Event Date"
 #~ msgstr "Datum der Originaläußerung"
-
-#~ msgid "Evidence "
-#~ msgstr "Beleg "
 
 #, python-format
 #~ msgid "Evidence #%(pk)s: %(title)s"

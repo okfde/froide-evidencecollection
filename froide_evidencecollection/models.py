@@ -992,7 +992,7 @@ class Evidence(TrackableModel):
         Return a human-readable label built from the public slug plus the originators
         and publication date. Empty parts are dropped so it stays clean.
         """
-        parts = [f"{_('Evidence')} {self.slug}"]
+        parts = ["{} {}".format(_("Evidence"), self.slug)]
 
         # `originator_actors` hits the M2M table, which requires a saved pk.
         if self.pk:
