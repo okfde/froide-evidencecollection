@@ -45,6 +45,10 @@ PLATFORM_MAP = {
 }
 
 
+# Subpattern for "stellvertretend*e" and its abbreviation "stv." (with or without
+# the trailing period), followed by the role word.
+STV = r"(?:stellvertretende\w*|stv\.?)\s+"
+
 # Heuristic mapping from a (typo-cleaned) function label to a canonical,
 # gender-neutral role name. Ordered most-specific first; the first pattern that
 # matches the lowercased label wins (so "Vorstandsmitglied" beats "Mitglied",
@@ -52,25 +56,25 @@ PLATFORM_MAP = {
 # role handling — it returns a name string and touches no database. Best-effort:
 # labels that match nothing get no role, to be filled in during cleanup.
 ROLE_RULES = [
-    (r"stellvertretende\w*\s+bundessprecher", "Stellvertretende*r Bundessprecher*in"),
+    (STV + r"bundessprecher", "Stellvertretende*r Bundessprecher*in"),
     (r"bundessprecher", "Bundessprecher*in"),
     (
-        r"stellvertretende\w*\s+bundesvorsitzende",
+        STV + r"bundesvorsitzende",
         "Stellvertretende*r Bundesvorsitzende*r",
     ),
     (r"bundesvorsitzende", "Bundesvorsitzende*r"),
     (
-        r"stellvertretende\w*\s+landesvorsitzende",
+        STV + r"landesvorsitzende",
         "Stellvertretende*r Landesvorsitzende*r",
     ),
     (r"landesvorsitzende", "Landesvorsitzende*r"),
     (r"ehrenvorsitzende", "Ehrenvorsitzende*r"),
     (r"fraktionsvorsitzende", "Fraktionsvorsitzende*r"),
-    (r"stellvertretende\w*\s+vorsitzende", "Stellvertretende*r Vorsitzende*r"),
+    (STV + r"vorsitzende", "Stellvertretende*r Vorsitzende*r"),
     (r"vorsitzende", "Vorsitzende*r"),
     (r"parlamentarische\w*\s+geschäftsführer", "Parlamentarische*r Geschäftsführer*in"),
     (r"innenpolitische\w*\s+sprecher", "Innenpolitische*r Sprecher*in"),
-    (r"stellvertretende\w*\s+sprecher", "Stellvertretende*r Sprecher*in"),
+    (STV + r"sprecher", "Stellvertretende*r Sprecher*in"),
     (r"sprecher", "Sprecher*in"),
     (r"kandidat", "Kandidat*in"),
     (r"bürgermeister", "Bürgermeister*in"),
