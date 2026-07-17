@@ -61,6 +61,38 @@ class TestParseRole:
     def test_canonical_role(self, label, expected):
         assert parse_role(label) == expected
 
+    @pytest.mark.parametrize(
+        "label,expected",
+        [
+            # "stv." (with and without the period) resolves the same as the
+            # spelled-out "stellvertretend*e".
+            (
+                "stv. Landesvorsitzender Bayern",
+                "Stellvertretende*r Landesvorsitzende*r",
+            ),
+            ("stv Landesvorsitzender Bayern", "Stellvertretende*r Landesvorsitzende*r"),
+            (
+                "stellvertretender Landesvorsitzender Bayern",
+                "Stellvertretende*r Landesvorsitzende*r",
+            ),
+        ],
+    )
+    def test_stv_abbreviation(self, label, expected):
+        assert parse_role(label) == expected
+
+    def test_deputy_rule_beats_plain_rule(self):
+        # The deputy variant must win over its plain counterpart, which is ordered
+        # right after it (otherwise "stv. Fraktionsvorsitzender" would parse as a
+        # full "Fraktionsvorsitzende*r").
+        assert (
+            parse_role("stv. Fraktionsvorsitzender")
+            == "Stellvertretende*r Fraktionsvorsitzende*r"
+        )
+        assert (
+            parse_role("stv. Landessprecher Hessen")
+            == "Stellvertretende*r Landessprecher*in"
+        )
+
     def test_more_specific_rule_wins(self):
         # "Vorstandsmitglied" must not be swallowed by the "Mitglied" rule.
         assert (
