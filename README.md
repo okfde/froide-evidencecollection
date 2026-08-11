@@ -1,5 +1,16 @@
 # froide evidencecollection
 
+## Rebuild topic cloud
+
+The `fit_topic_coords` command needs extra ML deps that aren't required to run
+the app. Install them into the main project's venv, then run the command from
+within the main project's dir.
+
+```bash
+uv pip install sentence-transformers umap-learn
+python manage.py fit_topic_coords
+```
+
 ## Rebuild Search Index
 
 To rebuild the search index for the `froide_evidencecollection` app, you can use the following command:

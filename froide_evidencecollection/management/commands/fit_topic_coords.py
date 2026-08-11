@@ -8,8 +8,7 @@ come from a 2D UMAP pass over those embeddings.
 This command set `topic_fit_at` alongside `topic_x` / `topic_y`; the cloud view
 reads the cached numbers.
 
-Requires: sentence-transformers, umap-learn, numpy. Install the bundled extra
-with `uv pip install -e '../froide-evidencecollection[topics]'`.
+Requires additional dependencies: `uv pip install sentence-transformers umap-learn`
 """
 
 import hashlib
