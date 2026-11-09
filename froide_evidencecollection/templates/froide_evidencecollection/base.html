@@ -2,15 +2,14 @@
 {% load cms_tags %}
 {% load djangocms_alias_tags %}
 {% load breadcrumb_helper %}
-{% block navbar %}
+{% block breadcrumbs %}
     {% get_breadcrumbs view as view_breadcrumbs %}
     {% if view_breadcrumbs %}
-        {% include "header.html" %}
         {% include "snippets/breadcrumbs.html" %}
     {% else %}
         {{ block.super }}
     {% endif %}
-{% endblock navbar %}
+{% endblock breadcrumbs %}
 {% block body %}
     <style>
     /* Shared person / organisation glyph avatar (see _actor_avatar.html). */
